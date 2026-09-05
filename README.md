@@ -19,6 +19,12 @@ npm test             # headless physics tests (node --test)
 Open the URL in a desktop browser and press **Start**. (ES modules need `http://`,
 so opening `index.html` straight from disk will not work.)
 
+## Deploy
+
+It is a static site, so Vercel (or Netlify, GitHub Pages) needs no build step:
+import the repo, keep the framework preset on **Other**, leave the build command
+empty, and serve the repository root. `server.js` is only for local use.
+
 ## Controls
 
 | Action | Keys / pointer |
