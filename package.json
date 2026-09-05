@@ -1,0 +1,12 @@
+{
+  "name": "ball-bash",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pong-inspired arena game: bank an energy ball around the room to blindside the boss.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "license": "UNLICENSED"
+}

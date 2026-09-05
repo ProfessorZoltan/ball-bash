@@ -1,0 +1,322 @@
+// Canvas 2D renderer. Neon-on-dark look with a slight 2.5D extrusion on the
+// walls to give the "slightly off-centre top-down" feel.
+import { BALL } from './config.js';
+import { clamp, lerp } from './vec.js';
+
+const WALL_HEIGHT = 9; // px of extrusion under each wall face
+
+export class Renderer {
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d');
+    this.view = { scale: 1, ox: 0, oy: 0, w: 0, h: 0, dpr: 1 };
+    this.level = null;
+    this.floorCache = null;
+  }
+
+  setLevel(level) {
+    this.level = level;
+    this.floorCache = null;
+  }
+
+  resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    this.canvas.width = Math.floor(w * dpr);
+    this.canvas.height = Math.floor(h * dpr);
+    this.canvas.style.width = w + 'px';
+    this.canvas.style.height = h + 'px';
+    const lw = this.level ? this.level.width : 1600;
+    const lh = this.level ? this.level.height : 900;
+    const scale = Math.min(w / lw, h / lh);
+    this.view = { scale, ox: (w - lw * scale) / 2, oy: (h - lh * scale) / 2, w, h, dpr };
+    this.floorCache = null;
+  }
+
+  screenToWorld(sx, sy) {
+    const v = this.view;
+    return { x: (sx - v.ox) / v.scale, y: (sy - v.oy) / v.scale };
+  }
+
+  draw(game, state, time) {
+    const ctx = this.ctx;
+    const v = this.view;
+    const level = this.level;
+    ctx.setTransform(v.dpr, 0, 0, v.dpr, 0, 0);
+    ctx.fillStyle = '#03050c';
+    ctx.fillRect(0, 0, v.w, v.h);
+    if (!level || !game) return;
+
+    let shx = 0;
+    let shy = 0;
+    if (game.fx.shake > 0) {
+      shx = (Math.random() - 0.5) * game.fx.shake;
+      shy = (Math.random() - 0.5) * game.fx.shake;
+    }
+    ctx.setTransform(v.dpr * v.scale, 0, 0, v.dpr * v.scale, (v.ox + shx) * v.dpr, (v.oy + shy) * v.dpr);
+
+    this.drawFloor(level);
+    this.drawObstacles(level);
+    this.drawBoundary(level);
+    this.drawPredictedPath(game);
+    this.drawRings(game.fx);
+    this.drawFighter(game.boss, time, level.palette.obstacle);
+    this.drawFighter(game.player, time, level.palette.wall);
+    this.drawBall(game.ball, state);
+    this.drawParticles(game.fx);
+
+    if (game.fx.flash > 0) {
+      ctx.fillStyle = `rgba(255,255,255,${clamp(game.fx.flash, 0, 1) * 0.6})`;
+      ctx.fillRect(-50, -50, level.width + 100, level.height + 100);
+    }
+  }
+
+  drawFloor(level) {
+    const ctx = this.ctx;
+    const p = level.palette;
+    ctx.save();
+    ctx.beginPath();
+    polyPath(ctx, level.boundary);
+    ctx.clip();
+    const g = ctx.createRadialGradient(level.width / 2, level.height / 2, 80, level.width / 2, level.height / 2, level.width * 0.7);
+    g.addColorStop(0, '#0c1428');
+    g.addColorStop(1, p.floor);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, level.width, level.height);
+    ctx.strokeStyle = p.grid;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let x = 0; x <= level.width; x += 50) {
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, level.height);
+    }
+    for (let y = 0; y <= level.height; y += 50) {
+      ctx.moveTo(0, y);
+      ctx.lineTo(level.width, y);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  drawBoundary(level) {
+    const ctx = this.ctx;
+    const p = level.palette;
+    // Thick dark rim outside the play area, then the neon edge.
+    ctx.save();
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    polyPath(ctx, level.boundary);
+    ctx.lineWidth = 26;
+    ctx.strokeStyle = p.wallDark;
+    ctx.stroke();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = p.wall;
+    ctx.shadowColor = p.wall;
+    ctx.shadowBlur = 18;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  drawObstacles(level) {
+    const ctx = this.ctx;
+    const p = level.palette;
+    ctx.save();
+    ctx.lineJoin = 'round';
+    for (const poly of level.obstacles) {
+      // Side faces (extrusion) first.
+      ctx.fillStyle = p.obstacleDark;
+      for (let i = 0; i < poly.length; i++) {
+        const a = poly[i];
+        const b = poly[(i + 1) % poly.length];
+        ctx.beginPath();
+        ctx.moveTo(a[0], a[1]);
+        ctx.lineTo(b[0], b[1]);
+        ctx.lineTo(b[0], b[1] + WALL_HEIGHT);
+        ctx.lineTo(a[0], a[1] + WALL_HEIGHT);
+        ctx.closePath();
+        ctx.fill();
+      }
+      // Top face.
+      ctx.beginPath();
+      polyPath(ctx, poly);
+      ctx.fillStyle = '#1a1206';
+      ctx.fill();
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = p.obstacle;
+      ctx.shadowColor = p.obstacle;
+      ctx.shadowBlur = 14;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+    ctx.restore();
+  }
+
+  drawPredictedPath(game) {
+    // Faint guide line showing where the ball is heading (first leg only).
+    const ctx = this.ctx;
+    const path = game.guidePath;
+    if (!path || path.length === 0) return;
+    ctx.save();
+    ctx.setLineDash([6, 10]);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = 'rgba(120, 220, 255, 0.18)';
+    ctx.beginPath();
+    ctx.moveTo(path[0].ax, path[0].ay);
+    for (const seg of path) ctx.lineTo(seg.bx, seg.by);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  drawFighter(f, time, color) {
+    const ctx = this.ctx;
+    const seg = f.paddleSegment();
+    const flash = f.hitFlash > 0;
+    const blink = f.invuln > 0 && Math.floor(time * 12) % 2 === 0;
+    ctx.save();
+    ctx.globalAlpha = blink ? 0.45 : 1;
+
+    // Body shadow (extrusion) and body.
+    ctx.beginPath();
+    ctx.arc(f.x, f.y + 6, f.r, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fill();
+    const g = ctx.createRadialGradient(f.x - f.r * 0.3, f.y - f.r * 0.3, 2, f.x, f.y, f.r);
+    g.addColorStop(0, flash ? '#ffffff' : '#ffffffcc');
+    g.addColorStop(0.35, flash ? '#ffffff' : color);
+    g.addColorStop(1, flash ? color : '#101828');
+    ctx.beginPath();
+    ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2);
+    ctx.fillStyle = g;
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = color;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 14;
+    ctx.stroke();
+
+    // Facing notch.
+    const fx = Math.cos(f.angle);
+    const fy = Math.sin(f.angle);
+    ctx.beginPath();
+    ctx.moveTo(f.x + fx * (f.r - 4), f.y + fy * (f.r - 4));
+    ctx.lineTo(f.x + fx * (f.r + 6), f.y + fy * (f.r + 6));
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#ffffff';
+    ctx.shadowBlur = 0;
+    ctx.stroke();
+
+    // Paddle shield.
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(seg.ax, seg.ay);
+    ctx.lineTo(seg.bx, seg.by);
+    ctx.lineWidth = f.paddleThick * 2 + 2;
+    ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(seg.ax, seg.ay);
+    ctx.lineTo(seg.bx, seg.by);
+    ctx.lineWidth = f.paddleThick * 2;
+    ctx.strokeStyle = color;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = f.lungeState === 'out' ? 30 : 16;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(seg.ax, seg.ay);
+    ctx.lineTo(seg.bx, seg.by);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#ffffff';
+    ctx.shadowBlur = 0;
+    ctx.stroke();
+
+    // Name label.
+    ctx.font = '600 13px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.fillText(f.name.toUpperCase(), f.x, f.y + f.r + 22);
+    ctx.restore();
+  }
+
+  drawBall(ball, state) {
+    const ctx = this.ctx;
+    const t = clamp((ball.speed - BALL.minSpeed) / (BALL.maxSpeed - BALL.minSpeed), 0, 1);
+    const hue = lerp(190, 320, t);
+    const color = `hsl(${hue}, 100%, ${lerp(65, 75, t)}%)`;
+
+    // Trail.
+    const tr = ball.trail;
+    if (tr.length > 1) {
+      ctx.save();
+      ctx.lineCap = 'round';
+      for (let i = 1; i < tr.length; i++) {
+        const k = i / tr.length;
+        ctx.beginPath();
+        ctx.moveTo(tr[i - 1].x, tr[i - 1].y);
+        ctx.lineTo(tr[i].x, tr[i].y);
+        ctx.lineWidth = ball.r * 1.6 * k;
+        ctx.strokeStyle = `hsla(${hue}, 100%, 70%, ${0.35 * k})`;
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    ctx.save();
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 18 + 30 * t;
+    const g = ctx.createRadialGradient(ball.x, ball.y, 1, ball.x, ball.y, ball.r);
+    g.addColorStop(0, '#ffffff');
+    g.addColorStop(0.5, color);
+    g.addColorStop(1, `hsla(${hue}, 100%, 60%, 0.6)`);
+    ctx.beginPath();
+    ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
+    ctx.fillStyle = g;
+    ctx.fill();
+    ctx.restore();
+    if (ball.held && state === 'countdown') {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 6]);
+      ctx.beginPath();
+      ctx.arc(ball.x, ball.y, ball.r + 10, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  drawParticles(fx) {
+    const ctx = this.ctx;
+    ctx.save();
+    for (const p of fx.particles) {
+      const a = clamp(p.life / p.maxLife, 0, 1);
+      ctx.globalAlpha = a;
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  drawRings(fx) {
+    const ctx = this.ctx;
+    ctx.save();
+    for (const r of fx.rings) {
+      const k = 1 - r.life / r.maxLife;
+      ctx.globalAlpha = 1 - k;
+      ctx.strokeStyle = r.color;
+      ctx.lineWidth = 3 * (1 - k) + 1;
+      ctx.beginPath();
+      ctx.arc(r.x, r.y, r.maxR * k, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+function polyPath(ctx, poly) {
+  ctx.moveTo(poly[0][0], poly[0][1]);
+  for (let i = 1; i < poly.length; i++) ctx.lineTo(poly[i][0], poly[i][1]);
+  ctx.closePath();
+}

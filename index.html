@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Ball Bash</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%2303050c'/%3E%3Ccircle cx='32' cy='32' r='12' fill='%237fe9ff'/%3E%3Crect x='8' y='20' width='6' height='24' rx='3' fill='%23ffb347'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Inter:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div id="hud" hidden>
+    <div class="hud-left">
+      <div id="hud-level" class="hud-big"></div>
+      <div class="hud-row"><span class="label">BOSS</span><span id="hud-boss"></span></div>
+    </div>
+    <div class="hud-center">
+      <div id="hud-time" class="hud-big">0:00.0</div>
+      <div class="hud-row"><span class="label">SHIELD</span><span id="hud-lives" class="lives"></span></div>
+    </div>
+    <div class="hud-right">
+      <div class="hud-row"><span class="label">BALL</span><span id="hud-speed"></span></div>
+      <div class="bar"><div id="hud-speed-bar"></div></div>
+      <div class="hud-row small"><span id="hud-bpm"></span><span id="hud-track" class="muted"></span></div>
+      <div id="hud-mute" class="small muted">SOUND ON [M]</div>
+    </div>
+  </div>
+
+  <div id="countdown" hidden></div>
+
+  <div id="touch">
+    <button id="tb-left" class="tb">⟲</button>
+    <button id="tb-right" class="tb">⟳</button>
+    <button id="tb-retract" class="tb">PULL</button>
+    <button id="tb-whack" class="tb big">WHACK</button>
+  </div>
+
+  <div id="overlay" hidden></div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
