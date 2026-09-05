@@ -93,13 +93,15 @@ shows the live BPM.
 
 Level 1, "Antechamber (Warden Theme)", is in D minor at 124 BPM, cycling
 Dm - Bb - F - C through intro, build, drop, break and a second drop, then loops.
+Level 2, "Prism Vault (Refractor Theme)", is in E minor at 132 BPM over
+Em - C - Am - B, with a pulsing root/octave arpeggio and a pushed kick pattern.
 
 ## Levels
 
 | # | Title | Boss | Status |
 | --- | --- | --- | --- |
 | 1 | The Antechamber | The Warden | playable |
-| 2 | Prism Vault | The Refractor | planned |
+| 2 | Prism Vault | The Refractor | playable |
 | 3 | Coolant Tunnels | The Sump | planned |
 | 4 | The Hollow Reactor | Core Sentinel | planned |
 | 5 | Switchyard | The Shunter | planned |
@@ -109,9 +111,16 @@ Dm - Bb - F - C through intro, build, drop, break and a second drop, then loops.
 | 9 | Nullspace | The Absence | planned |
 | 10 | The Last Arcade | The Architect | planned |
 
+Level 2 introduces a moving obstacle: a prism bar spinning at the centre of the
+vault. It is a moving surface like a paddle, so its tips add or remove ball
+speed depending on which way they are travelling when the ball lands. Neither
+the guide line nor the boss's path prediction accounts for it, so shots through
+the centre are gambles and bank shots around the sides are the reliable play.
+
 Adding a level means adding an entry to `LEVELS` in `src/levels.js` (boundary
-polygon, obstacle polygons via `rect(cx, cy, w, h, angleDeg)`, spawns, boss
-parameters) and a track to `src/audio/tracks.js`.
+polygon, obstacle polygons via `rect(cx, cy, w, h, angleDeg)`, optional
+`movers`, spawns, boss parameters) and a track to `src/audio/tracks.js`. The
+title screen lists every built level and lets you pick one.
 
 ## Title ideas
 

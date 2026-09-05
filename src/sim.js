@@ -11,8 +11,11 @@ import { circleVsCapsule, circleVsCircle, reflect } from './physics.js';
  *   onPaddle(fighter, hit, speedBefore) paddle bounce (surface velocity applied)
  *   onBody(fighter, hit) -> boolean   body contact; return true to stop processing
  *                                     (e.g. boss defeated). Return false to bounce.
+ *   onMover(mover, hit, speedBefore)  moving obstacle bounce
+ *
+ * `movers` are moving obstacles exposing segments(), thick and surfaceVelocityAt().
  */
-export function advanceBall(ball, walls, fighters, dt, factor = 1, hooks = {}) {
+export function advanceBall(ball, walls, fighters, dt, factor = 1, hooks = {}, movers = []) {
   ball.x += ball.vx * dt;
   ball.y += ball.vy * dt;
 
@@ -26,6 +29,19 @@ export function advanceBall(ball, walls, fighters, dt, factor = 1, hooks = {}) {
       ball.y += h.ny * h.depth;
       if (reflect(ball, h.nx, h.ny, 0, 0) && hooks.onWall) hooks.onWall(h, s);
       any = true;
+    }
+
+    for (const m of movers) {
+      for (const seg of m.segments()) {
+        const h = circleVsCapsule(ball.x, ball.y, ball.r, seg.ax, seg.ay, seg.bx, seg.by, m.thick, ball.vx, ball.vy);
+        if (!h) continue;
+        ball.x += h.nx * h.depth;
+        ball.y += h.ny * h.depth;
+        const sv = m.surfaceVelocityAt(h.cx, h.cy);
+        const before = ball.speed;
+        if (reflect(ball, h.nx, h.ny, sv.x, sv.y, 1, factor) && hooks.onMover) hooks.onMover(m, h, before);
+        any = true;
+      }
     }
 
     for (const f of fighters) {

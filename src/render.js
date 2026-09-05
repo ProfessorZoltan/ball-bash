@@ -88,6 +88,7 @@ export class Renderer {
     ctx.setTransform(v.dpr * v.scale, 0, 0, v.dpr * v.scale, (v.ox + shx) * v.dpr, (v.oy + shy) * v.dpr);
 
     this.drawPredictedPath(game);
+    for (const m of game.movers || []) this.drawMover(m, level.palette.obstacle);
     this.drawRings(game.fx);
     this.drawFighter(game.boss, time, level.palette.obstacle);
     this.drawFighter(game.player, time, level.palette.wall);
@@ -177,6 +178,50 @@ export class Renderer {
       ctx.stroke();
       ctx.shadowBlur = 0;
     }
+    ctx.restore();
+  }
+
+  drawMover(m, color) {
+    const ctx = this.ctx;
+    const [seg] = m.segments();
+    ctx.save();
+    ctx.lineCap = 'round';
+    // Extruded shadow, then the glowing bar, then a bright core and the pivot.
+    ctx.beginPath();
+    ctx.moveTo(seg.ax, seg.ay + WALL_HEIGHT);
+    ctx.lineTo(seg.bx, seg.by + WALL_HEIGHT);
+    ctx.lineWidth = m.thick * 2 + 2;
+    ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(seg.ax, seg.ay);
+    ctx.lineTo(seg.bx, seg.by);
+    ctx.lineWidth = m.thick * 2;
+    ctx.strokeStyle = color;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 16;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.beginPath();
+    ctx.moveTo(seg.ax, seg.ay);
+    ctx.lineTo(seg.bx, seg.by);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#ffffff';
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(m.x, m.y, m.thick + 4, 0, Math.PI * 2);
+    ctx.fillStyle = '#0a0a14';
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = color;
+    ctx.stroke();
+    // Spin direction hint.
+    ctx.beginPath();
+    const dir = Math.sign(m.omega) || 1;
+    ctx.arc(m.x, m.y, m.thick + 12, m.angle + 0.3 * dir, m.angle + 1.6 * dir, dir < 0);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.stroke();
     ctx.restore();
   }
 

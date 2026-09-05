@@ -116,12 +116,12 @@ export function pointInPolygon(px, py, points) {
  * Push a circle ({x, y, r}) out of any segments it overlaps. Used for the
  * characters so they cannot walk through walls. Returns true if it moved.
  */
-export function resolveCircleVsSegments(c, segs, iterations = 3) {
+export function resolveCircleVsSegments(c, segs, iterations = 3, thick = 0) {
   let moved = false;
   for (let it = 0; it < iterations; it++) {
     let any = false;
     for (const s of segs) {
-      const hit = circleVsCapsule(c.x, c.y, c.r, s.ax, s.ay, s.bx, s.by, 0);
+      const hit = circleVsCapsule(c.x, c.y, c.r, s.ax, s.ay, s.bx, s.by, s.thick ?? thick);
       if (hit) {
         c.x += hit.nx * hit.depth;
         c.y += hit.ny * hit.depth;

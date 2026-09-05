@@ -79,7 +79,7 @@ function findThreat(boss, seen, walls, ballR) {
  * (tx, ty) is where the boss will stand; `incoming` is the direction (angle)
  * from that point toward where the ball comes from.
  */
-function chooseReturnAngle(boss, tx, ty, incoming, player, walls, eta, ballR) {
+function chooseReturnAngle(boss, tx, ty, incoming, player, walls, eta, ballR, movers = []) {
   const inx = Math.cos(incoming);
   const iny = Math.sin(incoming);
   // Contact happens at the paddle, out in front of the body.
@@ -121,6 +121,17 @@ function chooseReturnAngle(boss, tx, ty, incoming, player, walls, eta, ballR) {
     const len1 = Math.hypot(first.bx - first.ax, first.by - first.ay);
     score += Math.min(len1, 700) * 0.12;
 
+    // Moving obstacles scramble the ball unpredictably: steer clear of them.
+    for (const m of movers) {
+      for (const s of path) {
+        const c = closestPointOnSegment(m.x, m.y, s.ax, s.ay, s.bx, s.by);
+        if (Math.hypot(c.x - m.x, c.y - m.y) < m.halfLen + ballR + 20) {
+          score -= 320;
+          break;
+        }
+      }
+    }
+
     // Target: how close the path passes to the player (any leg).
     let dp = Infinity;
     let dpFirst = Infinity;
@@ -143,7 +154,25 @@ function chooseReturnAngle(boss, tx, ty, incoming, player, walls, eta, ballR) {
   return best ? best.nAngle : incoming;
 }
 
-function plan(boss, seen, player, walls, now, ballR) {
+/**
+ * Moving obstacles as segments, frozen at the angle they will have when the
+ * ball (currently at x, y moving at `speed`) reaches them, `delay` seconds
+ * from now. Good enough for a slow spinner and a fast ball.
+ */
+function moverSegmentsAt(movers, x, y, speed, delay) {
+  const segs = [];
+  for (const m of movers) {
+    const dist = Math.max(0, Math.hypot(m.x - x, m.y - y) - m.halfLen);
+    const t = delay + (speed > 1 ? dist / speed : 0);
+    const a = m.angle + m.omega * t;
+    const c = Math.cos(a) * m.halfLen;
+    const sn = Math.sin(a) * m.halfLen;
+    segs.push({ ax: m.x - c, ay: m.y - sn, bx: m.x + c, by: m.y + sn, kind: 'mover' });
+  }
+  return segs;
+}
+
+function plan(boss, seen, player, walls, now, ballR, movers) {
   const ai = boss.ai;
   const speed = Math.sqrt(seen.vx * seen.vx + seen.vy * seen.vy);
   let faceAngle = Math.atan2(seen.y - boss.y, seen.x - boss.x);
@@ -154,7 +183,10 @@ function plan(boss, seen, player, walls, now, ballR) {
   ai.arrival = -1;
 
   if (speed > 1) {
-    const threat = findThreat(boss, seen, walls, ballR);
+    // The snapshot is `reaction` old, so the ball reaches things that much sooner.
+    const seenAge = now - (seen.t ?? now);
+    const segsIn = movers.length ? walls.concat(moverSegmentsAt(movers, seen.x, seen.y, speed, -seenAge)) : walls;
+    const threat = findThreat(boss, seen, segsIn, ballR);
     if (threat && threat.dd < boss.threatRadius) {
       // Stand on the predicted path so the paddle is centred on it.
       tx = threat.x;
@@ -164,7 +196,8 @@ function plan(boss, seen, player, walls, now, ballR) {
       const seenAt = seen.t ?? now;
       const eta = Math.max(0, seenAt + threat.along / speed - now);
       ai.arrival = now + eta;
-      faceAngle = chooseReturnAngle(boss, tx, ty, incoming, player, walls, eta, ballR);
+      const segsOut = movers.length ? walls.concat(moverSegmentsAt(movers, tx, ty, speed, eta)) : walls;
+      faceAngle = chooseReturnAngle(boss, tx, ty, incoming, player, segsOut, eta, ballR, movers);
       // Decide how to receive it: whack (add speed), absorb (pull the shield
       // back to bleed speed off a hot ball), or just block.
       if (eta < 0.28 && Math.random() < boss.aggression) ai.lunge = true;
@@ -183,18 +216,31 @@ function plan(boss, seen, player, walls, now, ballR) {
   ai.tx = tx;
   ai.ty = ty;
   ai.targetAngle = faceAngle;
+  // Remember the ball direction this plan assumed, so a bounce can trigger a
+  // fresh plan as soon as it is perceived instead of at the next timer tick.
+  ai.planVx = speed > 1 ? seen.vx / speed : 0;
+  ai.planVy = speed > 1 ? seen.vy / speed : 0;
 }
 
 /**
  * Produce a movement intent for the boss this physics step.
  */
-export function bossIntent(boss, history, player, walls, dt, now) {
+export function bossIntent(boss, history, player, walls, dt, now, movers = []) {
   const ai = boss.ai;
   ai.timer -= dt;
-  if (ai.timer <= 0) {
+  const seen = history.sample(now - boss.reaction) || history.latest();
+  let replan = ai.timer <= 0;
+  if (!replan && seen && ai.planVx !== undefined) {
+    // Perceived direction changed (a bounce): react now rather than later.
+    const sp = Math.hypot(seen.vx, seen.vy);
+    if (sp > 1) {
+      const dot = (seen.vx / sp) * ai.planVx + (seen.vy / sp) * ai.planVy;
+      if (dot < 0.9) replan = true;
+    }
+  }
+  if (replan) {
     ai.timer = boss.reaction;
-    const seen = history.sample(now - boss.reaction) || history.latest();
-    if (seen) plan(boss, seen, player, walls, now, history.ballRadius);
+    if (seen) plan(boss, seen, player, walls, now, history.ballRadius, movers);
   }
 
   let mx = ai.tx - boss.x;

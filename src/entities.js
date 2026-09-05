@@ -216,4 +216,36 @@ export class Boss extends Fighter {
   }
 }
 
+/**
+ * A rotating bar obstacle. It is a moving surface, so its tips add or remove
+ * ball speed exactly like a swinging paddle.
+ */
+export class Spinner {
+  constructor({ x, y, length, thick = 8, omega = 0.6, angle = 0 }) {
+    this.x = x;
+    this.y = y;
+    this.halfLen = length / 2;
+    this.thick = thick;
+    this.omega = omega;
+    this.angle = angle;
+    this.kind = 'spinner';
+  }
+
+  update(dt) {
+    this.angle = wrapAngle(this.angle + this.omega * dt);
+  }
+
+  segments() {
+    const c = Math.cos(this.angle) * this.halfLen;
+    const s = Math.sin(this.angle) * this.halfLen;
+    return [{ ax: this.x - c, ay: this.y - s, bx: this.x + c, by: this.y + s }];
+  }
+
+  surfaceVelocityAt(px, py) {
+    const rx = px - this.x;
+    const ry = py - this.y;
+    return { x: -this.omega * ry, y: this.omega * rx };
+  }
+}
+
 export { TAU };

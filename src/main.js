@@ -1,7 +1,7 @@
 // Game bootstrap: state machine, fixed-step physics loop, collision dispatch,
 // HUD/overlay wiring. Everything heavy lives in the modules it imports.
 import { GAME_TITLE, GAME_TAGLINE, PHYSICS_DT, BALL, PLAYER, SURFACE_VELOCITY_FACTOR, COUNTDOWN_SECONDS } from './config.js';
-import { Ball, Fighter, Boss } from './entities.js';
+import { Ball, Fighter, Boss, Spinner } from './entities.js';
 import { BallHistory, bossIntent } from './ai.js';
 import { LEVELS, ROSTER } from './levels.js';
 import { Input } from './input.js';
@@ -55,6 +55,7 @@ function buildGame(def) {
     color: def.palette.wall,
   });
   const boss = new Boss({ ...def.boss, name: def.bossName, color: def.palette.obstacle });
+  const movers = (def.movers || []).map((m) => new Spinner(m));
   const ball = new Ball(BALL.radius);
   ball.x = def.ball.x;
   ball.y = def.ball.y;
@@ -64,6 +65,7 @@ function buildGame(def) {
     walls,
     player,
     boss,
+    movers,
     ball,
     fx: new Effects(),
     history: new BallHistory(),
@@ -120,19 +122,23 @@ function step(dt) {
   const g = game;
   simTime += dt;
 
+  for (const m of g.movers) m.update(dt);
+
   // Player.
   const pi = input.intent(g.player);
   const wasIdle = g.player.lungeState === 'idle';
   g.player.update(dt, pi);
   if (wasIdle && g.player.lungeState === 'out') audio.sfxWhack();
   resolveCircleVsSegments(g.player, g.walls);
+  pushOutOfMovers(g.player);
 
   // Boss.
-  const bi = state === 'playing' ? bossIntent(g.boss, g.history, g.player, g.walls, dt, simTime) : { mx: 0, my: 0, turn: 0 };
+  const bi = state === 'playing' ? bossIntent(g.boss, g.history, g.player, g.walls, dt, simTime, g.movers) : { mx: 0, my: 0, turn: 0 };
   const bossWasIdle = g.boss.lungeState === 'idle';
   g.boss.update(dt, bi);
   if (bossWasIdle && g.boss.lungeState === 'out') audio.sfxWhack();
   resolveCircleVsSegments(g.boss, g.walls);
+  pushOutOfMovers(g.boss);
 
   separateCircles(g.player, g.boss);
   g.player.finalizeStep(dt);
@@ -141,6 +147,13 @@ function step(dt) {
   if (!g.ball.held) {
     moveBall(dt);
     if (state === 'playing') g.history.push(simTime, g.ball);
+  }
+}
+
+function pushOutOfMovers(f) {
+  for (const m of game.movers) {
+    const segs = m.segments().map((sg) => ({ ...sg, thick: m.thick }));
+    resolveCircleVsSegments(f, segs);
   }
 }
 
@@ -156,18 +169,27 @@ function separateCircles(a, b) {
 function moveBall(dt) {
   const g = game;
   const b = g.ball;
-  const stopped = advanceBall(b, g.walls, [g.player, g.boss], dt, SURFACE_VELOCITY_FACTOR, {
-    onWall: onWallBounce,
-    onPaddle: onPaddleHit,
-    onBody: (f, h) => {
-      if (f.kind === 'boss') {
-        onBossHit(h);
-        return true;
-      }
-      onPlayerHit(h);
-      return false;
+  const stopped = advanceBall(
+    b,
+    g.walls,
+    [g.player, g.boss],
+    dt,
+    SURFACE_VELOCITY_FACTOR,
+    {
+      onWall: onWallBounce,
+      onPaddle: onPaddleHit,
+      onMover: onMoverHit,
+      onBody: (f, h) => {
+        if (f.kind === 'boss') {
+          onBossHit(h);
+          return true;
+        }
+        onPlayerHit(h);
+        return false;
+      },
     },
-  });
+    g.movers,
+  );
   if (stopped) return;
 
   b.clampSpeed(BALL.minSpeed, BALL.maxSpeed);
@@ -189,6 +211,18 @@ function onWallBounce(h, seg) {
   const color = seg.kind === 'obstacle' ? g.def.palette.obstacle : g.def.palette.wall;
   g.fx.burst(h.cx, h.cy, h.nx, h.ny, 4 + Math.floor(n * 8), color, 160 + 300 * n, 1.1, 0.35);
   g.ball.lastHitBy = 'wall';
+  guideFrame = 0;
+}
+
+function onMoverHit(m, h, before) {
+  const g = game;
+  const after = g.ball.speed;
+  const delta = after - before;
+  const strength = clamp(Math.abs(delta) / 400, 0, 1);
+  audio.sfxPaddle(strength * 0.7, true);
+  g.fx.burst(h.cx, h.cy, h.nx, h.ny, 6 + Math.floor(strength * 12), g.def.palette.obstacle, 180 + 360 * strength, 1, 0.4);
+  if (Math.abs(delta) > 120) g.fx.ring(h.cx, h.cy, g.def.palette.obstacle, 50 + 100 * strength, 0.35);
+  g.ball.lastHitBy = 'mover';
   guideFrame = 0;
 }
 
@@ -309,7 +343,10 @@ function handleGlobalKeys() {
   if (input.consumePress('r') && game && state !== 'title') startLevel(levelIndex);
   if (input.consumePress('Enter')) {
     if (state === 'title') begin();
-    else if (state === 'cleared' || state === 'failed') startLevel(levelIndex);
+    else if (state === 'cleared') {
+      const nextIdx = LEVELS.findIndex((l) => l.id === game.def.id + 1);
+      startLevel(nextIdx >= 0 ? nextIdx : levelIndex);
+    } else if (state === 'failed') startLevel(levelIndex);
     else if (state === 'paused') resume();
   }
 }
@@ -376,9 +413,11 @@ function showTitle() {
   $('hud').hidden = true;
   $('countdown').hidden = true;
   const def = LEVELS[levelIndex];
-  const roster = ROSTER.map(
-    (r) => `<li class="${r.id === def.id ? 'now' : 'locked'}"><span>${String(r.id).padStart(2, '0')}</span> ${r.title}</li>`,
-  ).join('');
+  const roster = ROSTER.map((r) => {
+    const idx = LEVELS.findIndex((l) => l.id === r.id);
+    const cls = r.id === def.id ? 'now' : idx >= 0 ? 'ready' : 'locked';
+    return `<li class="${cls}" ${idx >= 0 ? `data-level="${idx}"` : ''}><span>${String(r.id).padStart(2, '0')}</span> ${r.title}</li>`;
+  }).join('');
   showOverlay(`
     <h1 class="title">${GAME_TITLE}</h1>
     <p class="tagline">${GAME_TAGLINE}</p>
@@ -409,6 +448,14 @@ function showTitle() {
     <div class="row"><button id="btn-start" class="primary">Start · Sound on</button></div>
   `);
   $('btn-start').onclick = begin;
+  for (const li of document.querySelectorAll('.roster li[data-level]')) {
+    li.onclick = () => {
+      levelIndex = Number(li.dataset.level);
+      renderer.setLevel(LEVELS[levelIndex]);
+      renderer.resize();
+      showTitle();
+    };
+  }
 }
 
 async function begin() {
@@ -419,6 +466,7 @@ async function begin() {
 function showCleared() {
   const def = game.def;
   const next = ROSTER.find((r) => r.id === def.id + 1);
+  const nextIdx = LEVELS.findIndex((l) => l.id === def.id + 1);
   showOverlay(`
     <div class="eyebrow">LEVEL ${def.id} CLEARED</div>
     <h1>${def.title}</h1>
@@ -430,10 +478,11 @@ function showCleared() {
     </table>
     <div class="row">
       <button id="btn-replay" class="primary">Play again</button>
-      <button id="btn-next" disabled>${next ? `Level ${next.id} · ${next.title} — coming soon` : 'More levels coming soon'}</button>
+      <button id="btn-next" ${nextIdx >= 0 ? 'class="primary"' : 'disabled'}>${next ? `Level ${next.id} · ${next.title}${nextIdx >= 0 ? '' : ' — coming soon'}` : 'More levels coming soon'}</button>
     </div>
   `);
   $('btn-replay').onclick = () => startLevel(levelIndex);
+  if (nextIdx >= 0) $('btn-next').onclick = () => startLevel(nextIdx);
 }
 
 function showFailed() {

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reflect, circleVsCapsule, polygonEdges, pointInPolygon, predictPath, raycastSegments } from '../src/physics.js';
-import { Ball, Fighter } from '../src/entities.js';
+import { Ball, Fighter, Spinner } from '../src/entities.js';
 import { advanceBall } from '../src/sim.js';
 import { LEVELS } from '../src/levels.js';
 import { BALL } from '../src/config.js';
@@ -79,37 +79,47 @@ test('raycast and path prediction reflect off walls', () => {
   assert.ok(path[1].dx < 0, 'second leg travels back the other way');
 });
 
-test('level 1 arena is sealed: the ball never leaves the room or enters an obstacle', () => {
-  const def = LEVELS[0];
-  const walls = polygonEdges(def.boundary);
-  for (const poly of def.obstacles) walls.push(...polygonEdges(poly));
-  const player = new Fighter({ x: def.player.x, y: def.player.y, r: 22, paddleWidth: 116, paddleBase: 36 });
-  const boss = new Fighter({ ...def.boss, kind: 'boss' });
-  const ball = new Ball(BALL.radius);
-  const dt = 1 / 240;
-  let seed = 1234;
-  const rnd = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
+test('spinner tips are moving surfaces: velocity is omega x r', () => {
+  const sp = new Spinner({ x: 100, y: 100, length: 200, omega: 2, angle: 0 });
+  const [seg] = sp.segments();
+  assert.ok(Math.abs(seg.bx - 200) < 1e-9 && Math.abs(seg.by - 100) < 1e-9);
+  const v = sp.surfaceVelocityAt(seg.bx, seg.by);
+  assert.ok(Math.abs(v.x) < 1e-9 && Math.abs(v.y - 200) < 1e-9, `tip velocity ${v.x},${v.y}`);
+  sp.update(Math.PI / 4);
+  assert.ok(Math.abs(sp.angle - Math.PI / 2) < 1e-9);
+});
 
-  let bounces = 0;
-  for (let run = 0; run < 6; run++) {
-    // Launch at a random angle at the maximum permitted speed: the worst case for tunnelling.
-    ball.launch(def.ball.x, def.ball.y, rnd() * Math.PI * 2, BALL.maxSpeed);
-    for (let i = 0; i < 240 * 20; i++) {
-      // Wiggle the player randomly (moving + spinning paddle) so the ball meets a moving surface often.
-      player.update(dt, { mx: rnd() * 2 - 1, my: rnd() * 2 - 1, turn: rnd() * 2 - 1, lunge: rnd() < 0.02 });
-      player.finalizeStep(dt);
-      boss.update(dt, { mx: 0, my: 0, turn: 1 });
-      boss.finalizeStep(dt);
-      advanceBall(ball, walls, [player, boss], dt, 1, {
-        onWall: () => bounces++,
-        onBody: () => false,
-      });
-      ball.clampSpeed(BALL.minSpeed, BALL.maxSpeed);
-      assert.ok(pointInPolygon(ball.x, ball.y, def.boundary), `ball escaped the room at step ${i}: ${ball.x},${ball.y}`);
-      for (const poly of def.obstacles) {
-        assert.ok(!pointInPolygon(ball.x, ball.y, poly), `ball inside an obstacle at step ${i}`);
+for (const def of LEVELS) {
+  test(`level ${def.id} arena is sealed: the ball never leaves the room or enters an obstacle`, () => {
+    const walls = polygonEdges(def.boundary);
+    for (const poly of def.obstacles) walls.push(...polygonEdges(poly));
+    const movers = (def.movers || []).map((m) => new Spinner(m));
+    const player = new Fighter({ x: def.player.x, y: def.player.y, r: 22, paddleWidth: 116, paddleBase: 36 });
+    const boss = new Fighter({ ...def.boss, kind: 'boss' });
+    const ball = new Ball(BALL.radius);
+    const dt = 1 / 240;
+    let seed = 1234 + def.id;
+    const rnd = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
+
+    let bounces = 0;
+    for (let run = 0; run < 6; run++) {
+      // Launch at a random angle at the maximum permitted speed: the worst case for tunnelling.
+      ball.launch(def.ball.x, def.ball.y, rnd() * Math.PI * 2, BALL.maxSpeed);
+      for (let i = 0; i < 240 * 20; i++) {
+        for (const m of movers) m.update(dt);
+        // Wiggle the player randomly (moving + spinning paddle) so the ball meets a moving surface often.
+        player.update(dt, { mx: rnd() * 2 - 1, my: rnd() * 2 - 1, turn: rnd() * 2 - 1, lunge: rnd() < 0.02 });
+        player.finalizeStep(dt);
+        boss.update(dt, { mx: 0, my: 0, turn: 1 });
+        boss.finalizeStep(dt);
+        advanceBall(ball, walls, [player, boss], dt, 1, { onWall: () => bounces++, onBody: () => false }, movers);
+        ball.clampSpeed(BALL.minSpeed, BALL.maxSpeed);
+        assert.ok(pointInPolygon(ball.x, ball.y, def.boundary), `ball escaped the room at step ${i}: ${ball.x},${ball.y}`);
+        for (const poly of def.obstacles) {
+          assert.ok(!pointInPolygon(ball.x, ball.y, poly), `ball inside an obstacle at step ${i}`);
+        }
       }
     }
-  }
-  assert.ok(bounces > 100, `expected plenty of wall bounces, saw ${bounces}`);
-});
+    assert.ok(bounces > 100, `expected plenty of wall bounces, saw ${bounces}`);
+  });
+}

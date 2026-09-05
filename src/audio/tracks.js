@@ -67,4 +67,61 @@ export const TRACKS = {
     ],
     loopFrom: 1,
   },
+
+  prism: {
+    title: 'Prism Vault (Refractor Theme)',
+    bpm: 132,
+    progression: [
+      { chord: [52, 55, 59], pad: [52, 55, 59, 64], bass: 40, bars: 2 }, // E minor
+      { chord: [48, 52, 55], pad: [48, 52, 55, 60], bass: 36, bars: 2 }, // C major
+      { chord: [57, 60, 64], pad: [45, 52, 57, 60], bass: 45, bars: 2 }, // A minor
+      { chord: [59, 63, 66], pad: [47, 54, 59, 63], bass: 47, bars: 2 }, // B major (the tension chord)
+    ],
+    arp: {
+      octave: 12,
+      gate: 0.45,
+      // Pulsing root/octave figure that climbs through the chord.
+      pattern: [0, 3, 0, 3, 1, 4, 1, 4, 2, 5, 2, 5, 1, 4, 3, 0],
+    },
+    bass: {
+      pattern: [
+        [0, 2], 0, [0, 2], 0,
+        [0, 1], [12, 1], [0, 2], 0,
+        [0, 2], 0, [0, 2], 0,
+        [0, 1], [7, 1], [12, 1], [0, 1],
+      ],
+    },
+    drums: {
+      // Pushed kick: 1, the "a" of 2, the "and" of 3, 4.
+      kick: [1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0],
+      snare: [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0.4, 1, 0, 0, 0],
+      hat: [0.8, 0.3, 0.5, 0.3, 0.8, 0.3, 0.5, 0.3, 0.8, 0.3, 0.5, 0.3, 0.8, 0.3, 0.5, 0.6],
+      hatOpen: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+    },
+    lead: {
+      length: 128,
+      notes: [
+        // bar 0-1 (E minor)
+        [0, 76, 4], [4, 79, 4], [8, 78, 2], [10, 76, 6],
+        [16, 71, 8], [24, 74, 4], [28, 76, 4],
+        // bar 2-3 (C)
+        [32, 79, 6], [38, 76, 6], [44, 72, 4],
+        [48, 74, 8], [56, 76, 8],
+        // bar 4-5 (A minor)
+        [64, 81, 6], [70, 79, 2], [72, 76, 8],
+        [80, 72, 4], [84, 74, 4], [88, 76, 8],
+        // bar 6-7 (B major: the D# pulls back to E)
+        [96, 78, 6], [102, 75, 6], [108, 71, 4],
+        [112, 78, 8], [120, 79, 4], [124, 78, 4],
+      ],
+    },
+    sections: [
+      { name: 'intro', bars: 4, layers: ['pad', 'arp'], arpDensity: 8, riser: true },
+      { name: 'build', bars: 8, layers: ['pad', 'arp', 'kick', 'bass', 'hat'], fill: true, riser: true },
+      { name: 'drop', bars: 16, layers: ['pad', 'arp', 'kick', 'bass', 'hat', 'snare', 'lead', 'stab'], fill: true, padBright: 1 },
+      { name: 'break', bars: 8, layers: ['pad', 'lead', 'arp', 'hat'], arpDensity: 8, arpOctave: 12, riser: true },
+      { name: 'drop2', bars: 16, layers: ['pad', 'arp', 'kick', 'bass', 'hat', 'snare', 'lead', 'stab'], fill: true, padBright: 1 },
+    ],
+    loopFrom: 1,
+  },
 };
