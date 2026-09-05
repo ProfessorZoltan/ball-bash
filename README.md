@@ -51,8 +51,8 @@ On touch devices, on-screen rotate, pull and whack buttons appear automatically.
   and never tunnels through a wall. Physics runs at a fixed 240 Hz.
 * Every arena is a closed polygon; `test/physics.test.js` fires the ball at the
   maximum speed for two simulated minutes and asserts it never leaves the room.
-* Taking a body hit costs one of three shield charges; losing all three fails
-  the level. (This is my assumption; the brief only defined the boss hit.)
+* One hit on your body loses the level, just as one hit on the boss's body
+  wins it. (`PLAYER.lives` in `src/config.js` if you ever want more.)
 
 ## Bosses
 
@@ -69,10 +69,13 @@ Each level's boss is a data block in `src/levels.js`:
 | `absorb`, `absorbSpeed` | chance it pulls its shield back to slow a hot ball |
 | `threatRadius`, `leash` | how far it looks and how far it roams from home |
 
-The boss predicts the ball's path (including up to two wall bounces), moves onto
-that path and turns to face it. In the last quarter second before impact it
-braces, holding the shield still, so it cannot accidentally launch the ball into
-its own back wall.
+The boss predicts the ball's path (including wall bounces, so it also sees a
+ball that will rebound off the wall behind it), moves onto that path and turns
+to face it. To choose its return it scores candidate directions by how much open
+space they cross, how close they pass to you, and whether they would rebound
+back at itself, then tilts its shield to send the ball down the best lane. In
+the last quarter second before impact it braces, holding the shield still, so
+it cannot accidentally whack the ball at speed into its own walls.
 
 ## Music
 

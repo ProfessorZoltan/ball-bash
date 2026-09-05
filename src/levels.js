@@ -77,6 +77,8 @@ export const LEVELS = [
       absorb: 0.7,
       absorbSpeed: 560,
       threatRadius: 340,
+      blockRadius: 100,
+      safeRadius: 280,
       leash: 170,
       lungeExtend: 22,
       lungeSpeed: 150,

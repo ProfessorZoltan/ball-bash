@@ -11,12 +11,12 @@ export class Renderer {
     this.ctx = canvas.getContext('2d');
     this.view = { scale: 1, ox: 0, oy: 0, w: 0, h: 0, dpr: 1 };
     this.level = null;
-    this.floorCache = null;
+    this.staticLayer = null;
   }
 
   setLevel(level) {
     this.level = level;
-    this.floorCache = null;
+    this.staticLayer = null;
   }
 
   resize() {
@@ -31,7 +31,30 @@ export class Renderer {
     const lh = this.level ? this.level.height : 900;
     const scale = Math.min(w / lw, h / lh);
     this.view = { scale, ox: (w - lw * scale) / 2, oy: (h - lh * scale) / 2, w, h, dpr };
-    this.floorCache = null;
+    this.staticLayer = null;
+  }
+
+  /**
+   * Floor, obstacles and the glowing boundary never change during a level, and
+   * their glow (shadowBlur) is the most expensive thing to draw, so render them
+   * once into an offscreen canvas and blit it every frame.
+   */
+  buildStaticLayer() {
+    const v = this.view;
+    const off = document.createElement('canvas');
+    off.width = this.canvas.width;
+    off.height = this.canvas.height;
+    const ctx = off.getContext('2d');
+    ctx.fillStyle = '#03050c';
+    ctx.fillRect(0, 0, off.width, off.height);
+    ctx.setTransform(v.dpr * v.scale, 0, 0, v.dpr * v.scale, v.ox * v.dpr, v.oy * v.dpr);
+    const live = this.ctx;
+    this.ctx = ctx;
+    this.drawFloor(this.level);
+    this.drawObstacles(this.level);
+    this.drawBoundary(this.level);
+    this.ctx = live;
+    this.staticLayer = off;
   }
 
   screenToWorld(sx, sy) {
@@ -43,10 +66,12 @@ export class Renderer {
     const ctx = this.ctx;
     const v = this.view;
     const level = this.level;
-    ctx.setTransform(v.dpr, 0, 0, v.dpr, 0, 0);
-    ctx.fillStyle = '#03050c';
-    ctx.fillRect(0, 0, v.w, v.h);
-    if (!level || !game) return;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    if (!level || !game) {
+      ctx.fillStyle = '#03050c';
+      ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+      return;
+    }
 
     let shx = 0;
     let shy = 0;
@@ -54,11 +79,14 @@ export class Renderer {
       shx = (Math.random() - 0.5) * game.fx.shake;
       shy = (Math.random() - 0.5) * game.fx.shake;
     }
+    if (!this.staticLayer) this.buildStaticLayer();
+    if (shx || shy) {
+      ctx.fillStyle = '#03050c';
+      ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    }
+    ctx.drawImage(this.staticLayer, shx * v.dpr, shy * v.dpr);
     ctx.setTransform(v.dpr * v.scale, 0, 0, v.dpr * v.scale, (v.ox + shx) * v.dpr, (v.oy + shy) * v.dpr);
 
-    this.drawFloor(level);
-    this.drawObstacles(level);
-    this.drawBoundary(level);
     this.drawPredictedPath(game);
     this.drawRings(game.fx);
     this.drawFighter(game.boss, time, level.palette.obstacle);

@@ -20,13 +20,13 @@ export const PLAYER = {
   paddleWidth: 116,
   paddleOffset: 36,
   paddleThick: 6,
-  moveSpeed: 360, // px/s
-  turnSpeed: 5.2, // rad/s
+  moveSpeed: 430, // px/s
+  turnSpeed: 7.0, // rad/s
   lungeExtend: 26, // px the paddle thrusts outward on a whack
   lungeSpeed: 260, // px/s of paddle travel during a whack
   retractPull: 16, // px the paddle pulls in while holding S
-  lives: 3,
-  invulnTime: 1.0, // seconds of immunity after being hit
+  lives: 1, // one body hit ends the level
+  invulnTime: 1.0, // seconds of immunity after being hit (only matters if lives > 1)
 };
 
 export const COUNTDOWN_SECONDS = 3;

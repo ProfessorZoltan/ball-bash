@@ -30,6 +30,7 @@ let countdownTick = 0;
 let endTimer = 0;
 let endShown = false;
 let guideFrame = 0;
+let fps = 60;
 
 // ------------------------------------------------------------------ setup
 
@@ -248,6 +249,7 @@ function onPlayerHit(h) {
 function frame(now) {
   const dt = Math.min((now - last) / 1000, 0.05);
   last = now;
+  if (dt > 0) fps += (1 / dt - fps) * 0.05;
 
   if (game && state !== 'title' && state !== 'paused') {
     acc += dt;
@@ -276,7 +278,7 @@ function frame(now) {
       audio.setBallSpeed(game.ball.speed, game.def.ball.speed, BALL.minSpeed, BALL.maxSpeed);
       if (guideFrame-- <= 0) {
         guideFrame = 6;
-        game.guidePath = predictPath(game.ball.x, game.ball.y, game.ball.vx, game.ball.vy, game.walls, 1, 900);
+        game.guidePath = predictPath(game.ball.x, game.ball.y, game.ball.vx, game.ball.vy, game.walls, 1, 900, game.ball.r);
       }
     }
     if ((state === 'cleared' || state === 'failed') && !endShown) {
@@ -348,6 +350,7 @@ function updateHud() {
   setText('hud-speed', `${Math.round(s)} px/s`);
   $('hud-speed-bar').style.width = `${speedNorm(s) * 100}%`;
   setText('hud-bpm', audio.currentBpm ? `♪ ${Math.round(audio.currentBpm)} BPM` : '♪');
+  setText('hud-fps', `${Math.round(fps)} FPS`);
 }
 
 function formatTime(t) {
@@ -396,7 +399,7 @@ function showTitle() {
           <li><b>P</b> pause · <b>M</b> mute · <b>R</b> restart</li>
         </ul>
         <h3>How to win</h3>
-        <p class="small">The ball only counts when it hits the boss's <b>body</b>. Their shield blocks the front, so bank shots off the walls and angled deflectors to strike from the side or behind. A moving or spinning shield adds its speed to the ball; retreating removes it. The soundtrack's tempo follows the ball.</p>
+        <p class="small">The ball only counts when it hits a <b>body</b>. The boss's shield blocks its front, so bank shots off the walls and angled deflectors to strike from the side or behind. One hit on you and the level is lost. A moving or spinning shield adds its speed to the ball; retreating removes it. The soundtrack's tempo follows the ball.</p>
       </div>
       <div>
         <h3>Levels</h3>
@@ -424,7 +427,6 @@ function showCleared() {
       <tr><td>Time</td><td>${formatTime(game.time)}</td></tr>
       <tr><td>Top ball speed</td><td>${Math.round(game.topSpeed)} px/s</td></tr>
       <tr><td>Shield hits</td><td>${game.paddleHits}</td></tr>
-      <tr><td>Shield integrity left</td><td>${game.lives} / ${PLAYER.lives}</td></tr>
     </table>
     <div class="row">
       <button id="btn-replay" class="primary">Play again</button>
@@ -439,7 +441,7 @@ function showFailed() {
   showOverlay(`
     <div class="eyebrow">SHIELD DOWN</div>
     <h1>${def.bossName} holds ${def.title}</h1>
-    <p class="muted">You lasted ${formatTime(game.time)}.</p>
+    <p class="muted">One hit is all it takes. You lasted ${formatTime(game.time)}.</p>
     <div class="row"><button id="btn-retry" class="primary">Retry</button><button id="btn-title">Title</button></div>
   `);
   $('btn-retry').onclick = () => startLevel(levelIndex);

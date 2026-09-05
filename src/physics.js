@@ -167,7 +167,7 @@ export function raycastSegments(ox, oy, dx, dy, segs, maxDist = Infinity) {
  * bouncing off static segments up to `bounces` times. Returns an array of
  * straight path segments {ax, ay, bx, by, dx, dy} (dx, dy = unit direction).
  */
-export function predictPath(x, y, vx, vy, segs, bounces = 2, maxDist = 2500) {
+export function predictPath(x, y, vx, vy, segs, bounces = 2, maxDist = 2500, radius = 0) {
   const speed = Math.sqrt(vx * vx + vy * vy);
   if (speed < 1e-6) return [];
   let dx = vx / speed;
@@ -182,14 +182,19 @@ export function predictPath(x, y, vx, vy, segs, bounces = 2, maxDist = 2500) {
       path.push({ ax: ox, ay: oy, bx: ox + dx * remaining, by: oy + dy * remaining, dx, dy });
       break;
     }
-    path.push({ ax: ox, ay: oy, bx: hit.x, by: hit.y, dx, dy });
-    remaining -= hit.t;
+    // The ball's centre stops `radius` short of the wall along the normal.
     const dot = dx * hit.nx + dy * hit.ny;
+    const back = Math.abs(dot) > 1e-3 ? Math.min(hit.t, radius / Math.abs(dot)) : 0;
+    const t = hit.t - back;
+    const hx = ox + dx * t;
+    const hy = oy + dy * t;
+    path.push({ ax: ox, ay: oy, bx: hx, by: hy, dx, dy });
+    remaining -= t;
     dx -= 2 * dot * hit.nx;
     dy -= 2 * dot * hit.ny;
     // Step slightly off the wall so the next cast does not re-hit it.
-    ox = hit.x + hit.nx * 0.5;
-    oy = hit.y + hit.ny * 0.5;
+    ox = hx + hit.nx * 0.5;
+    oy = hy + hit.ny * 0.5;
   }
   return path;
 }

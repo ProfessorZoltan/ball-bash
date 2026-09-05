@@ -71,6 +71,8 @@ export class Fighter {
         lungeExtend: 24,
         lungeSpeed: 240,
         retractPull: 14,
+        moveAccel: 40, // x moveSpeed per second: how fast velocity follows input
+        turnAccel: 60, // x turnSpeed per second: how fast spin follows input
         color: '#3ee6ff',
         name: 'Fighter',
         kind: 'player',
@@ -145,7 +147,7 @@ export class Fighter {
       mx /= ml;
       my /= ml;
     }
-    const accel = this.moveSpeed * 14;
+    const accel = this.moveSpeed * this.moveAccel;
     this.vx = approach(this.vx, mx * this.moveSpeed, accel * dt);
     this.vy = approach(this.vy, my * this.moveSpeed, accel * dt);
     this.x += this.vx * dt;
@@ -153,7 +155,7 @@ export class Fighter {
 
     // Rotation. omega is what the paddle's tips inherit as surface velocity.
     const targetOmega = clamp(intent.turn || 0, -1, 1) * this.turnSpeed;
-    this.omega = approach(this.omega, targetOmega, this.turnSpeed * 30 * dt);
+    this.omega = approach(this.omega, targetOmega, this.turnSpeed * this.turnAccel * dt);
     this.angle = wrapAngle(this.angle + this.omega * dt);
 
     // Paddle thrust: W lunges outward, S pulls the paddle in.
@@ -204,6 +206,8 @@ export class Boss extends Fighter {
       absorb: 0.5, // probability of pulling the shield back to slow a fast ball
       absorbSpeed: 600, // px/s above which the boss considers absorbing
       threatRadius: 320, // how close a predicted path must pass to be reacted to
+      blockRadius: 90, // a path passing this close is one the boss must block
+      safeRadius: 260, // returns that rebound closer than this to the boss are avoided
       leash: 260, // how far from home the boss will roam
       ...opts,
     });
