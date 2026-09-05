@@ -64,6 +64,17 @@ html, body {
   border-radius: 3px;
   overflow: hidden;
 }
+.hud-btn {
+  pointer-events: auto;
+  font-size: 14px;
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: 5px;
+  border: 1px solid rgba(127, 233, 255, 0.4);
+  background: rgba(127, 233, 255, 0.08);
+  color: var(--text);
+  letter-spacing: 0;
+}
 #hud-speed-bar {
   height: 100%;
   width: 0;
@@ -222,7 +233,7 @@ button[disabled] { opacity: 0.45; cursor: default; }
   z-index: 5;
 }
 @media (pointer: coarse) {
-  #touch { display: flex; }
+  body.in-game #touch { display: flex; }
 }
 .tb {
   width: 64px;

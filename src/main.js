@@ -92,6 +92,7 @@ function startLevel(index) {
   state = 'countdown';
   input.clearPresses();
   hideOverlay();
+  setInGame(true);
   $('hud').hidden = false;
   $('hud-level').textContent = `LEVEL ${def.id} · ${def.title.toUpperCase()}`;
   $('hud-boss').textContent = def.bossName.toUpperCase();
@@ -326,7 +327,7 @@ function frame(now) {
     updateHud();
   }
 
-  renderer.draw(game, state, now / 1000);
+  renderer.draw(game, state, now / 1000, input.joystick);
   handleGlobalKeys();
   requestAnimationFrame(frame);
 }
@@ -341,6 +342,7 @@ function handleGlobalKeys() {
     else if (state === 'paused') resume();
   }
   if (input.consumePress('r') && game && state !== 'title') startLevel(levelIndex);
+  if (input.consumePress('f')) toggleFullscreen();
   if (input.consumePress('Enter')) {
     if (state === 'title') begin();
     else if (state === 'cleared') {
@@ -353,21 +355,58 @@ function handleGlobalKeys() {
 
 function pause() {
   state = 'paused';
+  setInGame(false);
   if (audio.ctx) audio.ctx.suspend();
   showOverlay(`
     <h1>PAUSED</h1>
     <p class="muted">Level ${game.def.id} · ${game.def.title}</p>
-    <div class="row"><button id="btn-resume" class="primary">Resume</button><button id="btn-restart">Restart level</button></div>
+    <div class="row"><button id="btn-resume" class="primary">Resume</button><button id="btn-restart">Restart level</button>${fullscreenHint()}</div>
   `);
   $('btn-resume').onclick = resume;
   $('btn-restart').onclick = () => startLevel(levelIndex);
+  $('btn-full')?.addEventListener('click', toggleFullscreen);
 }
 
 function resume() {
   hideOverlay();
+  setInGame(true);
   if (audio.ctx) audio.ctx.resume();
   last = performance.now();
   state = 'playing';
+}
+
+/** Touch controls are only shown while a level is actually being played. */
+function setInGame(on) {
+  document.body.classList.toggle('in-game', on);
+}
+
+const IS_IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const STANDALONE = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+
+function canFullscreen() {
+  return !!(document.fullscreenEnabled || document.webkitFullscreenEnabled);
+}
+
+async function toggleFullscreen() {
+  const doc = document;
+  const el = doc.documentElement;
+  try {
+    if (doc.fullscreenElement || doc.webkitFullscreenElement) {
+      await (doc.exitFullscreen ? doc.exitFullscreen() : doc.webkitExitFullscreen());
+    } else {
+      await (el.requestFullscreen ? el.requestFullscreen({ navigationUI: 'hide' }) : el.webkitRequestFullscreen());
+      // Phones: keep the game in landscape while fullscreen (best effort).
+      screen.orientation?.lock?.('landscape').catch(() => {});
+    }
+  } catch (err) {
+    console.warn('Fullscreen unavailable:', err);
+  }
+}
+
+function fullscreenHint() {
+  if (canFullscreen()) return '<button id="btn-full">Fullscreen [F]</button>';
+  if (IS_IOS && !STANDALONE) return '<p class="small muted">For full screen on iPhone: Share → Add to Home Screen, then open it from there.</p>';
+  return '';
 }
 
 // -------------------------------------------------------------------- HUD
@@ -410,6 +449,7 @@ function hideOverlay() {
 
 function showTitle() {
   state = 'title';
+  setInGame(false);
   $('hud').hidden = true;
   $('countdown').hidden = true;
   const def = LEVELS[levelIndex];
@@ -431,7 +471,7 @@ function showTitle() {
       <div>
         <h3>Controls</h3>
         <ul class="controls">
-          <li><b>Arrow keys</b> or <b>hold mouse</b> / drag — move</li>
+          <li><b>Arrow keys</b> or <b>hold mouse</b> — move. Touch: <b>touch anywhere and drag</b> to steer</li>
           <li><b>A / D</b> — rotate (swing the shield to whack)</li>
           <li><b>W</b> or <b>Space</b> — thrust the shield forward</li>
           <li><b>S</b> — pull the shield in (soften the return)</li>
@@ -445,9 +485,10 @@ function showTitle() {
         <ol class="roster">${roster}</ol>
       </div>
     </div>
-    <div class="row"><button id="btn-start" class="primary">Start · Sound on</button></div>
+    <div class="row"><button id="btn-start" class="primary">Start · Sound on</button>${fullscreenHint()}</div>
   `);
   $('btn-start').onclick = begin;
+  $('btn-full')?.addEventListener('click', toggleFullscreen);
   for (const li of document.querySelectorAll('.roster li[data-level]')) {
     li.onclick = () => {
       levelIndex = Number(li.dataset.level);
@@ -464,6 +505,7 @@ async function begin() {
 }
 
 function showCleared() {
+  setInGame(false);
   const def = game.def;
   const next = ROSTER.find((r) => r.id === def.id + 1);
   const nextIdx = LEVELS.findIndex((l) => l.id === def.id + 1);
@@ -486,6 +528,7 @@ function showCleared() {
 }
 
 function showFailed() {
+  setInGame(false);
   const def = game.def;
   showOverlay(`
     <div class="eyebrow">SHIELD DOWN</div>
@@ -503,6 +546,8 @@ function showFailed() {
 // ------------------------------------------------------------------ boot
 
 window.addEventListener('resize', () => renderer.resize());
+$('hud-full').hidden = !canFullscreen();
+$('hud-full').addEventListener('click', toggleFullscreen);
 document.title = `${GAME_TITLE} — ${GAME_TAGLINE}`;
 for (const [id, name] of [['tb-left', 'left'], ['tb-right', 'right'], ['tb-whack', 'whack'], ['tb-retract', 'retract']]) {
   input.bindTouchButton($(id), name);

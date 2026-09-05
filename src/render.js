@@ -62,7 +62,7 @@ export class Renderer {
     return { x: (sx - v.ox) / v.scale, y: (sy - v.oy) / v.scale };
   }
 
-  draw(game, state, time) {
+  draw(game, state, time, joystick = null) {
     const ctx = this.ctx;
     const v = this.view;
     const level = this.level;
@@ -99,6 +99,37 @@ export class Renderer {
       ctx.fillStyle = `rgba(255,255,255,${clamp(game.fx.flash, 0, 1) * 0.6})`;
       ctx.fillRect(-50, -50, level.width + 100, level.height + 100);
     }
+
+    if (joystick && joystick.active) this.drawJoystick(joystick, level.palette.wall);
+  }
+
+  /** Touch joystick, drawn in screen space on top of everything. */
+  drawJoystick(j, color) {
+    const ctx = this.ctx;
+    const v = this.view;
+    ctx.save();
+    ctx.setTransform(v.dpr, 0, 0, v.dpr, 0, 0);
+    ctx.globalAlpha = 0.55;
+    ctx.beginPath();
+    ctx.arc(j.ox, j.oy, j.radius, 0, Math.PI * 2);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = color;
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.06)';
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(j.ox, j.oy);
+    ctx.lineTo(j.ox + j.dx, j.oy + j.dy);
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+    ctx.stroke();
+    ctx.globalAlpha = 0.85;
+    ctx.beginPath();
+    ctx.arc(j.ox + j.dx, j.oy + j.dy, 22, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 14;
+    ctx.fill();
+    ctx.restore();
   }
 
   drawFloor(level) {

@@ -35,7 +35,12 @@ empty, and serve the repository root. `server.js` is only for local use.
 | Pull the shield in (soft return, slows the ball) | **S** |
 | Pause / mute / restart | **P** / **M** / **R** |
 
-On touch devices, on-screen rotate, pull and whack buttons appear automatically.
+On touch devices, touch anywhere on the arena and drag: the first touch becomes
+a floating joystick and the drag direction steers, so your finger never has to
+cover the character. Rotate, pull and whack buttons appear while a level is
+running. **F** or the ⛶ button toggles fullscreen where the browser allows it;
+iPhones have no fullscreen API for web pages, so use Share → Add to Home Screen,
+which launches the game chrome-free thanks to `manifest.webmanifest`.
 
 ## The rules the physics follows
 
@@ -163,7 +168,8 @@ server.js                  zero-dependency static server
 The game logic never touches events directly, and the renderer scales the level
 to any viewport, so the mobile build is mostly input and packaging:
 
-1. Tune the touch layout (drag-to-move is already in; rotate/whack buttons are
-   basic) and add a virtual joystick option.
-2. Wrap with Capacitor for iOS/Android store builds, or ship as a PWA.
-3. Reduce glow (`shadowBlur`) on low-end devices; it is the main GPU cost.
+1. Tune the touch layout further (the floating joystick and buttons are in;
+   a two-thumb layout with rotation on a second stick is the next candidate).
+2. Wrap with Capacitor for iOS/Android store builds; the manifest and icons
+   already make it installable as a PWA.
+3. Reduce glow (`shadowBlur`) on low-end devices if the FPS readout drops.
