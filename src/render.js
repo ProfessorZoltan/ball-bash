@@ -32,6 +32,7 @@ export class Renderer {
     const scale = Math.min(w / lw, h / lh);
     this.view = { scale, ox: (w - lw * scale) / 2, oy: (h - lh * scale) / 2, w, h, dpr };
     this.staticLayer = null;
+    this.darkLayer = null;
   }
 
   /**
@@ -108,12 +109,76 @@ export class Renderer {
     this.drawBall(game.ball, state);
     this.drawParticles(game.fx);
 
+    if (level.dark) this.drawDarkness(game, level, state, time, shx, shy);
+
     if (game.fx.flash > 0) {
+      ctx.setTransform(v.dpr * v.scale, 0, 0, v.dpr * v.scale, (v.ox + shx) * v.dpr, (v.oy + shy) * v.dpr);
       ctx.fillStyle = `rgba(255,255,255,${clamp(game.fx.flash, 0, 1) * 0.6})`;
       ctx.fillRect(-50, -50, level.width + 100, level.height + 100);
     }
 
     if (joystick && joystick.active) this.drawJoystick(joystick, level.palette.wall);
+  }
+
+  /**
+   * Darkness: a black layer with holes punched out around each light source
+   * (lanterns, the ball's glow, candles), composited over the world.
+   */
+  drawDarkness(game, level, state, time, shx, shy) {
+    const v = this.view;
+    const d = level.dark;
+    if (!this.darkLayer) {
+      this.darkLayer = document.createElement('canvas');
+      this.darkLayer.width = this.canvas.width;
+      this.darkLayer.height = this.canvas.height;
+    }
+    const dc = this.darkLayer.getContext('2d');
+    dc.setTransform(1, 0, 0, 1, 0, 0);
+    dc.globalCompositeOperation = 'source-over';
+    dc.clearRect(0, 0, this.darkLayer.width, this.darkLayer.height);
+    // The crypt lights up when the level ends.
+    const lifted = state === 'cleared' || state === 'failed';
+    const ambient = lifted ? 0.7 : d.ambient;
+    dc.fillStyle = `rgba(0,0,0,${1 - ambient})`;
+    dc.fillRect(0, 0, this.darkLayer.width, this.darkLayer.height);
+    dc.globalCompositeOperation = 'destination-out';
+    dc.setTransform(v.dpr * v.scale, 0, 0, v.dpr * v.scale, (v.ox + shx) * v.dpr, (v.oy + shy) * v.dpr);
+    const punch = (x, y, r, core = 0.5) => {
+      const g = dc.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, 'rgba(0,0,0,1)');
+      g.addColorStop(core, 'rgba(0,0,0,0.85)');
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      dc.fillStyle = g;
+      dc.beginPath();
+      dc.arc(x, y, r, 0, Math.PI * 2);
+      dc.fill();
+    };
+    const flicker = (seed) => 1 + 0.06 * Math.sin(time * 9 + seed) + 0.04 * Math.sin(time * 23 + seed * 1.7);
+    for (let i = 0; i < (level.lights || []).length; i++) {
+      const l = level.lights[i];
+      punch(l.x, l.y, (l.r || d.candle) * flicker(i * 3.1), 0.35);
+    }
+    punch(game.player.x, game.player.y, d.player * flicker(0.5), 0.55);
+    punch(game.boss.x, game.boss.y, d.boss * flicker(1.9), 0.5);
+    if (!game.ball.held || state === 'countdown') {
+      punch(game.ball.x, game.ball.y, d.ball + game.ball.speed * 0.08, 0.5);
+    }
+    for (const r of game.fx.rings) punch(r.x, r.y, r.maxR * 0.8, 0.3);
+    const ctx = this.ctx;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(this.darkLayer, 0, 0);
+    // Candle flames on top of the darkness.
+    ctx.setTransform(v.dpr * v.scale, 0, 0, v.dpr * v.scale, (v.ox + shx) * v.dpr, (v.oy + shy) * v.dpr);
+    for (let i = 0; i < (level.lights || []).length; i++) {
+      const l = level.lights[i];
+      ctx.beginPath();
+      ctx.arc(l.x, l.y, 4 + 1.5 * flicker(i), 0, Math.PI * 2);
+      ctx.fillStyle = '#fff1c0';
+      ctx.shadowColor = '#ffc860';
+      ctx.shadowBlur = 18;
+      ctx.fill();
+    }
+    ctx.shadowBlur = 0;
   }
 
   /** Jukebox visual: a beat-pulsing ring and a 16-step lamp row. */

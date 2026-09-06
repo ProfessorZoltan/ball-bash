@@ -340,4 +340,57 @@ export const TRACKS = {
     ],
     loopFrom: 1,
   },
+
+  undercroft: {
+    key: 'F minor',
+    title: 'The Undercroft (Sexton Theme)',
+    bpm: 104,
+    progression: [
+      { chord: [53, 56, 60], pad: [41, 48, 53, 56], bass: 41, bars: 2 }, // F minor
+      { chord: [49, 53, 56], pad: [49, 53, 56, 61], bass: 37, bars: 2 }, // Db major
+      { chord: [56, 60, 63], pad: [44, 51, 56, 60], bass: 44, bars: 2 }, // Ab major
+      { chord: [48, 52, 55], pad: [48, 52, 55, 60], bass: 36, bars: 2 }, // C major (the tolling dominant)
+    ],
+    arp: {
+      octave: 12,
+      gate: 0.5,
+      // Slow tolling figure: low for a bar, then answered an octave up.
+      pattern: [0, 2, 1, 2, 0, 2, 1, 2, 3, 5, 4, 5, 3, 5, 4, 5],
+    },
+    bass: {
+      pattern: [
+        [0, 6], 0, 0, 0,
+        0, 0, [0, 2], 0,
+        [0, 4], 0, 0, 0,
+        [0, 2], 0, [3, 2], 0,
+      ],
+    },
+    drums: {
+      kick: [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      snare: [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0],
+      hat: [0.4, 0, 0.3, 0, 0.4, 0, 0.6, 0, 0.4, 0, 0.3, 0, 0.4, 0, 0.6, 0],
+      hatOpen: [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0],
+    },
+    lead: {
+      length: 128,
+      notes: [
+        // bar 0-1 (F minor)
+        [0, 72, 8], [8, 73, 4], [12, 72, 4], [16, 68, 12], [28, 65, 4],
+        // bar 2-3 (Db)
+        [32, 68, 8], [40, 73, 8], [48, 77, 12], [60, 75, 4],
+        // bar 4-5 (Ab)
+        [64, 75, 8], [72, 72, 4], [76, 70, 4], [80, 68, 12], [92, 67, 4],
+        // bar 6-7 (C: the E natural tolls)
+        [96, 64, 8], [104, 67, 8], [112, 72, 12], [124, 71, 2], [126, 72, 2],
+      ],
+    },
+    sections: [
+      { name: 'intro', bars: 8, layers: ['pad', 'arp'], arpDensity: 8, riser: true },
+      { name: 'build', bars: 8, layers: ['pad', 'arp', 'kick', 'bass'], arpDensity: 8, fill: true, riser: true },
+      { name: 'drop', bars: 16, layers: ['pad', 'arp', 'kick', 'bass', 'hat', 'snare', 'lead', 'stab'], fill: true, padBright: 0.3 },
+      { name: 'break', bars: 8, layers: ['pad', 'lead', 'arp'], arpDensity: 8, arpOctave: 12, riser: true },
+      { name: 'drop2', bars: 16, layers: ['pad', 'arp', 'kick', 'bass', 'hat', 'snare', 'lead', 'stab'], fill: true, padBright: 0.3 },
+    ],
+    loopFrom: 1,
+  },
 };

@@ -121,6 +121,8 @@ Level 5, "Switchyard (Shunter Theme)", is G minor at 128 BPM over
 Gm - Cm - D - Gm, with a chugging root/octave arpeggio and "chugga" hats.
 Level 6, "Glass Cathedral (Choirmaster Theme)", is B minor at 118 BPM over
 Bm - Em - A - F#, with a bell-like high/low arpeggio and long bass notes.
+Level 7, "The Undercroft (Sexton Theme)", is F minor at 104 BPM over
+Fm - Db - Ab - C, a slow tolling arpeggio with sparse, open hats.
 
 ## Levels
 
@@ -132,7 +134,7 @@ Bm - Em - A - F#, with a bell-like high/low arpeggio and long bass notes.
 | 4 | The Hollow Reactor | Core Sentinel | playable |
 | 5 | Switchyard | The Shunter | playable |
 | 6 | Glass Cathedral | The Choirmaster | playable |
-| 7 | The Undercroft | The Sexton | planned |
+| 7 | The Undercroft | The Sexton | playable |
 | 8 | Signal Spire | The Beacon | planned |
 | 9 | Nullspace | The Absence | planned |
 | 10 | The Last Arcade | The Architect | planned |
@@ -169,6 +171,12 @@ reflect a slow ball like any wall, but a ball at or above the level's
 reglazes after `glass.regrow` seconds (waiting if something is standing in it).
 The guide line sees through glass once the ball is fast enough to break it.
 The Choirmaster sits in an apse behind a curved screen of panes.
+
+Level 7 is dark. A level with a `dark` entry is rendered under a darkness
+layer with holes punched around light sources: the player's and boss's
+lanterns, the ball's glow (which grows with speed), and fixed candles listed in
+`lights`. The AI is unaffected; the darkness is the player's handicap, and the
+crypt lights up when the level ends.
 
 Adding a level means adding an entry to `LEVELS` in `src/levels.js` (boundary
 polygon, obstacle polygons via `rect(cx, cy, w, h, angleDeg)`, optional

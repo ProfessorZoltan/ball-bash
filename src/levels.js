@@ -442,6 +442,69 @@ export const LEVELS = [
     },
     ball: { x: 420, y: 450, speed: 440, angleDeg: 0 },
   },
+  {
+    id: 7,
+    title: 'The Undercroft',
+    bossName: 'The Sexton',
+    intro: 'The crypt beneath the cathedral. Nothing is lit but your lantern, the Sexton\'s, the glow of the ball, and a few candles. A forest of vault columns for banks, if you can see them. The Sexton keeps its crypt behind two tomb slabs.',
+    width: 1600,
+    height: 900,
+    track: 'undercroft',
+    extrude: 12,
+    palette: {
+      floor: '#0d0a07',
+      grid: 'rgba(210, 170, 90, 0.07)',
+      wall: '#d9c48a',
+      wallDark: '#2a2214',
+      obstacle: '#e0a64f',
+      obstacleDark: '#2e2010',
+      obstacleFill: '#191309',
+      ice: '#cdf6ff',
+    },
+    // Darkness: only these light radii (plus the ball's glow) reveal the crypt.
+    dark: { ambient: 0.1, player: 250, boss: 170, ball: 150, candle: 120 },
+    lights: [
+      { x: 110, y: 110 }, { x: 1490, y: 110 }, { x: 110, y: 790 }, { x: 1490, y: 790 },
+      { x: 800, y: 70 }, { x: 800, y: 830 },
+    ],
+    // Vaulted hall with shallow alcoves top and bottom.
+    boundary: [
+      [40, 120], [120, 40], [700, 40], [720, 90], [880, 90], [900, 40], [1480, 40], [1560, 120],
+      [1560, 780], [1480, 860], [900, 860], [880, 810], [720, 810], [700, 860], [120, 860], [40, 780],
+    ],
+    obstacles: [
+      // Vault columns.
+      ...[400, 640, 880, 1120].flatMap((x) => [230, 450, 670].map((y) => ellipse(x, y, 26, 26, 8, Math.PI / 8))),
+      // Tomb slabs shielding the Sexton's crypt above and below.
+      rect(1390, 300, 170, 22, 0), rect(1390, 600, 170, 22, 0),
+      // A broken sarcophagus in the player's half.
+      rect(230, 300, 120, 22, 20), rect(230, 600, 120, 22, -20),
+    ],
+    player: { x: 250, y: 450, angle: 0 },
+    boss: {
+      x: 1400,
+      y: 450,
+      angle: Math.PI,
+      r: 32,
+      paddleWidth: 150,
+      paddleBase: 44,
+      paddleThick: 7,
+      moveSpeed: 220,
+      turnSpeed: 3.8,
+      reaction: 0.32,
+      aggression: 0.1,
+      aim: 0.6,
+      absorb: 0.5,
+      absorbSpeed: 580,
+      threatRadius: 380,
+      blockRadius: 105,
+      safeRadius: 280,
+      leash: 150,
+      lungeExtend: 18,
+      lungeSpeed: 150,
+    },
+    ball: { x: 520, y: 450, speed: 440, angleDeg: 12 },
+  },
 ];
 
 // Planned roster (number + title). Only level 1 is playable for now.
