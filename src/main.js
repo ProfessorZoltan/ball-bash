@@ -156,6 +156,13 @@ function step(dt) {
 
   // Boss.
   if (state === 'playing') g.boss.updateOrbit(dt);
+  if (g.boss.pulser && state === 'playing') {
+    g.boss.pulser.update(dt, g.boss.x, g.boss.y);
+    if (g.boss.pulser.emitted) {
+      audio.sfxPulse();
+      g.fx.ring(g.boss.x, g.boss.y, g.def.palette.obstacle, 80, 0.3);
+    }
+  }
   const bi = state === 'playing' ? bossIntent(g.boss, g.history, g.player, g.walls, dt, simTime, g.movers) : { mx: 0, my: 0, turn: 0 };
   const bossWasIdle = g.boss.lungeState === 'idle';
   g.boss.update(dt, bi);
@@ -282,7 +289,7 @@ function moveBall(dt) {
         return false;
       },
     },
-    g.movers,
+    g.boss.pulser ? g.movers.concat([g.boss.pulser]) : g.movers,
   );
   if (stopped) return;
 
@@ -320,7 +327,8 @@ function onMoverHit(m, h, before) {
   const after = g.ball.speed;
   const delta = after - before;
   const strength = clamp(Math.abs(delta) / 400, 0, 1);
-  audio.sfxPaddle(strength * 0.7, true);
+  if (m.kind === 'pulse') audio.sfxPing(strength);
+  else audio.sfxPaddle(strength * 0.7, true);
   g.fx.burst(h.cx, h.cy, h.nx, h.ny, 6 + Math.floor(strength * 12), g.def.palette.obstacle, 180 + 360 * strength, 1, 0.4);
   if (Math.abs(delta) > 120) g.fx.ring(h.cx, h.cy, g.def.palette.obstacle, 50 + 100 * strength, 0.35);
   g.ball.lastHitBy = 'mover';

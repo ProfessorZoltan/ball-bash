@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reflect, circleVsCapsule, polygonEdges, pointInPolygon, predictPath, raycastSegments } from '../src/physics.js';
-import { Ball, Fighter, Boss, Spinner, Piston, Orbiter, createMover } from '../src/entities.js';
+import { Ball, Fighter, Boss, Spinner, Piston, Orbiter, Pulser, createMover } from '../src/entities.js';
 import { IceTrail } from '../src/ice.js';
 import { advanceBall } from '../src/sim.js';
 import { LEVELS, obstaclePoly } from '../src/levels.js';
@@ -144,6 +144,29 @@ test('orbiting boss: home travels around its ellipse', () => {
   assert.ok(Math.abs(b.home.x) < 1e-9 && Math.abs(b.home.y - 50) < 1e-9, `expected (0,50), got ${b.home.x},${b.home.y}`);
 });
 
+test('signal pulse: the expanding ring flings a ball outward', () => {
+  const p = new Pulser({ period: 5, speed: 300, maxRadius: 400, thick: 8, delay: 0 });
+  p.update(1 / 240, 0, 0); // emits at t=0 from the origin
+  assert.equal(p.active, true);
+  assert.equal(p.emitted, true);
+  const ball = new Ball(10);
+  ball.x = 150;
+  ball.y = 0;
+  ball.vx = -200; // heading in toward the source
+  ball.vy = 0;
+  let hits = 0;
+  for (let i = 0; i < 240; i++) {
+    p.update(1 / 240, 0, 0);
+    ball.x += ball.vx / 240;
+    advanceBall(ball, [], [], 0, 1, { onMover: () => hits++ }, [p]);
+  }
+  assert.ok(hits > 0, 'the ring met the ball');
+  assert.ok(ball.vx > 200, `ball flung outward faster than it came in, vx=${ball.vx}`);
+  // The ring dies at its range.
+  for (let i = 0; i < 240 * 2; i++) p.update(1 / 240, 0, 0);
+  assert.equal(p.ring(), null);
+});
+
 test('ice trail: laid after a block, melts, freezes once per contact', () => {
   const ice = new IceTrail({ lay: 2, life: 2, freeze: 2, width: 30 });
   const ball = { x: 0, y: 0 };
@@ -177,7 +200,8 @@ for (const def of LEVELS) {
     for (const o of def.obstacles) walls.push(...polygonEdges(obstaclePoly(o)));
     const movers = (def.movers || []).map(createMover);
     const player = new Fighter({ x: def.player.x, y: def.player.y, r: 22, paddleWidth: 116, paddleBase: 36 });
-    const boss = new Fighter({ ...def.boss, kind: 'boss' });
+    const boss = new Boss({ ...def.boss, kind: 'boss' });
+    if (boss.pulser) movers.push(boss.pulser);
     const ball = new Ball(BALL.radius);
     const dt = 1 / 240;
     let seed = 1234 + def.id;
@@ -188,7 +212,7 @@ for (const def of LEVELS) {
       // Launch at a random angle at the maximum permitted speed: the worst case for tunnelling.
       ball.launch(def.ball.x, def.ball.y, rnd() * Math.PI * 2, BALL.maxSpeed);
       for (let i = 0; i < 240 * 20; i++) {
-        for (const m of movers) m.update(dt);
+        for (const m of movers) m.update(dt, boss.x, boss.y);
         // Wiggle the player randomly (moving + spinning paddle) so the ball meets a moving surface often.
         player.update(dt, { mx: rnd() * 2 - 1, my: rnd() * 2 - 1, turn: rnd() * 2 - 1, lunge: rnd() < 0.02 });
         player.finalizeStep(dt);

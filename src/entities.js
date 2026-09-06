@@ -224,6 +224,8 @@ export class Boss extends Fighter {
       this.orbitPhase = this.orbit.phase || 0;
       this.updateOrbit(0);
     }
+    // Optional signal pulse ability.
+    this.pulser = this.pulse ? new Pulser(this.pulse) : null;
   }
 
   /** Advance the patrol orbit (if any); the AI steers toward `home`. */
@@ -396,6 +398,73 @@ export class Orbiter {
     const rx = px - this.x;
     const ry = py - this.y;
     return { x: -this.omega * ry, y: this.omega * rx };
+  }
+}
+
+/**
+ * A signal pulse: every `period` seconds an expanding ring is emitted from
+ * the source position. The ring is a moving surface travelling outward at
+ * `speed`, so it flings the ball away from the source and boosts a ball it
+ * overtakes. It fades out at `maxRadius`.
+ */
+export class Pulser {
+  constructor({ period = 5, speed = 340, maxRadius = 330, thick = 8, warn = 0.8, delay = 2 }) {
+    this.period = period;
+    this.speed = speed;
+    this.maxRadius = maxRadius;
+    this.thick = thick;
+    this.warn = warn;
+    this.t = 0;
+    this.nextAt = delay;
+    this.active = false;
+    this.x = 0;
+    this.y = 0;
+    this.radius = 0;
+    this.reach = 0; // no static footprint for the boss brain to avoid
+    this.kind = 'pulse';
+    this.emitted = false; // set true on the step a pulse is emitted (consumed by the game)
+  }
+
+  /** Seconds until the next pulse; below `warn` the source should telegraph. */
+  countdown() {
+    return this.nextAt - this.t;
+  }
+
+  update(dt, sx, sy) {
+    this.t += dt;
+    this.emitted = false;
+    if (this.active) {
+      this.radius += this.speed * dt;
+      if (this.radius >= this.maxRadius) this.active = false;
+    }
+    if (this.t >= this.nextAt) {
+      this.nextAt += this.period;
+      this.active = true;
+      this.radius = 1;
+      this.x = sx;
+      this.y = sy;
+      this.emitted = true;
+    }
+  }
+
+  /** The ring right now, or null when there is none. */
+  ring() {
+    return this.active ? { x: this.x, y: this.y, r: this.radius, thick: this.thick } : null;
+  }
+
+  segments() {
+    return [];
+  }
+
+  predictSegments() {
+    return [];
+  }
+
+  surfaceVelocityAt(px, py) {
+    const dx = px - this.x;
+    const dy = py - this.y;
+    const d = Math.hypot(dx, dy) || 1;
+    return { x: (dx / d) * this.speed, y: (dy / d) * this.speed };
   }
 }
 

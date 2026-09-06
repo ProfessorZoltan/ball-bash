@@ -103,6 +103,7 @@ export class Renderer {
     if (game.panes && game.panes.length) this.drawGlass(game.panes, game, time);
     if (game.ice) this.drawIce(game.ice, level.palette.ice || '#cdf6ff', time);
     for (const m of game.movers || []) this.drawMover(m, level.palette.obstacle);
+    if (game.boss.pulser) this.drawPulse(game.boss, level.palette.obstacle, time);
     this.drawRings(game.fx);
     this.drawFighter(game.boss, time, level.palette.obstacle);
     this.drawFighter(game.player, time, level.palette.wall);
@@ -460,6 +461,44 @@ export class Renderer {
     ctx.lineWidth = 1.5;
     ctx.strokeStyle = 'rgba(255,255,255,0.35)';
     ctx.stroke();
+    ctx.restore();
+  }
+
+  /** The Beacon's signal: a charging glow, then an expanding ring. */
+  drawPulse(boss, color, time) {
+    const ctx = this.ctx;
+    const p = boss.pulser;
+    const cd = p.countdown();
+    ctx.save();
+    if (cd < p.warn && cd > 0) {
+      const k = 1 - cd / p.warn;
+      ctx.beginPath();
+      ctx.arc(boss.x, boss.y, boss.r + 10 + 12 * k, 0, Math.PI * 2);
+      ctx.lineWidth = 2 + 3 * k;
+      ctx.strokeStyle = '#ffffff';
+      ctx.globalAlpha = 0.3 + 0.6 * k * (0.6 + 0.4 * Math.sin(time * 40));
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 20 * k;
+      ctx.stroke();
+    }
+    const ring = p.ring();
+    if (ring) {
+      const k = ring.r / p.maxRadius;
+      ctx.globalAlpha = 0.9 * (1 - k) + 0.1;
+      ctx.beginPath();
+      ctx.arc(ring.x, ring.y, ring.r, 0, Math.PI * 2);
+      ctx.lineWidth = ring.thick * 2;
+      ctx.strokeStyle = color;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 24;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(ring.x, ring.y, ring.r, 0, Math.PI * 2);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#ffffff';
+      ctx.shadowBlur = 0;
+      ctx.stroke();
+    }
     ctx.restore();
   }
 

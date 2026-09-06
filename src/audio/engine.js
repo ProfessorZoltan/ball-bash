@@ -806,6 +806,52 @@ export class AudioEngine {
     });
   }
 
+  /** The Beacon emits a pulse: a rising sweep with a sub thump. */
+  sfxPulse() {
+    if (!this.ctx) return;
+    const c = this.ctx;
+    const t = c.currentTime;
+    const o = this.osc('sine', 220, t);
+    o.frequency.exponentialRampToValueAtTime(1400, t + 0.35);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.28, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+    o.connect(g);
+    g.connect(this.sfxBus);
+    const rs = c.createGain();
+    rs.gain.value = 0.5;
+    g.connect(rs);
+    rs.connect(this.reverbSend);
+    o.start(t);
+    o.stop(t + 0.52);
+    const th = this.osc('sine', 70, t);
+    th.frequency.exponentialRampToValueAtTime(35, t + 0.25);
+    const tg = c.createGain();
+    tg.gain.setValueAtTime(0.5, t);
+    tg.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+    th.connect(tg);
+    tg.connect(this.sfxBus);
+    th.start(t);
+    th.stop(t + 0.32);
+  }
+
+  /** The ring catches the ball: a short bright ping. */
+  sfxPing(strength = 0.5) {
+    if (!this.ctx) return;
+    const c = this.ctx;
+    const t = c.currentTime;
+    const o = this.osc('sine', 1600 + 800 * strength, t);
+    o.frequency.exponentialRampToValueAtTime(900, t + 0.12);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.25, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+    o.connect(g);
+    g.connect(this.sfxBus);
+    o.start(t);
+    o.stop(t + 0.22);
+  }
+
   sfxCount(final = false) {
     if (!this.ctx) return;
     const c = this.ctx;

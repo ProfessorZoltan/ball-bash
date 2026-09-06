@@ -36,6 +36,29 @@ export function advanceBall(ball, walls, fighters, dt, factor = 1, hooks = {}, m
     }
 
     for (const m of movers) {
+      if (m.ring) {
+        // Expanding ring: a thin circular moving wall.
+        const ring = m.ring();
+        if (!ring) continue;
+        const dx = ball.x - ring.x;
+        const dy = ball.y - ring.y;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d < 1e-6) continue;
+        const gap = d - ring.r; // signed distance from the ring line
+        const reach = ball.r + ring.thick;
+        if (Math.abs(gap) >= reach) continue;
+        const side = gap >= 0 ? 1 : -1;
+        const nx = (side * dx) / d;
+        const ny = (side * dy) / d;
+        const depth = reach - Math.abs(gap);
+        ball.x += nx * depth;
+        ball.y += ny * depth;
+        const sv = m.surfaceVelocityAt(ball.x, ball.y);
+        const before = ball.speed;
+        if (reflect(ball, nx, ny, sv.x, sv.y, 1, factor) && hooks.onMover) hooks.onMover(m, { nx, ny, cx: ball.x - nx * ball.r, cy: ball.y - ny * ball.r, depth }, before);
+        any = true;
+        continue;
+      }
       for (const seg of m.segments()) {
         const h = circleVsCapsule(ball.x, ball.y, ball.r, seg.ax, seg.ay, seg.bx, seg.by, m.thick, ball.vx, ball.vy);
         if (!h) continue;

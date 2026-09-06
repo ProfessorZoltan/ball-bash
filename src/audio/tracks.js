@@ -393,4 +393,57 @@ export const TRACKS = {
     ],
     loopFrom: 1,
   },
+
+  spire: {
+    key: 'C# minor',
+    title: 'Signal Spire (Beacon Theme)',
+    bpm: 136,
+    progression: [
+      { chord: [61, 64, 68], pad: [49, 56, 61, 64], bass: 37, bars: 2 }, // C# minor
+      { chord: [57, 61, 64], pad: [45, 52, 57, 61], bass: 45, bars: 2 }, // A major
+      { chord: [59, 63, 66], pad: [47, 54, 59, 63], bass: 47, bars: 2 }, // B major
+      { chord: [56, 59, 63], pad: [44, 51, 56, 59], bass: 44, bars: 2 }, // G# minor
+    ],
+    arp: {
+      octave: 12,
+      gate: 0.35,
+      // Morse-like stutter on each chord tone, answered by its octave.
+      pattern: [0, 0, 0, 3, 0, 0, 3, 3, 1, 1, 1, 4, 2, 2, 5, 5],
+    },
+    bass: {
+      pattern: [
+        [0, 1], [0, 1], [12, 1], 0,
+        [0, 1], [0, 1], [12, 1], 0,
+        [0, 1], [0, 1], [12, 1], 0,
+        [0, 1], [7, 1], [12, 1], 0,
+      ],
+    },
+    drums: {
+      kick: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0],
+      snare: [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0.4, 1, 0, 0, 0.4],
+      hat: [0.9, 0.5, 0.7, 0.5, 0.9, 0.5, 0.7, 0.5, 0.9, 0.5, 0.7, 0.5, 0.9, 0.5, 0.7, 0.6],
+      hatOpen: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+    },
+    lead: {
+      length: 128,
+      notes: [
+        // bar 0-1 (C# minor)
+        [0, 80, 6], [6, 83, 2], [8, 85, 8], [16, 83, 4], [20, 80, 4], [24, 76, 8],
+        // bar 2-3 (A)
+        [32, 81, 8], [40, 80, 4], [44, 76, 4], [48, 85, 12], [60, 83, 4],
+        // bar 4-5 (B)
+        [64, 83, 8], [72, 87, 4], [76, 83, 4], [80, 80, 8], [88, 78, 8],
+        // bar 6-7 (G# minor)
+        [96, 75, 6], [102, 78, 2], [104, 80, 8], [112, 83, 8], [120, 85, 4], [124, 83, 4],
+      ],
+    },
+    sections: [
+      { name: 'intro', bars: 4, layers: ['pad', 'arp'], arpDensity: 8, riser: true },
+      { name: 'build', bars: 8, layers: ['pad', 'arp', 'kick', 'bass', 'hat'], fill: true, riser: true },
+      { name: 'drop', bars: 16, layers: ['pad', 'arp', 'kick', 'bass', 'hat', 'snare', 'lead', 'stab'], fill: true, padBright: 1 },
+      { name: 'break', bars: 8, layers: ['pad', 'lead', 'arp', 'hat'], arpDensity: 8, arpOctave: 12, riser: true },
+      { name: 'drop2', bars: 16, layers: ['pad', 'arp', 'kick', 'bass', 'hat', 'snare', 'lead', 'stab'], fill: true, padBright: 1 },
+    ],
+    loopFrom: 1,
+  },
 };
