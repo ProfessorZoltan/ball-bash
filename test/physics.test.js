@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reflect, circleVsCapsule, polygonEdges, pointInPolygon, predictPath, raycastSegments } from '../src/physics.js';
-import { Ball, Fighter, Spinner } from '../src/entities.js';
+import { Ball, Fighter, Spinner, Piston, createMover } from '../src/entities.js';
+import { IceTrail } from '../src/ice.js';
 import { advanceBall } from '../src/sim.js';
 import { LEVELS } from '../src/levels.js';
 import { BALL } from '../src/config.js';
@@ -89,11 +90,53 @@ test('spinner tips are moving surfaces: velocity is omega x r', () => {
   assert.ok(Math.abs(sp.angle - Math.PI / 2) < 1e-9);
 });
 
+test('piston slides along its axis and reports its sliding velocity', () => {
+  const pi = new Piston({ x: 100, y: 100, length: 80, axisAngle: Math.PI / 2, amp: 40, period: 4, phase: 0 });
+  let [seg] = pi.segments();
+  assert.ok(Math.abs((seg.ay + seg.by) / 2 - 100) < 1e-9, 'starts retracted');
+  assert.ok(Math.abs(seg.ax - 140) < 1e-9 && Math.abs(seg.bx - 60) < 1e-9, 'slab is perpendicular to the axis');
+  pi.update(2); // half a period: fully extended
+  [seg] = pi.segments();
+  assert.ok(Math.abs((seg.ay + seg.by) / 2 - 140) < 1e-9, 'fully extended after half a period');
+  pi.update(-1); // quarter period: moving outward at peak speed
+  const v = pi.surfaceVelocityAt(0, 0);
+  assert.ok(v.y > 0 && Math.abs(v.x) < 1e-9, `moving along +y, got ${v.x},${v.y}`);
+  const [pred] = pi.predictSegments(1);
+  assert.ok(Math.abs((pred.ay + pred.by) / 2 - 140) < 1e-9, 'prediction one second ahead matches the cycle');
+});
+
+test('ice trail: laid after a block, melts, freezes once per contact', () => {
+  const ice = new IceTrail({ lay: 2, life: 2, freeze: 2, width: 30 });
+  const ball = { x: 0, y: 0 };
+  ice.start(0);
+  for (let t = 0; t <= 3; t += 0.1) {
+    ball.x = t * 100; // ball travels along +x
+    ice.update(t, ball);
+  }
+  // Laying stopped at t=2 (x=200); by t=3 pieces older than 1s (x < 100) have melted.
+  assert.ok(ice.points.every((p) => p.x >= 100 - 1e-6), 'old ice melted');
+  assert.ok(ice.points.some((p) => p.x >= 190), 'ice laid up to the end of the lay window');
+  assert.ok(!ice.points.some((p) => p.x > 200 + 1e-6), 'no ice after the lay window');
+
+  const f = { x: 150, y: 0, r: 20, frozen: 0, iceImmune: false };
+  assert.equal(ice.affect(f), true, 'touching fresh ice freezes');
+  assert.equal(f.frozen, 2);
+  f.frozen = 0; // thawed but still standing on the ice
+  assert.equal(ice.affect(f), false, 'no re-freeze while still on the ice');
+  f.x = -500; // step off
+  ice.affect(f);
+  f.x = 150;
+  assert.equal(ice.affect(f), true, 'stepping off and back on freezes again');
+  // Sump blocks again: trail restarts empty.
+  ice.start(10);
+  assert.equal(ice.points.length, 0);
+});
+
 for (const def of LEVELS) {
   test(`level ${def.id} arena is sealed: the ball never leaves the room or enters an obstacle`, () => {
     const walls = polygonEdges(def.boundary);
     for (const poly of def.obstacles) walls.push(...polygonEdges(poly));
-    const movers = (def.movers || []).map((m) => new Spinner(m));
+    const movers = (def.movers || []).map(createMover);
     const player = new Fighter({ x: def.player.x, y: def.player.y, r: 22, paddleWidth: 116, paddleBase: 36 });
     const boss = new Fighter({ ...def.boss, kind: 'boss' });
     const ball = new Ball(BALL.radius);

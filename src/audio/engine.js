@@ -682,6 +682,52 @@ export class AudioEngine {
     });
   }
 
+  /** Ice trail begins: a glassy crackle. */
+  sfxIce() {
+    if (!this.ctx) return;
+    const c = this.ctx;
+    const t = c.currentTime;
+    for (let i = 0; i < 5; i++) {
+      const tt = t + i * 0.035 + Math.random() * 0.01;
+      const f = this.noiseHit(tt, 'bandpass', 5000 + Math.random() * 4000, 0.18, 0.05, this.sfxBus, 6);
+      f.frequency.exponentialRampToValueAtTime(9000, tt + 0.05);
+    }
+    const o = this.osc('sine', 2400, t);
+    o.frequency.exponentialRampToValueAtTime(3600, t + 0.25);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.08, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+    o.connect(g);
+    g.connect(this.sfxBus);
+    o.start(t);
+    o.stop(t + 0.32);
+  }
+
+  /** The player freezes: a shimmering downward chime. */
+  sfxFreeze() {
+    if (!this.ctx) return;
+    const c = this.ctx;
+    const t = c.currentTime;
+    const notes = [1760, 1318, 988, 740];
+    notes.forEach((f, i) => {
+      const tt = t + i * 0.06;
+      const o = this.osc('triangle', f, tt);
+      const g = c.createGain();
+      g.gain.setValueAtTime(0.0001, tt);
+      g.gain.linearRampToValueAtTime(0.22, tt + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, tt + 0.5);
+      o.connect(g);
+      g.connect(this.sfxBus);
+      const rs = c.createGain();
+      rs.gain.value = 0.5;
+      g.connect(rs);
+      rs.connect(this.reverbSend);
+      o.start(tt);
+      o.stop(tt + 0.55);
+    });
+    this.noiseHit(t, 'highpass', 7000, 0.25, 0.4, this.sfxBus);
+  }
+
   sfxCount(final = false) {
     if (!this.ctx) return;
     const c = this.ctx;

@@ -125,7 +125,7 @@ function chooseReturnAngle(boss, tx, ty, incoming, player, walls, eta, ballR, mo
     for (const m of movers) {
       for (const s of path) {
         const c = closestPointOnSegment(m.x, m.y, s.ax, s.ay, s.bx, s.by);
-        if (Math.hypot(c.x - m.x, c.y - m.y) < m.halfLen + ballR + 20) {
+        if (Math.hypot(c.x - m.x, c.y - m.y) < m.reach + ballR + 20) {
           score -= 320;
           break;
         }
@@ -162,12 +162,9 @@ function chooseReturnAngle(boss, tx, ty, incoming, player, walls, eta, ballR, mo
 function moverSegmentsAt(movers, x, y, speed, delay) {
   const segs = [];
   for (const m of movers) {
-    const dist = Math.max(0, Math.hypot(m.x - x, m.y - y) - m.halfLen);
+    const dist = Math.max(0, Math.hypot(m.x - x, m.y - y) - m.reach);
     const t = delay + (speed > 1 ? dist / speed : 0);
-    const a = m.angle + m.omega * t;
-    const c = Math.cos(a) * m.halfLen;
-    const sn = Math.sin(a) * m.halfLen;
-    segs.push({ ax: m.x - c, ay: m.y - sn, bx: m.x + c, by: m.y + sn, kind: 'mover' });
+    for (const sg of m.predictSegments(t)) segs.push({ ...sg, kind: 'mover' });
   }
   return segs;
 }

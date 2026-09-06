@@ -1,7 +1,8 @@
 // Game bootstrap: state machine, fixed-step physics loop, collision dispatch,
 // HUD/overlay wiring. Everything heavy lives in the modules it imports.
 import { GAME_TITLE, GAME_TAGLINE, PHYSICS_DT, BALL, PLAYER, SURFACE_VELOCITY_FACTOR, COUNTDOWN_SECONDS } from './config.js';
-import { Ball, Fighter, Boss, Spinner } from './entities.js';
+import { Ball, Fighter, Boss, createMover } from './entities.js';
+import { IceTrail } from './ice.js';
 import { BallHistory, bossIntent } from './ai.js';
 import { LEVELS, ROSTER } from './levels.js';
 import { Input } from './input.js';
@@ -55,7 +56,8 @@ function buildGame(def) {
     color: def.palette.wall,
   });
   const boss = new Boss({ ...def.boss, name: def.bossName, color: def.palette.obstacle });
-  const movers = (def.movers || []).map((m) => new Spinner(m));
+  const movers = (def.movers || []).map(createMover);
+  const ice = def.ice ? new IceTrail(def.ice) : null;
   const ball = new Ball(BALL.radius);
   ball.x = def.ball.x;
   ball.y = def.ball.y;
@@ -66,6 +68,7 @@ function buildGame(def) {
     player,
     boss,
     movers,
+    ice,
     ball,
     fx: new Effects(),
     history: new BallHistory(),
@@ -149,6 +152,19 @@ function step(dt) {
     moveBall(dt);
     if (state === 'playing') g.history.push(simTime, g.ball);
   }
+
+  if (g.ice) {
+    g.ice.update(simTime, g.ball);
+    if (g.ice.affect(g.player)) onPlayerFrozen();
+  }
+}
+
+function onPlayerFrozen() {
+  const g = game;
+  audio.sfxFreeze();
+  g.fx.ring(g.player.x, g.player.y, g.def.palette.ice || '#cdf6ff', 90, 0.5);
+  g.fx.burst(g.player.x, g.player.y, 0, -1, 18, '#ffffff', 120, Math.PI, 0.7);
+  g.fx.addShake(4);
 }
 
 function pushOutOfMovers(f) {
@@ -241,6 +257,10 @@ function onPaddleHit(f, h, before) {
   }
   g.ball.lastHitBy = f.kind;
   if (!isBoss) g.paddleHits++;
+  if (isBoss && g.ice) {
+    g.ice.start(simTime);
+    audio.sfxIce();
+  }
   guideFrame = 0;
 }
 
@@ -427,6 +447,9 @@ function updateHud() {
   $('hud-speed-bar').style.width = `${speedNorm(s) * 100}%`;
   setText('hud-bpm', audio.currentBpm ? `♪ ${Math.round(audio.currentBpm)} BPM` : '♪');
   setText('hud-fps', `${Math.round(fps)} FPS`);
+  const frozen = g.player.frozen > 0;
+  setText('hud-status', frozen ? `FROZEN ${g.player.frozen.toFixed(1)}` : '');
+  $('hud-status').classList.toggle('on', frozen);
 }
 
 function formatTime(t) {

@@ -124,4 +124,57 @@ export const TRACKS = {
     ],
     loopFrom: 1,
   },
+
+  coolant: {
+    title: 'Coolant Tunnels (Sump Theme)',
+    bpm: 96,
+    progression: [
+      { chord: [48, 51, 55], pad: [48, 55, 60, 63], bass: 36, bars: 2 }, // C minor
+      { chord: [53, 56, 60], pad: [53, 56, 60, 65], bass: 41, bars: 2 }, // F minor
+      { chord: [46, 50, 53], pad: [46, 53, 58, 62], bass: 46, bars: 2 }, // Bb major
+      { chord: [44, 48, 51], pad: [44, 51, 56, 60], bass: 44, bars: 2 }, // Ab major
+    ],
+    arp: {
+      octave: 12,
+      gate: 0.3,
+      // Wide leaps with a short gate: "drips" that the delay smears into the dark.
+      pattern: [0, 5, 2, 4, 1, 3, 0, 5, 2, 4, 1, 3, 0, 5, 2, 4],
+    },
+    bass: {
+      pattern: [
+        [0, 4], 0, 0, 0,
+        0, 0, [0, 2], 0,
+        [0, 2], 0, 0, [0, 1],
+        0, [7, 1], [0, 2], 0,
+      ],
+    },
+    drums: {
+      // Half-time: kick on 1 with a pickup, snare on 3, busy hats.
+      kick: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
+      snare: [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0],
+      hat: [0.7, 0.3, 0.5, 0.3, 0.7, 0.3, 0.5, 0.3, 0.7, 0.3, 0.5, 0.3, 0.7, 0.3, 0.5, 0.4],
+      hatOpen: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
+    },
+    lead: {
+      length: 128,
+      notes: [
+        // bar 0-1 (C minor)
+        [0, 67, 12], [12, 70, 4], [16, 72, 12], [28, 70, 4],
+        // bar 2-3 (F minor)
+        [32, 68, 8], [40, 65, 8], [48, 72, 12], [60, 68, 4],
+        // bar 4-5 (Bb)
+        [64, 74, 8], [72, 70, 8], [80, 65, 12], [92, 67, 4],
+        // bar 6-7 (Ab)
+        [96, 68, 8], [104, 72, 8], [112, 75, 8], [120, 74, 4], [124, 70, 4],
+      ],
+    },
+    sections: [
+      { name: 'intro', bars: 4, layers: ['pad', 'arp'], arpDensity: 8, riser: true },
+      { name: 'build', bars: 8, layers: ['pad', 'arp', 'kick', 'bass', 'hat'], arpDensity: 8, fill: true, riser: true },
+      { name: 'drop', bars: 16, layers: ['pad', 'arp', 'kick', 'bass', 'hat', 'snare', 'lead', 'stab'], fill: true, padBright: 0.6 },
+      { name: 'break', bars: 8, layers: ['pad', 'lead', 'arp'], arpDensity: 8, arpOctave: 12, riser: true },
+      { name: 'drop2', bars: 16, layers: ['pad', 'arp', 'kick', 'bass', 'hat', 'snare', 'lead', 'stab'], fill: true, padBright: 0.6 },
+    ],
+    loopFrom: 1,
+  },
 };

@@ -53,6 +53,9 @@ html, body {
 .hud-center .hud-row { justify-content: center; }
 .hud-right .hud-row { justify-content: flex-end; }
 .label { color: var(--muted); }
+.status { font-size: 14px; margin-top: 6px; min-height: 18px; color: #cdf6ff; letter-spacing: 0.2em; }
+.status.on { text-shadow: 0 0 14px #cdf6ff; animation: pulse 0.5s ease-in-out infinite alternate; }
+@keyframes pulse { from { opacity: 0.6; } to { opacity: 1; } }
 .lives { color: var(--cyan); letter-spacing: 0.2em; }
 .small { font-size: 11px; }
 .muted { color: var(--muted); }

@@ -88,6 +88,7 @@ export class Renderer {
     ctx.setTransform(v.dpr * v.scale, 0, 0, v.dpr * v.scale, (v.ox + shx) * v.dpr, (v.oy + shy) * v.dpr);
 
     this.drawPredictedPath(game);
+    if (game.ice) this.drawIce(game.ice, level.palette.ice || '#cdf6ff', time);
     for (const m of game.movers || []) this.drawMover(m, level.palette.obstacle);
     this.drawRings(game.fx);
     this.drawFighter(game.boss, time, level.palette.obstacle);
@@ -181,6 +182,7 @@ export class Renderer {
   drawObstacles(level) {
     const ctx = this.ctx;
     const p = level.palette;
+    const height = level.extrude ?? WALL_HEIGHT;
     ctx.save();
     ctx.lineJoin = 'round';
     for (const poly of level.obstacles) {
@@ -192,15 +194,15 @@ export class Renderer {
         ctx.beginPath();
         ctx.moveTo(a[0], a[1]);
         ctx.lineTo(b[0], b[1]);
-        ctx.lineTo(b[0], b[1] + WALL_HEIGHT);
-        ctx.lineTo(a[0], a[1] + WALL_HEIGHT);
+        ctx.lineTo(b[0], b[1] + height);
+        ctx.lineTo(a[0], a[1] + height);
         ctx.closePath();
         ctx.fill();
       }
       // Top face.
       ctx.beginPath();
       polyPath(ctx, poly);
-      ctx.fillStyle = '#1a1206';
+      ctx.fillStyle = p.obstacleFill || '#1a1206';
       ctx.fill();
       ctx.lineWidth = 2.5;
       ctx.strokeStyle = p.obstacle;
@@ -212,7 +214,51 @@ export class Renderer {
     ctx.restore();
   }
 
+  /** Ice trail: a frosted ribbon that melts from the tail. */
+  drawIce(ice, color, time) {
+    const pts = ice.points;
+    if (pts.length < 2) return;
+    const ctx = this.ctx;
+    const now = ice.points[pts.length - 1].t;
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    for (let i = 1; i < pts.length; i++) {
+      const age = now - pts[i].t;
+      const a = clamp(1 - age / ice.life, 0, 1);
+      ctx.beginPath();
+      ctx.moveTo(pts[i - 1].x, pts[i - 1].y);
+      ctx.lineTo(pts[i].x, pts[i].y);
+      ctx.lineWidth = ice.width;
+      ctx.strokeStyle = `rgba(205, 246, 255, ${0.16 + 0.22 * a})`;
+      ctx.stroke();
+      ctx.lineWidth = ice.width * 0.35;
+      ctx.strokeStyle = `rgba(255, 255, 255, ${0.15 + 0.35 * a})`;
+      ctx.stroke();
+    }
+    // Frost crystals along the trail.
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.globalAlpha = 0.7;
+    for (let i = 0; i < pts.length; i += 4) {
+      const pt = pts[i];
+      const a = clamp(1 - (now - pt.t) / ice.life, 0, 1);
+      if (a <= 0) continue;
+      const r = 4 + 6 * a;
+      const rot = (pt.x + pt.y) * 0.05 + time;
+      for (let k = 0; k < 3; k++) {
+        const ang = rot + (k * Math.PI) / 3;
+        ctx.beginPath();
+        ctx.moveTo(pt.x - Math.cos(ang) * r, pt.y - Math.sin(ang) * r);
+        ctx.lineTo(pt.x + Math.cos(ang) * r, pt.y + Math.sin(ang) * r);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
   drawMover(m, color) {
+    if (m.kind === 'piston') return this.drawPiston(m, color);
     const ctx = this.ctx;
     const [seg] = m.segments();
     ctx.save();
@@ -256,6 +302,48 @@ export class Renderer {
     ctx.restore();
   }
 
+  drawPiston(m, color) {
+    const ctx = this.ctx;
+    const [seg] = m.segments();
+    const cx = (seg.ax + seg.bx) / 2;
+    const cy = (seg.ay + seg.by) / 2;
+    ctx.save();
+    ctx.lineCap = 'round';
+    // Rod from the rock face to the slab.
+    ctx.beginPath();
+    ctx.moveTo(m.baseX - m.ax * m.thick, m.baseY - m.ay * m.thick);
+    ctx.lineTo(cx, cy);
+    ctx.lineWidth = 10;
+    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+    ctx.stroke();
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = '#26443a';
+    ctx.stroke();
+    // Slab shadow, glow, core.
+    ctx.beginPath();
+    ctx.moveTo(seg.ax, seg.ay + WALL_HEIGHT);
+    ctx.lineTo(seg.bx, seg.by + WALL_HEIGHT);
+    ctx.lineWidth = m.thick * 2 + 2;
+    ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(seg.ax, seg.ay);
+    ctx.lineTo(seg.bx, seg.by);
+    ctx.lineWidth = m.thick * 2;
+    ctx.strokeStyle = color;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 14;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.beginPath();
+    ctx.moveTo(seg.ax, seg.ay);
+    ctx.lineTo(seg.bx, seg.by);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#ffffff';
+    ctx.stroke();
+    ctx.restore();
+  }
+
   drawPredictedPath(game) {
     // Faint guide line showing where the ball is heading (first leg only).
     const ctx = this.ctx;
@@ -277,8 +365,31 @@ export class Renderer {
     const seg = f.paddleSegment();
     const flash = f.hitFlash > 0;
     const blink = f.invuln > 0 && Math.floor(time * 12) % 2 === 0;
+    const frozen = f.frozen > 0;
+    if (frozen) color = '#cdf6ff';
     ctx.save();
     ctx.globalAlpha = blink ? 0.45 : 1;
+    if (frozen) {
+      // Ice shell: a hexagon of frost around the body.
+      ctx.beginPath();
+      for (let k = 0; k < 6; k++) {
+        const a = time * 0.6 + (k * Math.PI) / 3;
+        const rr = f.r + 12;
+        const x = f.x + Math.cos(a) * rr;
+        const y = f.y + Math.sin(a) * rr;
+        if (k === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(205, 246, 255, 0.18)';
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#ffffff';
+      ctx.shadowColor = '#cdf6ff';
+      ctx.shadowBlur = 20;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
 
     // Body shadow (extrusion) and body.
     ctx.beginPath();

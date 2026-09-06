@@ -90,6 +90,8 @@ export class Fighter {
     this.lungeCooldown = 0;
     this.hitFlash = 0;
     this.invuln = 0;
+    this.frozen = 0; // seconds left of an ice freeze (no movement, no turning)
+    this.iceImmune = false; // true until the fighter steps off the ice after thawing
     this.prevX = this.x;
     this.prevY = this.y;
   }
@@ -138,6 +140,10 @@ export class Fighter {
   update(dt, intent) {
     this.prevX = this.x;
     this.prevY = this.y;
+    if (this.frozen > 0) {
+      this.frozen = Math.max(0, this.frozen - dt);
+      intent = { mx: 0, my: 0, turn: 0, lunge: false, retract: false };
+    }
 
     // Movement with a short acceleration ramp for a weighty feel.
     let mx = intent.mx || 0;
@@ -225,6 +231,7 @@ export class Spinner {
     this.x = x;
     this.y = y;
     this.halfLen = length / 2;
+    this.reach = this.halfLen; // radius of the area it can occupy
     this.thick = thick;
     this.omega = omega;
     this.angle = angle;
@@ -235,10 +242,19 @@ export class Spinner {
     this.angle = wrapAngle(this.angle + this.omega * dt);
   }
 
-  segments() {
-    const c = Math.cos(this.angle) * this.halfLen;
-    const s = Math.sin(this.angle) * this.halfLen;
+  segmentsAt(angle) {
+    const c = Math.cos(angle) * this.halfLen;
+    const s = Math.sin(angle) * this.halfLen;
     return [{ ax: this.x - c, ay: this.y - s, bx: this.x + c, by: this.y + s }];
+  }
+
+  segments() {
+    return this.segmentsAt(this.angle);
+  }
+
+  /** Where the bar will be `t` seconds from now. */
+  predictSegments(t) {
+    return this.segmentsAt(this.angle + this.omega * t);
   }
 
   surfaceVelocityAt(px, py) {
@@ -246,6 +262,72 @@ export class Spinner {
     const ry = py - this.y;
     return { x: -this.omega * ry, y: this.omega * rx };
   }
+}
+
+/**
+ * A slab that slides back and forth along an axis (a "breathing" piston).
+ * (x, y) is the slab centre when fully retracted; it extends up to `amp`
+ * along `axisAngle`, following a smooth cosine cycle of `period` seconds.
+ * Moving surface: a slab sliding toward the ball speeds it up.
+ */
+export class Piston {
+  constructor({ x, y, length, thick = 8, axisAngle = 0, amp = 50, period = 5, phase = 0 }) {
+    this.baseX = x;
+    this.baseY = y;
+    this.halfLen = length / 2;
+    this.thick = thick;
+    this.ax = Math.cos(axisAngle);
+    this.ay = Math.sin(axisAngle);
+    this.amp = amp;
+    this.period = period;
+    this.phase = phase;
+    this.t = 0;
+    this.kind = 'piston';
+    // Centre of the swept area and how far the slab can reach from it.
+    this.x = x + this.ax * amp * 0.5;
+    this.y = y + this.ay * amp * 0.5;
+    this.reach = this.halfLen + amp * 0.5;
+  }
+
+  offsetAt(t) {
+    return this.amp * (0.5 - 0.5 * Math.cos((TAU * t) / this.period + this.phase));
+  }
+
+  velocityAt(t) {
+    return this.amp * 0.5 * (TAU / this.period) * Math.sin((TAU * t) / this.period + this.phase);
+  }
+
+  update(dt) {
+    this.t += dt;
+  }
+
+  segmentsAt(t) {
+    const off = this.offsetAt(t);
+    const cx = this.baseX + this.ax * off;
+    const cy = this.baseY + this.ay * off;
+    // Slab lies perpendicular to the sliding axis.
+    const px = -this.ay * this.halfLen;
+    const py = this.ax * this.halfLen;
+    return [{ ax: cx - px, ay: cy - py, bx: cx + px, by: cy + py }];
+  }
+
+  segments() {
+    return this.segmentsAt(this.t);
+  }
+
+  predictSegments(dt) {
+    return this.segmentsAt(this.t + dt);
+  }
+
+  surfaceVelocityAt() {
+    const v = this.velocityAt(this.t);
+    return { x: this.ax * v, y: this.ay * v };
+  }
+}
+
+export function createMover(def) {
+  if (def.type === 'piston') return new Piston(def);
+  return new Spinner(def);
 }
 
 export { TAU };

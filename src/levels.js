@@ -154,6 +154,76 @@ export const LEVELS = [
     },
     ball: { x: 560, y: 450, speed: 480, angleDeg: 0 },
   },
+  {
+    id: 3,
+    title: 'Coolant Tunnels',
+    bossName: 'The Sump',
+    intro: 'Rough caves in two chambers, joined by tunnels that breathe. The Sump is slow and huge, and every ball it blocks leaves a trail of ice. Touch the ice and you freeze. Thread the tunnels and hit it from the side.',
+    width: 1600,
+    height: 900,
+    track: 'coolant',
+    extrude: 14,
+    palette: {
+      floor: '#04110e',
+      grid: 'rgba(70, 210, 170, 0.09)',
+      wall: '#5df2c4',
+      wallDark: '#0a2e26',
+      obstacle: '#9df58f',
+      obstacleDark: '#0f2f1a',
+      obstacleFill: '#0a1a12',
+      ice: '#cdf6ff',
+    },
+    // Irregular cave outline. The rock divide attaches to the vertices
+    // (740,50)-(1000,80) at the top and (990,830)-(760,870) at the bottom.
+    boundary: [
+      [60, 300], [150, 130], [340, 60], [560, 100], [740, 50], [1000, 80], [1250, 60], [1470, 150],
+      [1550, 330], [1530, 560], [1560, 720], [1430, 850], [1200, 860], [990, 830], [760, 870],
+      [560, 840], [330, 850], [150, 770], [60, 600],
+    ],
+    obstacles: [
+      // The divide: north rock, island, south rock. Gaps between them are the tunnels.
+      [[740, 50], [1000, 80], [1020, 190], [960, 270], [840, 285], [750, 230], [700, 140]],
+      [[800, 400], [920, 380], [1000, 440], [980, 520], [860, 560], [770, 500]],
+      [[760, 870], [990, 830], [1020, 720], [960, 660], [840, 650], [750, 700], [720, 790]],
+      // Outcrops in the player's chamber and the Sump's chamber for bank shots.
+      [[380, 380], [430, 340], [480, 400], [450, 470], [380, 450]],
+      [[1120, 200], [1200, 180], [1250, 240], [1210, 300], [1130, 280]],
+      [[1120, 700], [1210, 680], [1250, 620], [1200, 590], [1130, 620]],
+    ],
+    // Breathing pistons: slabs that slide out of the rock into each tunnel,
+    // in opposite phase, so one tunnel is always the more open one.
+    movers: [
+      { type: 'piston', x: 880, y: 285, length: 90, thick: 8, axisAngle: Math.PI / 2, amp: 48, period: 5, phase: 0 },
+      { type: 'piston', x: 900, y: 655, length: 90, thick: 8, axisAngle: -Math.PI / 2, amp: 48, period: 5, phase: Math.PI },
+    ],
+    // Ice trail: laid for `lay` s after every Sump block, each piece melts
+    // after `life` s, touching it freezes the player for `freeze` s.
+    ice: { lay: 2, life: 2, freeze: 2, width: 30 },
+    player: { x: 330, y: 450, angle: 0 },
+    boss: {
+      x: 1330,
+      y: 450,
+      angle: Math.PI,
+      r: 40,
+      paddleWidth: 190,
+      paddleBase: 52,
+      paddleThick: 8,
+      moveSpeed: 130,
+      turnSpeed: 2.8,
+      reaction: 0.36,
+      aggression: 0.05,
+      aim: 0.5,
+      absorb: 0.9,
+      absorbSpeed: 420,
+      threatRadius: 380,
+      blockRadius: 130,
+      safeRadius: 300,
+      leash: 130,
+      lungeExtend: 18,
+      lungeSpeed: 120,
+    },
+    ball: { x: 560, y: 450, speed: 440, angleDeg: -20 },
+  },
 ];
 
 // Planned roster (number + title). Only level 1 is playable for now.

@@ -100,6 +100,8 @@ Level 1, "Antechamber (Warden Theme)", is in D minor at 124 BPM, cycling
 Dm - Bb - F - C through intro, build, drop, break and a second drop, then loops.
 Level 2, "Prism Vault (Refractor Theme)", is in E minor at 132 BPM over
 Em - C - Am - B, with a pulsing root/octave arpeggio and a pushed kick pattern.
+Level 3, "Coolant Tunnels (Sump Theme)", is a half-time track in C minor at
+96 BPM over Cm - Fm - Bb - Ab, with a short-gate "dripping" arpeggio.
 
 ## Levels
 
@@ -107,7 +109,7 @@ Em - C - Am - B, with a pulsing root/octave arpeggio and a pushed kick pattern.
 | --- | --- | --- | --- |
 | 1 | The Antechamber | The Warden | playable |
 | 2 | Prism Vault | The Refractor | playable |
-| 3 | Coolant Tunnels | The Sump | planned |
+| 3 | Coolant Tunnels | The Sump | playable |
 | 4 | The Hollow Reactor | Core Sentinel | planned |
 | 5 | Switchyard | The Shunter | planned |
 | 6 | Glass Cathedral | The Choirmaster | planned |
@@ -121,6 +123,15 @@ vault. It is a moving surface like a paddle, so its tips add or remove ball
 speed depending on which way they are travelling when the ball lands. Neither
 the guide line nor the boss's path prediction accounts for it, so shots through
 the centre are gambles and bank shots around the sides are the reliable play.
+
+Level 3 is the first cave: an irregular outline, two chambers joined by two
+tunnels through a rock divide, and "breathing" pistons that slide into the
+tunnels on a slow cycle (a sliding slab is a moving surface too, so a closing
+piston whacks the ball). The Sump is slow and huge with a strong absorb, and
+every ball it blocks lays an ice trail for two seconds; each piece of ice melts
+two seconds after it was laid. Touch the ice and you freeze for two seconds,
+and you cannot be re-frozen until you have stepped off it. The Sump is immune.
+All of those numbers live on the level's `ice` entry.
 
 Adding a level means adding an entry to `LEVELS` in `src/levels.js` (boundary
 polygon, obstacle polygons via `rect(cx, cy, w, h, angleDeg)`, optional
@@ -153,6 +164,7 @@ src/sim.js                 ball advancement + collision dispatch (DOM-free)
 src/physics.js             capsule/circle collision, moving-surface reflection, raycasts
 src/entities.js            Ball, Fighter (player), Boss
 src/ai.js                  boss perception delay, path prediction, brace/absorb
+src/ice.js                 ice trail hazard (Coolant Tunnels)
 src/levels.js              level data and the planned roster
 src/input.js               keyboard, mouse, touch -> one intent object
 src/render.js              Canvas 2D neon renderer with 2.5D wall extrusion
