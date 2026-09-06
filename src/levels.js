@@ -462,7 +462,7 @@ export const LEVELS = [
       ice: '#cdf6ff',
     },
     // Darkness: only these light radii (plus the ball's glow) reveal the crypt.
-    dark: { ambient: 0.1, player: 250, boss: 170, ball: 150, candle: 120 },
+    dark: { ambient: 0.07, player: 212, boss: 145, ball: 128, candle: 102 },
     lights: [
       { x: 110, y: 110 }, { x: 1490, y: 110 }, { x: 110, y: 790 }, { x: 1490, y: 790 },
       { x: 800, y: 70 }, { x: 800, y: 830 },

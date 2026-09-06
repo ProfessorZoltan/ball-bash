@@ -146,7 +146,7 @@ export class Renderer {
     const punch = (x, y, r, core = 0.5) => {
       const g = dc.createRadialGradient(x, y, 0, x, y, r);
       g.addColorStop(0, 'rgba(0,0,0,1)');
-      g.addColorStop(core, 'rgba(0,0,0,0.85)');
+      g.addColorStop(core, 'rgba(0,0,0,0.75)');
       g.addColorStop(1, 'rgba(0,0,0,0)');
       dc.fillStyle = g;
       dc.beginPath();
@@ -158,10 +158,10 @@ export class Renderer {
       const l = level.lights[i];
       punch(l.x, l.y, (l.r || d.candle) * flicker(i * 3.1), 0.35);
     }
-    punch(game.player.x, game.player.y, d.player * flicker(0.5), 0.55);
+    punch(game.player.x, game.player.y, d.player * flicker(0.5), 0.5);
     punch(game.boss.x, game.boss.y, d.boss * flicker(1.9), 0.5);
     if (!game.ball.held || state === 'countdown') {
-      punch(game.ball.x, game.ball.y, d.ball + game.ball.speed * 0.08, 0.5);
+      punch(game.ball.x, game.ball.y, d.ball + game.ball.speed * 0.07, 0.45);
     }
     for (const r of game.fx.rings) punch(r.x, r.y, r.maxR * 0.8, 0.3);
     const ctx = this.ctx;
