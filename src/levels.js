@@ -19,6 +19,16 @@ export function rect(cx, cy, w, h, angleDeg = 0) {
   return corners.map(([x, y]) => [cx + x * c - y * s, cy + x * s + y * c]);
 }
 
+/** Ellipse approximated by `n` segments (clockwise on screen). */
+export function ellipse(cx, cy, rx, ry, n = 40, rotate = 0) {
+  const pts = [];
+  for (let i = 0; i < n; i++) {
+    const a = rotate + (i / n) * Math.PI * 2;
+    pts.push([cx + Math.cos(a) * rx, cy + Math.sin(a) * ry]);
+  }
+  return pts;
+}
+
 export const LEVELS = [
   {
     id: 1,
@@ -223,6 +233,63 @@ export const LEVELS = [
       lungeSpeed: 120,
     },
     ball: { x: 560, y: 450, speed: 440, angleDeg: -20 },
+  },
+  {
+    id: 4,
+    title: 'The Hollow Reactor',
+    bossName: 'Core Sentinel',
+    intro: 'A ring chamber around a live core. The outer wall curves, so every bank comes off at a new angle. Shield plates orbit the core, and the Sentinel never stops patrolling. Catch its back as it passes.',
+    width: 1600,
+    height: 900,
+    track: 'reactor',
+    palette: {
+      floor: '#130608',
+      grid: 'rgba(255, 110, 80, 0.08)',
+      wall: '#9fb8ff',
+      wallDark: '#1a2038',
+      obstacle: '#ff6b4a',
+      obstacleDark: '#3a1410',
+      obstacleFill: '#1f0a08',
+      ice: '#cdf6ff',
+    },
+    boundary: ellipse(800, 450, 745, 415, 44),
+    obstacles: [
+      // The core.
+      ellipse(800, 450, 112, 112, 18),
+      // Four small vents on the outer wall, straight faces for reliable banks.
+      rect(800, 68, 120, 22, 0),
+      rect(800, 832, 120, 22, 0),
+      rect(90, 450, 22, 120, 0),
+      rect(1510, 450, 22, 120, 0),
+    ],
+    // Shield plates orbiting the core, rigidly, all tangent to their orbit.
+    movers: [{ type: 'orbiter', x: 800, y: 450, radius: 232, count: 4, length: 92, thick: 8, omega: 0.5, angle: 0.4 }],
+    player: { x: 240, y: 450, angle: 0 },
+    boss: {
+      x: 1200,
+      y: 450,
+      angle: Math.PI,
+      r: 30,
+      paddleWidth: 156,
+      paddleBase: 40,
+      paddleThick: 6,
+      moveSpeed: 250,
+      turnSpeed: 4.6,
+      reaction: 0.28,
+      aggression: 0.15,
+      aim: 0.7,
+      absorb: 0.5,
+      absorbSpeed: 600,
+      threatRadius: 380,
+      blockRadius: 95,
+      safeRadius: 280,
+      leash: 120,
+      lungeExtend: 20,
+      lungeSpeed: 170,
+      // Patrol orbit: the Sentinel's home position circles the core.
+      orbit: { cx: 800, cy: 450, rx: 400, ry: 255, omega: 0.2, phase: 0 },
+    },
+    ball: { x: 480, y: 450, speed: 460, angleDeg: -35 },
   },
 ];
 

@@ -219,6 +219,25 @@ export class Boss extends Fighter {
     });
     this.home = { x: this.x, y: this.y };
     this.ai = { timer: 0, tx: this.x, ty: this.y, targetAngle: this.angle, lunge: false, absorb: false, arrival: -1 };
+    // Optional patrol: the home position travels around an ellipse.
+    if (this.orbit) {
+      this.orbitPhase = this.orbit.phase || 0;
+      this.updateOrbit(0);
+    }
+  }
+
+  /**
+   * Advance the patrol orbit (if any); the AI steers toward `home`.
+   * The patrol pauses while the brain has a threat lined up, so the boss
+   * plants itself to block instead of being dragged along the orbit.
+   */
+  updateOrbit(dt) {
+    const o = this.orbit;
+    if (!o) return;
+    if (this.ai && this.ai.arrival > 0) return;
+    this.orbitPhase = wrapAngle(this.orbitPhase + o.omega * dt);
+    this.home.x = o.cx + Math.cos(this.orbitPhase) * o.rx;
+    this.home.y = o.cy + Math.sin(this.orbitPhase) * o.ry;
   }
 }
 
@@ -325,8 +344,60 @@ export class Piston {
   }
 }
 
+/**
+ * A ring of short bars orbiting a centre, rigidly rotating about it (each bar
+ * stays tangent to its orbit). Surface velocity is omega x r about the centre.
+ */
+export class Orbiter {
+  constructor({ x, y, radius, count = 4, length = 90, thick = 8, omega = 0.5, angle = 0 }) {
+    this.x = x;
+    this.y = y;
+    this.radius = radius;
+    this.count = count;
+    this.halfLen = length / 2;
+    this.thick = thick;
+    this.omega = omega;
+    this.angle = angle;
+    this.reach = radius + this.halfLen;
+    this.kind = 'orbiter';
+  }
+
+  update(dt) {
+    this.angle = wrapAngle(this.angle + this.omega * dt);
+  }
+
+  segmentsAt(angle) {
+    const segs = [];
+    for (let i = 0; i < this.count; i++) {
+      const a = angle + (i * TAU) / this.count;
+      const cx = this.x + Math.cos(a) * this.radius;
+      const cy = this.y + Math.sin(a) * this.radius;
+      // Tangent direction.
+      const tx = -Math.sin(a) * this.halfLen;
+      const ty = Math.cos(a) * this.halfLen;
+      segs.push({ ax: cx - tx, ay: cy - ty, bx: cx + tx, by: cy + ty });
+    }
+    return segs;
+  }
+
+  segments() {
+    return this.segmentsAt(this.angle);
+  }
+
+  predictSegments(t) {
+    return this.segmentsAt(this.angle + this.omega * t);
+  }
+
+  surfaceVelocityAt(px, py) {
+    const rx = px - this.x;
+    const ry = py - this.y;
+    return { x: -this.omega * ry, y: this.omega * rx };
+  }
+}
+
 export function createMover(def) {
   if (def.type === 'piston') return new Piston(def);
+  if (def.type === 'orbiter') return new Orbiter(def);
   return new Spinner(def);
 }
 

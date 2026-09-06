@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reflect, circleVsCapsule, polygonEdges, pointInPolygon, predictPath, raycastSegments } from '../src/physics.js';
-import { Ball, Fighter, Spinner, Piston, createMover } from '../src/entities.js';
+import { Ball, Fighter, Boss, Spinner, Piston, Orbiter, createMover } from '../src/entities.js';
 import { IceTrail } from '../src/ice.js';
 import { advanceBall } from '../src/sim.js';
 import { LEVELS } from '../src/levels.js';
@@ -113,6 +113,25 @@ test('piston slides along its axis and reports its sliding velocity', () => {
   assert.ok(v.y > 0 && Math.abs(v.x) < 1e-9, `moving along +y, got ${v.x},${v.y}`);
   const [pred] = pi.predictSegments(1);
   assert.ok(Math.abs((pred.ay + pred.by) / 2 - 140) < 1e-9, 'prediction one second ahead matches the cycle');
+});
+
+test('orbiter: bars stay tangent to the orbit and move with omega x r', () => {
+  const o = new Orbiter({ x: 0, y: 0, radius: 100, count: 2, length: 40, omega: 1, angle: 0 });
+  const segs = o.segments();
+  assert.equal(segs.length, 2);
+  // First bar centred at (100, 0), tangent (vertical).
+  assert.ok(Math.abs((segs[0].ax + segs[0].bx) / 2 - 100) < 1e-9 && Math.abs(segs[0].ax - segs[0].bx) < 1e-9);
+  const v = o.surfaceVelocityAt(100, 0);
+  assert.ok(Math.abs(v.x) < 1e-9 && Math.abs(v.y - 100) < 1e-9, `expected (0,100), got ${v.x},${v.y}`);
+  const [p] = o.predictSegments(Math.PI / 2);
+  assert.ok(Math.abs((p.ay + p.by) / 2 - 100) < 1e-9, 'quarter turn later the first bar is at (0,100)');
+});
+
+test('orbiting boss: home travels around its ellipse', () => {
+  const b = new Boss({ x: 0, y: 0, orbit: { cx: 0, cy: 0, rx: 100, ry: 50, omega: Math.PI, phase: 0 } });
+  assert.ok(Math.abs(b.home.x - 100) < 1e-9 && Math.abs(b.home.y) < 1e-9);
+  b.updateOrbit(0.5); // half a turn per second at omega = pi
+  assert.ok(Math.abs(b.home.x) < 1e-9 && Math.abs(b.home.y - 50) < 1e-9, `expected (0,50), got ${b.home.x},${b.home.y}`);
 });
 
 test('ice trail: laid after a block, melts, freezes once per contact', () => {

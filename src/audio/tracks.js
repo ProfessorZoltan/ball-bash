@@ -177,4 +177,56 @@ export const TRACKS = {
     ],
     loopFrom: 1,
   },
+
+  reactor: {
+    title: 'Hollow Reactor (Sentinel Theme)',
+    bpm: 140,
+    progression: [
+      { chord: [57, 60, 64], pad: [45, 52, 57, 60], bass: 45, bars: 2 }, // A minor
+      { chord: [57, 60, 64], pad: [43, 52, 57, 60], bass: 43, bars: 2 }, // A minor over G
+      { chord: [53, 57, 60], pad: [53, 57, 60, 65], bass: 41, bars: 2 }, // F major
+      { chord: [52, 56, 59], pad: [52, 56, 59, 64], bass: 40, bars: 2 }, // E major (the leading tone)
+    ],
+    arp: {
+      octave: 12,
+      gate: 0.5,
+      // Stuttering rise: each chord tone hammered, then the octave.
+      pattern: [0, 0, 3, 0, 1, 1, 4, 1, 2, 2, 5, 2, 3, 3, 0, 3],
+    },
+    bass: {
+      pattern: [
+        [0, 1], [12, 1], [0, 1], [12, 1],
+        [0, 1], [12, 1], [0, 1], [12, 1],
+        [0, 1], [12, 1], [0, 1], [12, 1],
+        [0, 1], [12, 1], [7, 1], [12, 1],
+      ],
+    },
+    drums: {
+      kick: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0],
+      snare: [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0.5],
+      hat: [0.9, 0.4, 0.6, 0.4, 0.9, 0.4, 0.6, 0.4, 0.9, 0.4, 0.6, 0.4, 0.9, 0.4, 0.6, 0.5],
+      hatOpen: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+    },
+    lead: {
+      length: 128,
+      notes: [
+        // bar 0-1 (A minor)
+        [0, 76, 8], [8, 74, 4], [12, 72, 4], [16, 74, 8], [24, 69, 8],
+        // bar 2-3 (A minor / G)
+        [32, 72, 6], [38, 71, 2], [40, 72, 8], [48, 76, 12], [60, 74, 4],
+        // bar 4-5 (F)
+        [64, 77, 8], [72, 76, 4], [76, 74, 4], [80, 72, 8], [88, 69, 8],
+        // bar 6-7 (E: the G# pulls home)
+        [96, 68, 8], [104, 71, 8], [112, 76, 12], [124, 74, 2], [126, 72, 2],
+      ],
+    },
+    sections: [
+      { name: 'intro', bars: 4, layers: ['pad', 'arp'], arpDensity: 8, riser: true },
+      { name: 'build', bars: 8, layers: ['pad', 'arp', 'kick', 'bass', 'hat'], fill: true, riser: true },
+      { name: 'drop', bars: 16, layers: ['pad', 'arp', 'kick', 'bass', 'hat', 'snare', 'lead', 'stab'], fill: true, padBright: 1 },
+      { name: 'break', bars: 8, layers: ['pad', 'lead', 'arp', 'hat'], arpDensity: 8, arpOctave: 12, riser: true },
+      { name: 'drop2', bars: 16, layers: ['pad', 'arp', 'kick', 'bass', 'hat', 'snare', 'lead', 'stab'], fill: true, padBright: 1 },
+    ],
+    loopFrom: 1,
+  },
 };

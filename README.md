@@ -105,6 +105,8 @@ Level 2, "Prism Vault (Refractor Theme)", is in E minor at 132 BPM over
 Em - C - Am - B, with a pulsing root/octave arpeggio and a pushed kick pattern.
 Level 3, "Coolant Tunnels (Sump Theme)", is a half-time track in C minor at
 96 BPM over Cm - Fm - Bb - Ab, with a short-gate "dripping" arpeggio.
+Level 4, "Hollow Reactor (Sentinel Theme)", is A minor at 140 BPM over a
+descending A - G - F - E bass, with a hammered stutter arpeggio.
 
 ## Levels
 
@@ -113,7 +115,7 @@ Level 3, "Coolant Tunnels (Sump Theme)", is a half-time track in C minor at
 | 1 | The Antechamber | The Warden | playable |
 | 2 | Prism Vault | The Refractor | playable |
 | 3 | Coolant Tunnels | The Sump | playable |
-| 4 | The Hollow Reactor | Core Sentinel | planned |
+| 4 | The Hollow Reactor | Core Sentinel | playable |
 | 5 | Switchyard | The Shunter | planned |
 | 6 | Glass Cathedral | The Choirmaster | planned |
 | 7 | The Undercroft | The Sexton | planned |
@@ -135,6 +137,12 @@ every ball it blocks lays an ice trail for two seconds; each piece of ice melts
 two seconds after it was laid. Touch the ice and you freeze for two seconds,
 and you cannot be re-frozen until you have stepped off it. The Sump is immune.
 All of those numbers live on the level's `ice` entry.
+
+Level 4 is an elliptical ring chamber around a core. Four shield plates orbit
+the core as one rigid rotation (moving surfaces again), and Core Sentinel's
+home position patrols an ellipse instead of staying put, so its back keeps
+swinging toward you as it passes. A boss orbit is declared on its `orbit`
+entry.
 
 Adding a level means adding an entry to `LEVELS` in `src/levels.js` (boundary
 polygon, obstacle polygons via `rect(cx, cy, w, h, angleDeg)`, optional

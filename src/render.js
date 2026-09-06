@@ -51,6 +51,17 @@ export class Renderer {
     const live = this.ctx;
     this.ctx = ctx;
     this.drawFloor(this.level);
+    const orbit = this.level.boss && this.level.boss.orbit;
+    if (orbit) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.ellipse(orbit.cx, orbit.cy, orbit.rx, orbit.ry, 0, 0, Math.PI * 2);
+      ctx.setLineDash([4, 12]);
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+      ctx.stroke();
+      ctx.restore();
+    }
     this.drawObstacles(this.level);
     this.drawBoundary(this.level);
     this.ctx = live;
@@ -259,6 +270,7 @@ export class Renderer {
 
   drawMover(m, color) {
     if (m.kind === 'piston') return this.drawPiston(m, color);
+    if (m.kind === 'orbiter') return this.drawOrbiter(m, color);
     const ctx = this.ctx;
     const [seg] = m.segments();
     ctx.save();
@@ -299,6 +311,44 @@ export class Renderer {
     ctx.lineWidth = 1.5;
     ctx.strokeStyle = 'rgba(255,255,255,0.35)';
     ctx.stroke();
+    ctx.restore();
+  }
+
+  drawOrbiter(m, color) {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.lineCap = 'round';
+    // Faint orbit track.
+    ctx.beginPath();
+    ctx.arc(m.x, m.y, m.radius, 0, Math.PI * 2);
+    ctx.setLineDash([3, 9]);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.stroke();
+    ctx.setLineDash([]);
+    for (const seg of m.segments()) {
+      ctx.beginPath();
+      ctx.moveTo(seg.ax, seg.ay + WALL_HEIGHT);
+      ctx.lineTo(seg.bx, seg.by + WALL_HEIGHT);
+      ctx.lineWidth = m.thick * 2 + 2;
+      ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(seg.ax, seg.ay);
+      ctx.lineTo(seg.bx, seg.by);
+      ctx.lineWidth = m.thick * 2;
+      ctx.strokeStyle = color;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 14;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.beginPath();
+      ctx.moveTo(seg.ax, seg.ay);
+      ctx.lineTo(seg.bx, seg.by);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#ffffff';
+      ctx.stroke();
+    }
     ctx.restore();
   }
 

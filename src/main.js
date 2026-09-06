@@ -142,6 +142,7 @@ function step(dt) {
   pushOutOfMovers(g.player);
 
   // Boss.
+  if (state === 'playing') g.boss.updateOrbit(dt);
   const bi = state === 'playing' ? bossIntent(g.boss, g.history, g.player, g.walls, dt, simTime, g.movers) : { mx: 0, my: 0, turn: 0 };
   const bossWasIdle = g.boss.lungeState === 'idle';
   g.boss.update(dt, bi);
