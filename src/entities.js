@@ -226,18 +226,21 @@ export class Boss extends Fighter {
     }
   }
 
-  /**
-   * Advance the patrol orbit (if any); the AI steers toward `home`.
-   * The patrol pauses while the brain has a threat lined up, so the boss
-   * plants itself to block instead of being dragged along the orbit.
-   */
+  /** Advance the patrol orbit (if any); the AI steers toward `home`. */
   updateOrbit(dt) {
     const o = this.orbit;
     if (!o) return;
-    if (this.ai && this.ai.arrival > 0) return;
     this.orbitPhase = wrapAngle(this.orbitPhase + o.omega * dt);
     this.home.x = o.cx + Math.cos(this.orbitPhase) * o.rx;
     this.home.y = o.cy + Math.sin(this.orbitPhase) * o.ry;
+  }
+
+  /** Where the patrol home will be `t` seconds from now. */
+  homeAt(t) {
+    const o = this.orbit;
+    if (!o) return this.home;
+    const ph = this.orbitPhase + o.omega * t;
+    return { x: o.cx + Math.cos(ph) * o.rx, y: o.cy + Math.sin(ph) * o.ry };
   }
 }
 

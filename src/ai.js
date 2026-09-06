@@ -53,20 +53,20 @@ export class BallHistory {
  * Prefers the first leg that actually reaches the boss's block radius;
  * otherwise the closest approach of any leg.
  */
-function findThreat(boss, seen, walls, ballR) {
+function findThreat(boss, seen, walls, ballR, refX = boss.x, refY = boss.y) {
   const path = predictPath(seen.x, seen.y, seen.vx, seen.vy, walls, 3, 3200, ballR);
   let closest = null;
   let travelled = 0;
   for (let li = 0; li < path.length; li++) {
     const seg = path[li];
     const segLen = Math.hypot(seg.bx - seg.ax, seg.by - seg.ay);
-    const c = closestPointOnSegment(boss.x, boss.y, seg.ax, seg.ay, seg.bx, seg.by);
+    const c = closestPointOnSegment(refX, refY, seg.ax, seg.ay, seg.bx, seg.by);
     const along = travelled + c.t * segLen;
     travelled += segLen;
     // On the first leg the ball is at t=0 right now; if that is the closest
     // point it is moving away, so ignore it.
     if (li === 0 && along < 30) continue;
-    const dd = Math.hypot(c.x - boss.x, c.y - boss.y);
+    const dd = Math.hypot(c.x - refX, c.y - refY);
     const cand = { x: c.x, y: c.y, dd, seg, along, li };
     if (dd < boss.blockRadius) return cand; // earliest leg that will hit us
     if (!closest || dd < closest.dd) closest = cand;
@@ -183,7 +183,14 @@ function plan(boss, seen, player, walls, now, ballR, movers) {
     // The snapshot is `reaction` old, so the ball reaches things that much sooner.
     const seenAge = now - (seen.t ?? now);
     const segsIn = movers.length ? walls.concat(moverSegmentsAt(movers, seen.x, seen.y, speed, -seenAge)) : walls;
-    const threat = findThreat(boss, seen, segsIn, ballR);
+    let threat = findThreat(boss, seen, segsIn, ballR);
+    if (threat && boss.orbit) {
+      // Patrolling boss: keep moving and intercept the ball where its path
+      // passes closest to where the patrol will be when it arrives.
+      const eta0 = Math.max(0, (seen.t ?? now) + threat.along / speed - now);
+      const fut = boss.homeAt(eta0);
+      threat = findThreat(boss, seen, segsIn, ballR, fut.x, fut.y);
+    }
     if (threat && threat.dd < boss.threatRadius) {
       // Stand on the predicted path so the paddle is centred on it.
       tx = threat.x;
@@ -202,13 +209,15 @@ function plan(boss, seen, player, walls, now, ballR, movers) {
     }
   }
 
-  // Keep the boss on a leash around its home position.
-  const hx = tx - boss.home.x;
-  const hy = ty - boss.home.y;
+  // Keep the boss on a leash around its home position (for a patrolling
+  // boss, around where the patrol will be at the ball's arrival).
+  const anchor = boss.orbit && ai.arrival > 0 ? boss.homeAt(Math.max(0, ai.arrival - now)) : boss.home;
+  const hx = tx - anchor.x;
+  const hy = ty - anchor.y;
   const hd = Math.hypot(hx, hy);
   if (hd > boss.leash) {
-    tx = boss.home.x + (hx / hd) * boss.leash;
-    ty = boss.home.y + (hy / hd) * boss.leash;
+    tx = anchor.x + (hx / hd) * boss.leash;
+    ty = anchor.y + (hy / hd) * boss.leash;
   }
   ai.tx = tx;
   ai.ty = ty;
@@ -261,8 +270,10 @@ export function bossIntent(boss, history, player, walls, dt, now, movers = []) {
   const imminent = ai.arrival > 0 && remaining < 0.26 && remaining > -0.08;
   if (imminent) {
     turn *= 0.12;
-    mx *= 0.12;
-    my *= 0.12;
+    // A patrolling boss keeps rolling through the block; others plant.
+    const hold = boss.orbit ? 0.35 : 0.12;
+    mx *= hold;
+    my *= hold;
   }
   // Absorb: retract the shield as the ball lands so the receding surface
   // slows it down (the same physics as the player's S key).
