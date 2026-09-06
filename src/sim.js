@@ -1,6 +1,6 @@
 // Ball advancement + collision dispatch. Pure (no DOM) so it can be tested
 // headlessly and reused by the boss's path prediction if needed.
-import { circleVsCapsule, circleVsCircle, reflect } from './physics.js';
+import { circleVsCapsule, circleVsCircle, reflect, ejectFromPolygon } from './physics.js';
 
 /**
  * Move the ball by dt and resolve collisions against static walls and the
@@ -15,9 +15,12 @@ import { circleVsCapsule, circleVsCircle, reflect } from './physics.js';
  *   onMover(mover, hit, speedBefore)  moving obstacle bounce
  *
  * `movers` are moving obstacles exposing segments(), thick and surfaceVelocityAt().
+ * `polygons` are the solid obstacle outlines: if the ball's centre ends up
+ * inside one (crushed against it by a mover), it is ejected through the
+ * nearest edge and the wall pass runs once more.
  */
 
-export function advanceBall(ball, walls, fighters, dt, factor = 1, hooks = {}, movers = []) {
+export function advanceBall(ball, walls, fighters, dt, factor = 1, hooks = {}, movers = [], polygons = []) {
   ball.x += ball.vx * dt;
   ball.y += ball.vy * dt;
 
@@ -96,6 +99,19 @@ export function advanceBall(ball, walls, fighters, dt, factor = 1, hooks = {}, m
     }
 
     if (!any) break;
+  }
+
+  for (const poly of polygons) {
+    if (ejectFromPolygon(ball, poly)) {
+      for (const s of walls) {
+        if (s.broken) continue;
+        const h = circleVsCapsule(ball.x, ball.y, ball.r, s.ax, s.ay, s.bx, s.by, s.thick || 0, ball.vx, ball.vy);
+        if (h) {
+          ball.x += h.nx * h.depth;
+          ball.y += h.ny * h.depth;
+        }
+      }
+    }
   }
   return false;
 }

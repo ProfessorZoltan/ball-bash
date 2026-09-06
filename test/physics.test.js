@@ -230,7 +230,7 @@ for (const def of LEVELS) {
         player.finalizeStep(dt);
         boss.update(dt, { mx: 0, my: 0, turn: 1 });
         boss.finalizeStep(dt);
-        advanceBall(ball, walls, [player, boss], dt, 1, { onWall: () => bounces++, onMover: () => bounces++, onBody: () => false }, movers);
+        advanceBall(ball, walls, [player, boss], dt, 1, { onWall: () => bounces++, onMover: () => bounces++, onBody: () => false }, movers, def.obstacles.map(obstaclePoly));
         separateFightersFromBall(ball, [player, boss]);
         ball.clampSpeed(BALL.minSpeed, BALL.maxSpeed);
         assert.ok(pointInPolygon(ball.x, ball.y, def.boundary), `ball escaped the room at step ${i}: ${ball.x},${ball.y}`);

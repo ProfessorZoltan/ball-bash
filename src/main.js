@@ -293,6 +293,7 @@ function moveBall(dt) {
       },
     },
     g.boss.pulser ? g.movers.concat([g.boss.pulser]) : g.movers,
+    g.solidPolys,
   );
   if (stopped) return;
 

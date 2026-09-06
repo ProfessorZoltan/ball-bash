@@ -50,12 +50,15 @@ export function createGameState(def, { pvp = false } = {}) {
   ball.x = def.ball.x;
   ball.y = def.ball.y;
   ball.held = true;
-  const g = { def, staticWalls, panes, walls: [], player, boss, movers, ice, ball, pvp };
+  const staticPolys = def.obstacles.filter((o) => !o.glass).map(obstaclePoly);
+  const g = { def, staticWalls, staticPolys, panes, walls: [], solidPolys: [], player, boss, movers, ice, ball, pvp };
   rebuildWalls(g);
   return g;
 }
 
 /** Recompute the active wall list (static walls plus unbroken glass). */
 export function rebuildWalls(g) {
-  g.walls = g.staticWalls.concat(...g.panes.filter((p) => !p.broken).map((p) => p.segs));
+  const whole = g.panes.filter((p) => !p.broken);
+  g.walls = g.staticWalls.concat(...whole.map((p) => p.segs));
+  g.solidPolys = g.staticPolys.concat(whole.map((p) => p.poly));
 }

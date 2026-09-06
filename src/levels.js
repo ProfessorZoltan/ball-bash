@@ -628,7 +628,7 @@ export const LEVELS = [
     id: 10,
     title: 'The Last Arcade',
     bossName: 'The Architect',
-    intro: 'Everything you have learned, in one hall. A prism at the centre, doors that switch the lane, glass around the Architect, ice behind its blocks and a pulse to keep you honest. It built every room before this one. Show it what you learned in them.',
+    intro: 'Everything you have learned, in one hall. A prism at the centre, rails whose doors switch the open lane, glass around the Architect, ice behind its blocks and a pulse to keep you honest. It built every room before this one. Show it what you learned in them.',
     width: 1600,
     height: 900,
     track: 'arcade',
@@ -648,8 +648,11 @@ export const LEVELS = [
     ],
     glass: { breakSpeed: 720, regrow: 12, speedKeep: 0.8 },
     obstacles: [
-      // The rail column: fixed rail above, between and below the two door gaps.
-      rect(1100, 130, 14, 140, 0), rect(1100, 450, 14, 220, 0), rect(1100, 770, 14, 140, 0),
+      // Two horizontal rails on the Architect's half, each with a door gap at
+      // x 1030-1170. They split the approach into three lanes that all stay
+      // open at the far end, so the ball can never be penned in.
+      rect(985, 300, 90, 14, 0), rect(1235, 300, 130, 14, 0),
+      rect(985, 600, 90, 14, 0), rect(1235, 600, 130, 14, 0),
       // Player-side deflectors so the Architect's returns can flank you.
       rect(330, 190, 180, 20, 45), rect(330, 710, 180, 20, -45),
       // Lane diamonds.
@@ -663,9 +666,9 @@ export const LEVELS = [
     movers: [
       // The prism.
       { type: 'spinner', x: 800, y: 450, length: 200, thick: 8, omega: 0.3, angle: 0.3 },
-      // Two sliding doors on the rail column, opposite phases: the open lane alternates.
-      { type: 'piston', parallel: true, x: 1100, y: 130, length: 150, thick: 7, axisAngle: Math.PI / 2, amp: 140, period: 7, phase: 0 },
-      { type: 'piston', parallel: true, x: 1100, y: 770, length: 150, thick: 7, axisAngle: -Math.PI / 2, amp: 140, period: 7, phase: Math.PI },
+      // Doors slide along each rail to close its gap, in opposite phase: the open lane alternates.
+      { type: 'piston', parallel: true, x: 960, y: 300, length: 150, thick: 7, axisAngle: 0, amp: 140, period: 7, phase: 0 },
+      { type: 'piston', parallel: true, x: 960, y: 600, length: 150, thick: 7, axisAngle: 0, amp: 140, period: 7, phase: Math.PI },
     ],
     // The Architect's blocks lay ice, like the Sump's.
     ice: { lay: 2, life: 2, freeze: 2, width: 30 },

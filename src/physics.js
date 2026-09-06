@@ -205,3 +205,44 @@ export function predictPath(x, y, vx, vy, segs, bounces = 2, maxDist = 2500, rad
   }
   return path;
 }
+
+/**
+ * If the point (c.x, c.y) is inside `poly`, move the circle out through the
+ * nearest edge (plus its radius). Thin obstacles can swallow a ball's centre
+ * when it is crushed against them by a moving surface; edge-by-edge push-out
+ * then points the wrong way, so this is the recovery. Returns true if moved.
+ */
+export function ejectFromPolygon(c, poly) {
+  if (!pointInPolygon(c.x, c.y, poly)) return false;
+  let cx = 0;
+  let cy = 0;
+  for (const p of poly) {
+    cx += p[0];
+    cy += p[1];
+  }
+  cx /= poly.length;
+  cy /= poly.length;
+  let best = null;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i];
+    const b = poly[(i + 1) % poly.length];
+    const q = closestPointOnSegment(c.x, c.y, a[0], a[1], b[0], b[1]);
+    const d = Math.hypot(c.x - q.x, c.y - q.y);
+    if (!best || d < best.d) {
+      const ex = b[0] - a[0];
+      const ey = b[1] - a[1];
+      const el = Math.hypot(ex, ey) || 1;
+      let nx = -ey / el;
+      let ny = ex / el;
+      // Outward = away from the polygon's centroid.
+      if ((q.x - cx) * nx + (q.y - cy) * ny < 0) {
+        nx = -nx;
+        ny = -ny;
+      }
+      best = { d, q, nx, ny };
+    }
+  }
+  c.x = best.q.x + best.nx * (c.r + 0.5);
+  c.y = best.q.y + best.ny * (c.r + 0.5);
+  return true;
+}
