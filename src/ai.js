@@ -11,7 +11,7 @@
 //     rebounds back at the boss. The paddle angle is then the bisector between
 //     "where the ball comes from" and that chosen direction.
 //  3. Receive: whack (lunge), absorb (pull the shield back) or just block.
-import { closestPointOnSegment, predictPath } from './physics.js';
+import { closestPointOnSegment, predictPath, raycastSegments } from './physics.js';
 import { angleDiff, clamp } from './vec.js';
 
 const DEG = Math.PI / 180;
@@ -155,15 +155,22 @@ function chooseReturnAngle(boss, tx, ty, incoming, player, walls, eta, ballR, mo
 }
 
 /**
- * Moving obstacles as segments, frozen at the angle they will have when the
- * ball (currently at x, y moving at `speed`) reaches them, `delay` seconds
- * from now. Good enough for a slow spinner and a fast ball.
+ * Moving obstacles as segments, frozen where they will be when the ball
+ * (at x, y moving with velocity vx, vy) reaches them, `delay` seconds from
+ * now. The arrival time comes from a ray cast against the mover's current
+ * segments; when the ray misses (or no direction is given) it falls back to
+ * the distance to the mover's footprint.
  */
-function moverSegmentsAt(movers, x, y, speed, delay) {
+export function moverSegmentsAt(movers, x, y, vx, vy, delay = 0) {
+  const speed = Math.hypot(vx, vy);
   const segs = [];
   for (const m of movers) {
-    const dist = Math.max(0, Math.hypot(m.x - x, m.y - y) - m.reach);
-    const t = delay + (speed > 1 ? dist / speed : 0);
+    let t = delay;
+    if (speed > 1) {
+      const hit = raycastSegments(x, y, vx / speed, vy / speed, m.segments(), 4000);
+      if (hit) t += hit.t / speed;
+      else t += Math.max(0, Math.hypot(m.x - x, m.y - y) - m.reach) / speed;
+    }
     for (const sg of m.predictSegments(t)) segs.push({ ...sg, kind: 'mover' });
   }
   return segs;
@@ -190,7 +197,7 @@ function plan(boss, seen, player, walls, now, ballR, movers) {
   if (speed > 1) {
     // The snapshot is `reaction` old, so the ball reaches things that much sooner.
     const seenAge = now - (seen.t ?? now);
-    const segsIn = movers.length ? walls.concat(moverSegmentsAt(movers, seen.x, seen.y, speed, -seenAge)) : walls;
+    const segsIn = movers.length ? walls.concat(moverSegmentsAt(movers, seen.x, seen.y, seen.vx, seen.vy, -seenAge)) : walls;
     let threat = findThreat(boss, seen, segsIn, ballR);
     if (threat && boss.orbit) {
       // Patrolling boss: keep moving and intercept the ball where its path
@@ -208,7 +215,7 @@ function plan(boss, seen, player, walls, now, ballR, movers) {
       const seenAt = seen.t ?? now;
       const eta = Math.max(0, seenAt + threat.along / speed - now);
       ai.arrival = now + eta;
-      const segsOut = movers.length ? walls.concat(moverSegmentsAt(movers, tx, ty, speed, eta)) : walls;
+      const segsOut = movers.length ? walls.concat(moverSegmentsAt(movers, tx, ty, 0, 0, eta)) : walls;
       faceAngle = chooseReturnAngle(boss, tx, ty, incoming, player, segsOut, eta, ballR, movers);
       // Decide how to receive it: whack (add speed), absorb (pull the shield
       // back to bleed speed off a hot ball), or just block.

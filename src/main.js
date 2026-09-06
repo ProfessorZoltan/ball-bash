@@ -3,7 +3,7 @@
 import { GAME_MARK, GAME_NAME, GAME_TAGLINE, MARK_READINGS, PHYSICS_DT, BALL, PLAYER, SURFACE_VELOCITY_FACTOR, COUNTDOWN_SECONDS } from './config.js';
 import { Ball, Fighter, Boss, createMover } from './entities.js';
 import { IceTrail } from './ice.js';
-import { BallHistory, bossIntent } from './ai.js';
+import { BallHistory, bossIntent, moverSegmentsAt } from './ai.js';
 import { LEVELS, ROSTER, obstaclePoly } from './levels.js';
 import { Input } from './input.js';
 import { Renderer } from './render.js';
@@ -428,7 +428,10 @@ function frame(now) {
       if (guideFrame-- <= 0) {
         guideFrame = 6;
         const seeThrough = game.def.glass && game.ball.speed >= game.def.glass.breakSpeed;
-        const guideWalls = seeThrough ? game.walls.filter((w) => w.kind !== 'glass') : game.walls;
+        let guideWalls = seeThrough ? game.walls.filter((w) => w.kind !== 'glass') : game.walls;
+        if (game.movers.length) {
+          guideWalls = guideWalls.concat(moverSegmentsAt(game.movers, game.ball.x, game.ball.y, game.ball.vx, game.ball.vy));
+        }
         game.guidePath = predictPath(game.ball.x, game.ball.y, game.ball.vx, game.ball.vy, guideWalls, 1, 900, game.ball.r);
       }
     }
