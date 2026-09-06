@@ -701,6 +701,52 @@ export const LEVELS = [
   },
 ];
 
+/** The tutorial's training hall: not part of the roster. */
+export const TUTORIAL_LEVEL = {
+  id: 0,
+  title: 'Training Hall',
+  bossName: 'Training Drone',
+  intro: '',
+  width: 1600,
+  height: 900,
+  track: 'antechamber',
+  palette: {
+    floor: '#070b16',
+    grid: 'rgba(60, 120, 200, 0.10)',
+    wall: '#7fe9ff',
+    wallDark: '#0d2340',
+    obstacle: '#ffb347',
+    obstacleDark: '#3a2410',
+  },
+  boundary: [
+    [40, 120], [120, 40], [1480, 40], [1560, 120],
+    [1560, 780], [1480, 860], [120, 860], [40, 780],
+  ],
+  obstacles: [
+    // Deflectors beside the drone: the bank-shot lesson's tools.
+    rect(1160, 200, 220, 26, -45),
+    rect(1160, 700, 220, 26, 45),
+  ],
+  player: { x: 300, y: 450, angle: 0 },
+  boss: {
+    x: 1260,
+    y: 450,
+    angle: Math.PI,
+    r: 32,
+    paddleWidth: 150,
+    paddleBase: 44,
+    paddleThick: 7,
+    moveSpeed: 0,
+    turnSpeed: 0,
+    reaction: 1,
+    aggression: 0,
+    aim: 0,
+    absorb: 0,
+    leash: 0,
+  },
+  ball: { x: 880, y: 450, speed: 380, angleDeg: 180 },
+};
+
 // Planned roster (number + title). Only level 1 is playable for now.
 export const ROSTER = [
   { id: 1, title: 'The Antechamber', boss: 'The Warden' },

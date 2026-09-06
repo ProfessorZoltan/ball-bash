@@ -24,6 +24,12 @@ npm test             # headless physics tests (node --test)
 Open the URL in a desktop browser and press **Start**. (ES modules need `http://`,
 so opening `index.html` straight from disk will not work.)
 
+The first **Start** opens a four-lesson tutorial in a training hall: move and
+aim, block, whack (send the ball back at least 120 px/s faster than it came),
+and the bank shot (bounce it off a wall or deflector into the drone's side or
+back). Each lesson advances when you actually do it. It runs once, remembers
+that in the browser, and can be replayed any time with the **Tutorial** button.
+
 ## Deploy
 
 It is a static site, so Vercel (or Netlify, GitHub Pages) needs no build step:
@@ -246,7 +252,7 @@ src/physics.js             capsule/circle collision, moving-surface reflection, 
 src/entities.js            Ball, Fighter (player), Boss
 src/ai.js                  boss perception delay, path prediction, brace/absorb
 src/ice.js                 ice trail hazard (Coolant Tunnels)
-src/levels.js              level data and the planned roster
+src/levels.js              level data, the roster and the tutorial's training hall
 src/input.js               keyboard, mouse, touch -> one intent object
 src/render.js              Canvas 2D neon renderer with 2.5D wall extrusion
 src/fx.js                  particles, rings, screen shake

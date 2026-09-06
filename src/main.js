@@ -2,7 +2,7 @@
 // HUD/overlay wiring. Everything heavy lives in the modules it imports.
 import { GAME_MARK, GAME_NAME, GAME_TAGLINE, MARK_READINGS, PHYSICS_DT, BALL, PLAYER, SURFACE_VELOCITY_FACTOR, COUNTDOWN_SECONDS } from './config.js';
 import { BallHistory, bossIntent, moverSegmentsAt } from './ai.js';
-import { LEVELS, ROSTER } from './levels.js';
+import { LEVELS, ROSTER, TUTORIAL_LEVEL } from './levels.js';
 import { createGameState, rebuildWalls as rebuildWallsState } from './gamestate.js';
 import { NetClient } from './net.js';
 import { buildSnapshot, applySnapshot } from './netstate.js';
@@ -53,6 +53,7 @@ function buildGame(def, pvp = false) {
 function startLevel(index) {
   levelIndex = index;
   const def = LEVELS[index];
+  $('tutor').hidden = true;
   game = buildGame(def);
   renderer.setLevel(def);
   renderer.resize();
@@ -116,6 +117,9 @@ function step(dt) {
     const remote = net.remoteIntent || ZERO_INTENT;
     ia = net.localSlot === 'a' ? local : remote;
     ib = net.localSlot === 'a' ? remote : local;
+  } else if (g.tutorial) {
+    ia = local;
+    ib = ZERO_INTENT; // the training drone never moves
   } else {
     ia = local;
     ib = state === 'playing' ? bossIntent(g.boss, g.history, g.player, g.walls, dt, simTime, g.movers) : ZERO_INTENT;
@@ -133,7 +137,7 @@ function step(dt) {
   pushOutOfMovers(g.player);
 
   // Slot b: the AI boss (with its patrol and abilities) or the rival human.
-  if (!g.pvp && state === 'playing') {
+  if (!g.pvp && !g.tutorial && state === 'playing') {
     g.boss.updateOrbit(dt);
     if (g.boss.pulser) {
       g.boss.pulser.update(dt, g.boss.x, g.boss.y);
@@ -280,6 +284,7 @@ function moveBall(dt) {
       onPaddle: onPaddleHit,
       onMover: onMoverHit,
       onBody: (f, h) => {
+        if (g.tutorial) return tutorialBody(f, h);
         if (g.pvp) {
           onPvpHit(f, h);
           return true;
@@ -359,6 +364,7 @@ function onPaddleHit(f, h, before) {
   paddleFx(f, h.cx, h.cy, h.nx, h.ny, strength, delta > 100);
   g.ball.lastHitBy = f.kind;
   if (!isBoss) g.paddleHits++;
+  if (g.tutorial && !isBoss) tutorialPaddle(before, after);
   // The ice trail follows the boss's blocks; in PvP, either player's.
   let iced = 0;
   if (g.ice && (isBoss || g.pvp)) {
@@ -444,6 +450,7 @@ function frame(now) {
       }
       if (countdown <= 0) launchBall();
     }
+    if (game.tutorial && state === 'playing') tutorialTick(dt);
     if (state === 'roundEnd' && net.mode === 'host') {
       endTimer -= dt;
       if (endTimer <= 0) {
@@ -683,7 +690,10 @@ function handleGlobalKeys() {
     else if (state === 'jukebox') leaveJukebox();
   }
   if (state === 'jukebox' && input.consumePress('n')) jukeboxNext();
-  if (input.consumePress('r') && game && state !== 'title' && !net.mode) startLevel(levelIndex);
+  if (input.consumePress('r') && game && state !== 'title' && !net.mode) {
+    if (game.tutorial) tutorialServe('Re-served.');
+    else startLevel(levelIndex);
+  }
   if (input.consumePress('f')) toggleFullscreen();
   if (input.consumePress('Enter') && !net.mode) {
     if (state === 'title') begin();
@@ -723,6 +733,7 @@ function goToMenu() {
   if (audio.ctx && audio.ctx.state === 'suspended') audio.ctx.resume();
   audio.stopTrack(0.6);
   netReset();
+  $('tutor').hidden = true;
   game = null;
   showTitle();
 }
@@ -814,6 +825,191 @@ function showOverlay(html) {
 function hideOverlay() {
   $('overlay').hidden = true;
   stopMarkAnimation();
+}
+
+// --------------------------------------------------------------- tutorial
+
+const TUTORIAL_KEY = 'deflector.tutorial';
+const COARSE = window.matchMedia('(pointer: coarse)').matches;
+
+function tutorialDone() {
+  try {
+    return localStorage.getItem(TUTORIAL_KEY) === 'done';
+  } catch (_) {
+    return false;
+  }
+}
+
+function markTutorialDone() {
+  try {
+    localStorage.setItem(TUTORIAL_KEY, 'done');
+  } catch (_) {
+    // storage unavailable; the tutorial will simply offer itself again
+  }
+}
+
+const TUTORIAL_STEPS = [
+  {
+    title: 'Move and aim',
+    text: COARSE
+      ? 'Touch anywhere and <b>drag</b> to move. The <b>⟲ ⟳</b> buttons turn you and your shield. Move a little and turn around.'
+      : '<b>Arrow keys</b> move you (or hold the mouse). <b>A</b> and <b>D</b> turn you and your shield. Move a little and turn all the way around.',
+  },
+  {
+    title: 'Block',
+    text: 'A ball is coming. Your shield is the flat bar in front of you: put it in the ball\'s way. The dotted line shows where the ball is heading.',
+  },
+  {
+    title: 'Whack',
+    text: COARSE
+      ? 'A shield <b>moving toward the ball</b> adds its speed. Tap <b>WHACK</b> as the ball lands, or swing with ⟲ ⟳. Send it back at least <b>120 px/s faster</b> than it came.'
+      : 'A shield <b>moving toward the ball</b> adds its speed. Press <b>W</b> to thrust as the ball lands, or swing with <b>A</b>/<b>D</b> so a tip meets it. Send it back at least <b>120 px/s faster</b> than it came.',
+  },
+  {
+    title: 'Bank shot',
+    text: 'The drone\'s shield blocks anything head-on, and every boss does the same. Bounce the ball off a <b>wall or a deflector</b> so it arrives at the drone\'s <b>side or back</b>. Only a hit on the body counts.',
+  },
+  {
+    title: 'You are ready',
+    text: 'One hit on a boss\'s body wins the level. One hit on you loses it. Watch the boss\'s shield, use the walls, and whack when it matters.',
+  },
+];
+
+function startTutorial(fromButton) {
+  const def = TUTORIAL_LEVEL;
+  $('tutor').hidden = false;
+  game = buildGame(def);
+  game.tutorial = { step: 0, fromButton, moved: 0, turned: 0, blocks: 0, bestDelta: 0, sinceTouch: 0, drone: false, lastX: def.player.x, lastY: def.player.y, lastAngle: def.player.angle };
+  game.boss.name = 'Training drone';
+  renderer.setLevel(def);
+  renderer.resize();
+  simTime = 0;
+  acc = 0;
+  endTimer = 0;
+  state = 'playing';
+  input.clearPresses();
+  hideOverlay();
+  setInGame(true);
+  $('hud').hidden = false;
+  $('countdown').hidden = true;
+  $('hud-level').textContent = 'TUTORIAL · TRAINING HALL';
+  $('hud-boss').textContent = 'TRAINING DRONE';
+  $('hud-track').textContent = TRACKS[def.track].title;
+  audio.playTrack(TRACKS[def.track]);
+  $('tutor-skip').onclick = () => finishTutorial(true);
+  $('tutor-next').onclick = () => finishTutorial(false);
+  tutorialShowStep();
+}
+
+function tutorialShowStep() {
+  const t = game.tutorial;
+  const st = TUTORIAL_STEPS[t.step];
+  $('tutor-step').textContent = t.step < 4 ? `LESSON ${t.step + 1} OF 4` : 'TUTORIAL COMPLETE';
+  $('tutor-title').textContent = st.title;
+  $('tutor-text').innerHTML = st.text;
+  $('tutor-progress').textContent = '';
+  $('tutor-next').hidden = t.step < 4;
+  $('tutor-skip').hidden = t.step >= 4;
+  if (t.step === 1 || t.step === 2 || t.step === 3) tutorialServe();
+  if (t.step === 4) {
+    game.ball.held = true;
+    game.boss.hitFlash = 2;
+  }
+}
+
+function tutorialAdvance() {
+  const t = game.tutorial;
+  t.step++;
+  audio.sfxCount(true);
+  game.fx.ring(game.player.x, game.player.y, '#ffffff', 120, 0.5);
+  tutorialShowStep();
+}
+
+/** Serve a slow ball from the middle of the hall toward the player. */
+function tutorialServe(note = '') {
+  const def = TUTORIAL_LEVEL;
+  const t = game.tutorial;
+  if (!t || t.step === 0 || t.step >= 4) return;
+  game.ball.launch(def.ball.x, def.ball.y, ((def.ball.angleDeg + rand(-8, 8)) * Math.PI) / 180, def.ball.speed);
+  game.history.reset();
+  t.sinceTouch = 0;
+  if (note) $('tutor-progress').textContent = note;
+}
+
+function tutorialTick(dt) {
+  const t = game.tutorial;
+  const p = game.player;
+  if (t.step === 0) {
+    t.moved += Math.hypot(p.x - t.lastX, p.y - t.lastY);
+    t.turned += Math.abs(p.omega) * dt;
+    t.lastX = p.x;
+    t.lastY = p.y;
+    const m = Math.min(1, t.moved / 150);
+    const r = Math.min(1, t.turned / Math.PI);
+    setText('tutor-progress', `MOVED ${Math.round(m * 100)}% · TURNED ${Math.round(r * 100)}%`);
+    if (m >= 1 && r >= 1) tutorialAdvance();
+    return;
+  }
+  if (t.step >= 1 && t.step <= 3) {
+    t.sinceTouch += dt;
+    if (t.sinceTouch > 14) tutorialServe('Re-served: a new ball is coming.');
+  }
+  if (t.step === 3) setText('tutor-progress', `BEST SPEED-UP ${Math.round(t.bestDelta)} / 120 PX/S`);
+}
+
+function tutorialPaddle(before, after) {
+  const t = game.tutorial;
+  t.sinceTouch = 0;
+  t.blocks++;
+  const delta = after - before;
+  if (t.step === 1) {
+    setText('tutor-progress', 'BLOCKED');
+    setTimeout(() => {
+      if (game && game.tutorial && game.tutorial.step === 1) tutorialAdvance();
+    }, 700);
+  } else if (t.step === 2) {
+    t.bestDelta = Math.max(t.bestDelta, delta);
+    if (delta >= 120) {
+      setText('tutor-progress', `+${Math.round(delta)} PX/S. THAT IS A WHACK.`);
+      setTimeout(() => {
+        if (game && game.tutorial && game.tutorial.step === 2) tutorialAdvance();
+      }, 900);
+    } else {
+      setText('tutor-progress', `+${Math.round(Math.max(0, delta))} PX/S · BEST ${Math.round(t.bestDelta)} / 120. MOVE THE SHIELD INTO THE BALL.`);
+    }
+  } else if (t.step === 3) {
+    setText('tutor-progress', 'BLOCKED. NOW SEND IT INTO A WALL OR DEFLECTOR FIRST.');
+  }
+}
+
+/** Body contact in the tutorial: nobody loses, the drone is the target. */
+function tutorialBody(f, h) {
+  const t = game.tutorial;
+  if (f.kind === 'boss') {
+    if (t.step === 3) {
+      hitFx(f, h.cx, h.cy, h.nx, h.ny);
+      tutorialAdvance();
+      return true;
+    }
+    return false; // in earlier lessons the drone's body is just a wall
+  }
+  // The ball got past the player's shield: no penalty, a fresh serve.
+  if (t.step >= 1 && t.step <= 3) {
+    game.fx.ring(f.x, f.y, '#ff4d6d', 100, 0.4);
+    audio.sfxPlayerHit();
+    setText('tutor-progress', 'IT GOT PAST YOUR SHIELD. IN A REAL LEVEL THAT LOSES. NEW BALL COMING.');
+    t.sinceTouch = 12.5; // re-serve shortly
+  }
+  return false;
+}
+
+function finishTutorial(skipped) {
+  const fromButton = game && game.tutorial && game.tutorial.fromButton;
+  markTutorialDone();
+  $('tutor').hidden = true;
+  if (fromButton) goToMenu();
+  else startLevel(0);
+  if (skipped && !fromButton) audio.sfxCount(false);
 }
 
 // ------------------------------------------------------------ multiplayer
@@ -1307,10 +1503,14 @@ function showTitle() {
         <ol class="roster">${roster}</ol>
       </div>
     </div>
-    <div class="row"><button id="btn-start" class="primary">Start · Sound on</button><button id="btn-jukebox">Soundtrack</button><button id="btn-multi" ${lanInfo ? '' : 'disabled title="Run npm start on one PC and open its LAN address on both"'}>Multiplayer · LAN</button>${fullscreenHint()}</div>
+    <div class="row"><button id="btn-start" class="primary">Start · Sound on</button><button id="btn-tutorial">Tutorial</button><button id="btn-jukebox">Soundtrack</button><button id="btn-multi" ${lanInfo ? '' : 'disabled title="Run npm start on one PC and open its LAN address on both"'}>Multiplayer · LAN</button>${fullscreenHint()}</div>
     ${lanInfo ? '' : '<p class="small muted">Multiplayer needs the LAN server: run <code>npm start</code> on one PC and open its address on both.</p>'}
   `);
   $('btn-start').onclick = begin;
+  $('btn-tutorial').onclick = async () => {
+    await audio.init();
+    startTutorial(true);
+  };
   $('btn-jukebox').onclick = openJukebox;
   $('btn-multi').onclick = () => openLobby();
   $('btn-full')?.addEventListener('click', toggleFullscreen);
@@ -1327,7 +1527,8 @@ function showTitle() {
 
 async function begin() {
   await audio.init();
-  startLevel(levelIndex);
+  if (!tutorialDone() && levelIndex === 0) startTutorial(false);
+  else startLevel(levelIndex);
 }
 
 function showCleared() {

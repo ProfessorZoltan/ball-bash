@@ -335,3 +335,31 @@ button[disabled] { opacity: 0.45; cursor: default; }
 }
 .mp-error { color: #ff7a8a; }
 code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--cyan); }
+
+/* Tutorial card ---------------------------------------------------------- */
+#tutor {
+  position: fixed;
+  top: 84px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(560px, calc(100% - 32px));
+  background: var(--panel);
+  border: 1px solid rgba(255, 179, 71, 0.45);
+  border-radius: 10px;
+  padding: 12px 16px 10px;
+  text-align: center;
+  box-shadow: 0 0 30px rgba(255, 179, 71, 0.12);
+  z-index: 4;
+}
+.tutor-step { font-family: var(--display); font-size: 11px; letter-spacing: 0.3em; color: var(--orange); }
+.tutor-title { font-family: var(--display); font-size: 20px; font-weight: 700; letter-spacing: 0.12em; margin: 2px 0 4px; }
+.tutor-text { font-size: 14px; line-height: 1.5; color: rgba(232, 244, 255, 0.9); }
+.tutor-text b { color: #fff; }
+.tutor-progress { font-family: var(--display); font-size: 12px; letter-spacing: 0.15em; color: var(--cyan); min-height: 16px; margin-top: 6px; }
+.tutor-row { display: flex; gap: 10px; justify-content: center; margin-top: 8px; }
+.tutor-row button { padding: 7px 14px; font-size: 12px; }
+@media (max-height: 520px) {
+  #tutor { top: 52px; padding: 8px 12px 6px; }
+  .tutor-title { font-size: 15px; }
+  .tutor-text { font-size: 12px; }
+}
