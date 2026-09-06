@@ -380,10 +380,11 @@ function pause() {
   showOverlay(`
     <h1>PAUSED</h1>
     <p class="muted">Level ${game.def.id} · ${game.def.title}</p>
-    <div class="row"><button id="btn-resume" class="primary">Resume</button><button id="btn-restart">Restart level</button>${fullscreenHint()}</div>
+    <div class="row"><button id="btn-resume" class="primary">Resume</button><button id="btn-restart">Restart level</button><button id="btn-menu">Main menu</button>${fullscreenHint()}</div>
   `);
   $('btn-resume').onclick = resume;
   $('btn-restart').onclick = () => startLevel(levelIndex);
+  $('btn-menu').onclick = goToMenu;
   $('btn-full')?.addEventListener('click', toggleFullscreen);
 }
 
@@ -393,6 +394,14 @@ function resume() {
   if (audio.ctx) audio.ctx.resume();
   last = performance.now();
   state = 'playing';
+}
+
+/** Leave the current level (from pause or an end screen) and show the title. */
+function goToMenu() {
+  if (audio.ctx && audio.ctx.state === 'suspended') audio.ctx.resume();
+  audio.stopTrack(0.6);
+  game = null;
+  showTitle();
 }
 
 /** Touch controls are only shown while a level is actually being played. */
@@ -473,6 +482,8 @@ function hideOverlay() {
 function showTitle() {
   state = 'title';
   setInGame(false);
+  renderer.setLevel(LEVELS[levelIndex]);
+  renderer.resize();
   $('hud').hidden = true;
   $('countdown').hidden = true;
   const def = LEVELS[levelIndex];
@@ -544,10 +555,12 @@ function showCleared() {
     <div class="row">
       <button id="btn-replay" class="primary">Play again</button>
       <button id="btn-next" ${nextIdx >= 0 ? 'class="primary"' : 'disabled'}>${next ? `Level ${next.id} · ${next.title}${nextIdx >= 0 ? '' : ' — coming soon'}` : 'More levels coming soon'}</button>
+      <button id="btn-menu">Main menu</button>
     </div>
   `);
   $('btn-replay').onclick = () => startLevel(levelIndex);
   if (nextIdx >= 0) $('btn-next').onclick = () => startLevel(nextIdx);
+  $('btn-menu').onclick = goToMenu;
 }
 
 function showFailed() {
@@ -557,13 +570,10 @@ function showFailed() {
     <div class="eyebrow">SHIELD DOWN</div>
     <h1>${def.bossName} holds ${def.title}</h1>
     <p class="muted">One hit is all it takes. You lasted ${formatTime(game.time)}.</p>
-    <div class="row"><button id="btn-retry" class="primary">Retry</button><button id="btn-title">Title</button></div>
+    <div class="row"><button id="btn-retry" class="primary">Retry</button><button id="btn-menu">Main menu</button></div>
   `);
   $('btn-retry').onclick = () => startLevel(levelIndex);
-  $('btn-title').onclick = () => {
-    audio.stopTrack(0.5);
-    showTitle();
-  };
+  $('btn-menu').onclick = goToMenu;
 }
 
 // ------------------------------------------------------------------ boot
