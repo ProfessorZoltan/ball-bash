@@ -30,6 +30,30 @@ It is a static site, so Vercel (or Netlify, GitHub Pages) needs no build step:
 import the repo, keep the framework preset on **Other**, leave the build command
 empty, and serve the repository root. `server.js` is only for local use.
 
+## Multiplayer (same Wi-Fi)
+
+Two friends, one room code, no accounts. One player runs the local server:
+
+```bash
+npm start
+```
+
+It prints the machine's LAN address (something like `http://192.168.1.20:8080`).
+Both players open that address on the same network. On the title screen,
+**Multiplayer · LAN** opens the lobby: one player hosts and gets a four-letter
+code (and a share link), the other joins with it. The host picks the arena and
+starts. First to 3 points wins; one body hit ends a round; sides swap every
+round so the asymmetric arenas balance out. Boss-only abilities are off in
+multiplayer; ice trails lay for either player's blocks.
+
+How it works: the server is also a tiny WebSocket relay (`/ws`, no
+dependencies). The host's browser runs the physics exactly as in single
+player, with the second character driven by the guest's inputs instead of the
+AI. It streams state snapshots and effect events at 60 Hz (`src/netstate.js`);
+the guest mirrors them, extrapolates the ball a few milliseconds, and streams
+its inputs back. On a home network that is a few milliseconds of lag. The
+static Vercel deployment cannot relay, so the button is disabled there.
+
 ## Controls
 
 | Action | Keys / pointer |

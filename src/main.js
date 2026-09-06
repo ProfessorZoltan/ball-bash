@@ -1,16 +1,17 @@
 // Game bootstrap: state machine, fixed-step physics loop, collision dispatch,
 // HUD/overlay wiring. Everything heavy lives in the modules it imports.
 import { GAME_MARK, GAME_NAME, GAME_TAGLINE, MARK_READINGS, PHYSICS_DT, BALL, PLAYER, SURFACE_VELOCITY_FACTOR, COUNTDOWN_SECONDS } from './config.js';
-import { Ball, Fighter, Boss, createMover } from './entities.js';
-import { IceTrail } from './ice.js';
 import { BallHistory, bossIntent, moverSegmentsAt } from './ai.js';
-import { LEVELS, ROSTER, obstaclePoly } from './levels.js';
+import { LEVELS, ROSTER } from './levels.js';
+import { createGameState, rebuildWalls as rebuildWallsState } from './gamestate.js';
+import { NetClient } from './net.js';
+import { buildSnapshot, applySnapshot } from './netstate.js';
 import { Input } from './input.js';
 import { Renderer } from './render.js';
 import { Effects } from './fx.js';
 import { AudioEngine } from './audio/engine.js';
 import { TRACKS } from './audio/tracks.js';
-import { circleVsCircle, circleVsCapsule, polygonEdges, pointInPolygon, resolveCircleVsSegments, predictPath } from './physics.js';
+import { circleVsCircle, circleVsCapsule, pointInPolygon, resolveCircleVsSegments, predictPath } from './physics.js';
 import { advanceBall, separateFightersFromBall } from './sim.js';
 import { clamp, rand } from './vec.js';
 
@@ -35,53 +36,10 @@ let fps = 60;
 
 // ------------------------------------------------------------------ setup
 
-function buildGame(def) {
-  const staticWalls = polygonEdges(def.boundary, 'wall');
-  const panes = [];
-  for (const o of def.obstacles) {
-    if (o.glass) {
-      const pane = { poly: o.poly, color: o.color, broken: false, regrowAt: 0, segs: polygonEdges(o.poly, 'glass') };
-      for (const sg of pane.segs) sg.pane = pane;
-      panes.push(pane);
-    } else {
-      staticWalls.push(...polygonEdges(obstaclePoly(o), 'obstacle'));
-    }
-  }
-  const walls = staticWalls.concat(...panes.map((p) => p.segs));
-  const player = new Fighter({
-    x: def.player.x,
-    y: def.player.y,
-    angle: def.player.angle,
-    r: PLAYER.radius,
-    paddleWidth: PLAYER.paddleWidth,
-    paddleBase: PLAYER.paddleOffset,
-    paddleThick: PLAYER.paddleThick,
-    moveSpeed: PLAYER.moveSpeed,
-    turnSpeed: PLAYER.turnSpeed,
-    lungeExtend: PLAYER.lungeExtend,
-    lungeSpeed: PLAYER.lungeSpeed,
-    retractPull: PLAYER.retractPull,
-    name: 'You',
-    kind: 'player',
-    color: def.palette.wall,
-  });
-  const boss = new Boss({ ...def.boss, name: def.bossName, color: def.palette.obstacle });
-  const movers = (def.movers || []).map(createMover);
-  const ice = def.ice ? new IceTrail(def.ice) : null;
-  const ball = new Ball(BALL.radius);
-  ball.x = def.ball.x;
-  ball.y = def.ball.y;
-  ball.held = true;
+function buildGame(def, pvp = false) {
+  const g = createGameState(def, { pvp });
   return {
-    def,
-    walls,
-    staticWalls,
-    panes,
-    player,
-    boss,
-    movers,
-    ice,
-    ball,
+    ...g,
     fx: new Effects(),
     history: new BallHistory(),
     lives: PLAYER.lives,
@@ -124,6 +82,13 @@ function launchBall() {
   state = 'playing';
   $('countdown').hidden = true;
   audio.sfxCount(true);
+  netEvent({ e: 'count', f: 1 });
+}
+
+function showCountdown(tick) {
+  $('countdown').hidden = false;
+  $('countdown').textContent = String(tick);
+  audio.sfxCount(false);
 }
 
 function respawnBall() {
@@ -141,32 +106,46 @@ function step(dt) {
 
   for (const m of g.movers) m.update(dt);
 
-  // Player. Movement is locked until the ball launches; aiming is allowed.
-  const pi = input.intent(g.player);
-  if (state === 'countdown') {
-    pi.mx = 0;
-    pi.my = 0;
-    pi.lunge = false;
+  // Intents. Slot a is the left spawn (g.player), slot b the right (g.boss).
+  // Single player: a = you, b = the AI. PvP: whichever slot is yours gets
+  // your input and the other gets the remote player's latest intent.
+  const local = input.intent(localFighter());
+  let ia;
+  let ib;
+  if (g.pvp) {
+    const remote = net.remoteIntent || ZERO_INTENT;
+    ia = net.localSlot === 'a' ? local : remote;
+    ib = net.localSlot === 'a' ? remote : local;
+  } else {
+    ia = local;
+    ib = state === 'playing' ? bossIntent(g.boss, g.history, g.player, g.walls, dt, simTime, g.movers) : ZERO_INTENT;
   }
+  // Movement is locked until the ball launches; aiming is allowed.
+  if (state === 'countdown') {
+    ia = { ...ia, mx: 0, my: 0, lunge: false };
+    ib = { ...ib, mx: 0, my: 0, lunge: false };
+  }
+
   const wasIdle = g.player.lungeState === 'idle';
-  g.player.update(dt, pi);
-  if (wasIdle && g.player.lungeState === 'out') audio.sfxWhack();
+  g.player.update(dt, ia);
+  if (wasIdle && g.player.lungeState === 'out') onWhack();
   resolveCircleVsSegments(g.player, g.walls);
   pushOutOfMovers(g.player);
 
-  // Boss.
-  if (state === 'playing') g.boss.updateOrbit(dt);
-  if (g.boss.pulser && state === 'playing') {
-    g.boss.pulser.update(dt, g.boss.x, g.boss.y);
-    if (g.boss.pulser.emitted) {
-      audio.sfxPulse();
-      g.fx.ring(g.boss.x, g.boss.y, g.def.palette.obstacle, 80, 0.3);
+  // Slot b: the AI boss (with its patrol and abilities) or the rival human.
+  if (!g.pvp && state === 'playing') {
+    g.boss.updateOrbit(dt);
+    if (g.boss.pulser) {
+      g.boss.pulser.update(dt, g.boss.x, g.boss.y);
+      if (g.boss.pulser.emitted) {
+        audio.sfxPulse();
+        g.fx.ring(g.boss.x, g.boss.y, g.def.palette.obstacle, 80, 0.3);
+      }
     }
   }
-  const bi = state === 'playing' ? bossIntent(g.boss, g.history, g.player, g.walls, dt, simTime, g.movers) : { mx: 0, my: 0, turn: 0 };
   const bossWasIdle = g.boss.lungeState === 'idle';
-  g.boss.update(dt, bi);
-  if (bossWasIdle && g.boss.lungeState === 'out') audio.sfxWhack();
+  g.boss.update(dt, ib);
+  if (bossWasIdle && g.boss.lungeState === 'out') onWhack();
   resolveCircleVsSegments(g.boss, g.walls);
   pushOutOfMovers(g.boss);
 
@@ -184,10 +163,16 @@ function step(dt) {
 
   if (g.ice) {
     g.ice.update(simTime, g.ball);
-    if (g.ice.affect(g.player)) onPlayerFrozen();
+    if (g.ice.affect(g.player)) onPlayerFrozen(g.player);
+    if (g.pvp && g.ice.affect(g.boss)) onPlayerFrozen(g.boss);
   }
 
   if (g.panes.length) updateGlass();
+}
+
+function onWhack() {
+  audio.sfxWhack();
+  netEvent({ e: 'whack' });
 }
 
 /** Reglaze broken panes whose time is up and nothing is standing in them. */
@@ -208,6 +193,7 @@ function updateGlass() {
     const c = paneCentre(pane);
     g.fx.ring(c.x, c.y, pane.color, 70, 0.5);
     audio.sfxReglaze();
+    netEvent({ e: 'reglaze', i: g.panes.indexOf(pane) });
     changed = true;
   }
   if (changed) rebuildWalls();
@@ -224,8 +210,7 @@ function paneCentre(pane) {
 }
 
 function rebuildWalls() {
-  const g = game;
-  g.walls = g.staticWalls.concat(...g.panes.filter((p) => !p.broken).map((p) => p.segs));
+  rebuildWallsState(game);
 }
 
 function shatter(pane, h, before) {
@@ -237,20 +222,31 @@ function shatter(pane, h, before) {
   // The ball keeps going through the gap, a little slower.
   g.ball.vx = before.vx * glass.speedKeep;
   g.ball.vy = before.vy * glass.speedKeep;
-  g.fx.burst(h.cx, h.cy, -h.nx, -h.ny, 26, pane.color, 380, 1.3, 0.7);
-  g.fx.burst(h.cx, h.cy, h.nx, h.ny, 12, '#ffffff', 220, 1.2, 0.5);
-  g.fx.ring(h.cx, h.cy, pane.color, 90, 0.4);
-  g.fx.addShake(6);
-  audio.sfxShatter();
+  shatterFx(pane, h.cx, h.cy, h.nx, h.ny);
+  netEvent({ e: 'shatter', i: g.panes.indexOf(pane), x: h.cx, y: h.cy, nx: h.nx, ny: h.ny });
   rebuildWalls();
   guideFrame = 0;
 }
 
-function onPlayerFrozen() {
+function shatterFx(pane, x, y, nx, ny) {
+  const g = game;
+  g.fx.burst(x, y, -nx, -ny, 26, pane.color, 380, 1.3, 0.7);
+  g.fx.burst(x, y, nx, ny, 12, '#ffffff', 220, 1.2, 0.5);
+  g.fx.ring(x, y, pane.color, 90, 0.4);
+  g.fx.addShake(6);
+  audio.sfxShatter();
+}
+
+function onPlayerFrozen(f) {
+  freezeFx(f);
+  netEvent({ e: 'freeze', s: f === game.player ? 'a' : 'b' });
+}
+
+function freezeFx(f) {
   const g = game;
   audio.sfxFreeze();
-  g.fx.ring(g.player.x, g.player.y, g.def.palette.ice || '#cdf6ff', 90, 0.5);
-  g.fx.burst(g.player.x, g.player.y, 0, -1, 18, '#ffffff', 120, Math.PI, 0.7);
+  g.fx.ring(f.x, f.y, g.def.palette.ice || '#cdf6ff', 90, 0.5);
+  g.fx.burst(f.x, f.y, 0, -1, 18, '#ffffff', 120, Math.PI, 0.7);
   g.fx.addShake(4);
 }
 
@@ -284,6 +280,10 @@ function moveBall(dt) {
       onPaddle: onPaddleHit,
       onMover: onMoverHit,
       onBody: (f, h) => {
+        if (g.pvp) {
+          onPvpHit(f, h);
+          return true;
+        }
         if (f.kind === 'boss') {
           onBossHit(h);
           return true;
@@ -318,11 +318,16 @@ function onWallBounce(h, seg, before) {
     }
   }
   const n = speedNorm(g.ball.speed);
-  audio.sfxWall(n);
   const color = seg.kind === 'glass' ? seg.pane.color : seg.kind === 'obstacle' ? g.def.palette.obstacle : g.def.palette.wall;
-  g.fx.burst(h.cx, h.cy, h.nx, h.ny, 4 + Math.floor(n * 8), color, 160 + 300 * n, 1.1, 0.35);
+  wallFx(h.cx, h.cy, h.nx, h.ny, n, color);
+  netEvent({ e: 'wall', x: h.cx, y: h.cy, nx: h.nx, ny: h.ny, n, c: color });
   g.ball.lastHitBy = 'wall';
   guideFrame = 0;
+}
+
+function wallFx(x, y, nx, ny, n, color) {
+  audio.sfxWall(n);
+  game.fx.burst(x, y, nx, ny, 4 + Math.floor(n * 8), color, 160 + 300 * n, 1.1, 0.35);
 }
 
 function onMoverHit(m, h, before) {
@@ -330,12 +335,18 @@ function onMoverHit(m, h, before) {
   const after = g.ball.speed;
   const delta = after - before;
   const strength = clamp(Math.abs(delta) / 400, 0, 1);
-  if (m.kind === 'pulse') audio.sfxPing(strength);
-  else audio.sfxPaddle(strength * 0.7, true);
-  g.fx.burst(h.cx, h.cy, h.nx, h.ny, 6 + Math.floor(strength * 12), g.def.palette.obstacle, 180 + 360 * strength, 1, 0.4);
-  if (Math.abs(delta) > 120) g.fx.ring(h.cx, h.cy, g.def.palette.obstacle, 50 + 100 * strength, 0.35);
+  moverFx(m.kind, h.cx, h.cy, h.nx, h.ny, strength, Math.abs(delta) > 120);
+  netEvent({ e: 'mover', k: m.kind, x: h.cx, y: h.cy, nx: h.nx, ny: h.ny, s: strength, d: Math.abs(delta) > 120 ? 1 : 0 });
   g.ball.lastHitBy = 'mover';
   guideFrame = 0;
+}
+
+function moverFx(kind, x, y, nx, ny, strength, big) {
+  const g = game;
+  if (kind === 'pulse') audio.sfxPing(strength);
+  else audio.sfxPaddle(strength * 0.7, true);
+  g.fx.burst(x, y, nx, ny, 6 + Math.floor(strength * 12), g.def.palette.obstacle, 180 + 360 * strength, 1, 0.4);
+  if (big) g.fx.ring(x, y, g.def.palette.obstacle, 50 + 100 * strength, 0.35);
 }
 
 function onPaddleHit(f, h, before) {
@@ -344,19 +355,28 @@ function onPaddleHit(f, h, before) {
   const delta = after - before;
   const strength = clamp(Math.abs(delta) / 400, 0, 1);
   const isBoss = f.kind === 'boss';
-  audio.sfxPaddle(strength, isBoss);
-  g.fx.burst(h.cx, h.cy, h.nx, h.ny, 8 + Math.floor(strength * 16), f.color, 200 + 400 * strength, 0.9, 0.45);
-  if (delta > 100) {
-    g.fx.addShake(3 + strength * 7);
-    g.fx.ring(h.cx, h.cy, f.color, 60 + 120 * strength, 0.4);
-  }
+  paddleFx(f, h.cx, h.cy, h.nx, h.ny, strength, delta > 100);
   g.ball.lastHitBy = f.kind;
   if (!isBoss) g.paddleHits++;
-  if (isBoss && g.ice) {
+  // The ice trail follows the boss's blocks; in PvP, either player's.
+  let iced = 0;
+  if (g.ice && (isBoss || g.pvp)) {
     g.ice.start(simTime);
     audio.sfxIce();
+    iced = 1;
   }
+  netEvent({ e: 'paddle', s: isBoss ? 'b' : 'a', x: h.cx, y: h.cy, nx: h.nx, ny: h.ny, st: strength, d: delta > 100 ? 1 : 0, ice: iced });
   guideFrame = 0;
+}
+
+function paddleFx(f, x, y, nx, ny, strength, big) {
+  const g = game;
+  audio.sfxPaddle(strength, f.kind === 'boss');
+  g.fx.burst(x, y, nx, ny, 8 + Math.floor(strength * 16), f.color, 200 + 400 * strength, 0.9, 0.45);
+  if (big) {
+    g.fx.addShake(3 + strength * 7);
+    g.fx.ring(x, y, f.color, 60 + 120 * strength, 0.4);
+  }
 }
 
 function onBossHit(h) {
@@ -402,25 +422,35 @@ function frame(now) {
   if (dt > 0) fps += (1 / dt - fps) * 0.05;
 
   if (game && state !== 'title' && state !== 'paused') {
+    const guest = net.mode === 'guest';
+    if (guest) guestApply(now);
     acc += dt;
-    const simulate = state === 'countdown' || state === 'playing';
+    const simulate = !guest && (state === 'countdown' || state === 'playing');
     while (acc >= PHYSICS_DT) {
       if (simulate) step(PHYSICS_DT);
       acc -= PHYSICS_DT;
     }
     game.fx.update(dt);
-    if (state === 'countdown') {
+    if (state === 'countdown' && !guest) {
       countdown -= dt;
       const tick = Math.ceil(countdown);
       if (tick !== countdownTick) {
         countdownTick = tick;
         if (tick > 0) {
-          $('countdown').hidden = false;
-          $('countdown').textContent = String(tick);
-          audio.sfxCount(false);
+          showCountdown(tick);
+          netEvent({ e: 'count', f: 0 });
         }
       }
       if (countdown <= 0) launchBall();
+    }
+    if (state === 'roundEnd' && net.mode === 'host') {
+      endTimer -= dt;
+      if (endTimer <= 0) {
+        if (net.scores.host >= WIN_SCORE || net.scores.guest >= WIN_SCORE) {
+          state = 'matchEnd';
+          showNetMatchEnd();
+        } else startNetRound();
+      }
     }
     if (state === 'playing') {
       game.ball.pushTrail(BALL.trailLength);
@@ -444,6 +474,8 @@ function frame(now) {
       }
     }
     updateHud();
+    if (net.mode === 'host') hostSend();
+    else if (net.mode === 'guest') guestSend();
   }
 
   if (state === 'jukebox') {
@@ -644,14 +676,15 @@ function handleGlobalKeys() {
     $('hud-mute').textContent = audio.muted ? 'MUTED [M]' : 'SOUND ON [M]';
   }
   if (input.consumePress('p') || input.consumePress('Escape')) {
-    if (state === 'playing') pause();
+    if (net.mode) leaveMatch();
+    else if (state === 'playing') pause();
     else if (state === 'paused') resume();
     else if (state === 'jukebox') leaveJukebox();
   }
   if (state === 'jukebox' && input.consumePress('n')) jukeboxNext();
-  if (input.consumePress('r') && game && state !== 'title') startLevel(levelIndex);
+  if (input.consumePress('r') && game && state !== 'title' && !net.mode) startLevel(levelIndex);
   if (input.consumePress('f')) toggleFullscreen();
-  if (input.consumePress('Enter')) {
+  if (input.consumePress('Enter') && !net.mode) {
     if (state === 'title') begin();
     else if (state === 'cleared') {
       const nextIdx = LEVELS.findIndex((l) => l.id === game.def.id + 1);
@@ -688,6 +721,7 @@ function resume() {
 function goToMenu() {
   if (audio.ctx && audio.ctx.state === 'suspended') audio.ctx.resume();
   audio.stopTrack(0.6);
+  netReset();
   game = null;
   showTitle();
 }
@@ -738,15 +772,28 @@ function setText(id, text) {
 function updateHud() {
   const g = game;
   setText('hud-time', formatTime(g.time));
-  setText('hud-lives', '◆'.repeat(Math.max(0, g.lives)) + '◇'.repeat(Math.max(0, PLAYER.lives - g.lives)));
+  if (g.pvp) {
+    setText('hud-lives-label', 'SCORE');
+    setText('hud-lives', `${net.scores.host} – ${net.scores.guest}`);
+    setText('hud-boss-label', 'MATCH');
+    setText('hud-boss', `${net.names.host} vs ${net.names.guest} · first to ${WIN_SCORE}`.toUpperCase());
+    setText('hud-level', `ROUND ${net.round} · ${g.def.title.toUpperCase()}`);
+  } else {
+    setText('hud-lives-label', 'SHIELD');
+    setText('hud-boss-label', 'BOSS');
+    setText('hud-lives', '◆'.repeat(Math.max(0, g.lives)) + '◇'.repeat(Math.max(0, PLAYER.lives - g.lives)));
+  }
   const s = g.ball.held && state !== 'cleared' ? 0 : g.ball.speed;
   setText('hud-speed', `${Math.round(s)} px/s`);
   $('hud-speed-bar').style.width = `${speedNorm(s) * 100}%`;
   setText('hud-bpm', audio.currentBpm ? `♪ ${Math.round(audio.currentBpm)} BPM` : '♪');
-  setText('hud-fps', `${Math.round(fps)} FPS`);
-  const frozen = g.player.frozen > 0;
-  setText('hud-status', frozen ? `FROZEN ${g.player.frozen.toFixed(1)}` : '');
-  $('hud-status').classList.toggle('on', frozen);
+  setText('hud-fps', net.mode ? `${Math.round(fps)} FPS · ${Math.round(net.client.rtt)} MS` : `${Math.round(fps)} FPS`);
+  const me = localFighter();
+  const frozen = me.frozen > 0;
+  let status = frozen ? `FROZEN ${me.frozen.toFixed(1)}` : '';
+  if (g.pvp && state === 'roundEnd' && net.winner) status = `POINT · ${net.names[net.winner]}`.toUpperCase();
+  setText('hud-status', status);
+  $('hud-status').classList.toggle('on', frozen || state === 'roundEnd');
 }
 
 function formatTime(t) {
@@ -766,6 +813,413 @@ function showOverlay(html) {
 function hideOverlay() {
   $('overlay').hidden = true;
   stopMarkAnimation();
+}
+
+// ------------------------------------------------------------ multiplayer
+
+const WIN_SCORE = 3;
+const ZERO_INTENT = { mx: 0, my: 0, turn: 0, lunge: false, retract: false };
+let lanInfo = null;
+const net = {
+  client: null,
+  mode: null, // null | 'host' | 'guest'
+  localSlot: 'a',
+  remoteIntent: null,
+  events: [],
+  round: 0,
+  scores: { host: 0, guest: 0 },
+  names: { host: 'Host', guest: 'Guest' },
+  levelIndex: 0,
+  winner: null,
+  pending: null, // latest snapshot not yet applied (guest)
+  snapAt: 0,
+  ballBase: null,
+  lastPing: 0,
+  frame: 0,
+};
+
+function netReset() {
+  if (net.client) {
+    net.client.leave();
+    net.client.close();
+  }
+  net.client = null;
+  net.mode = null;
+  net.remoteIntent = null;
+  net.events = [];
+  net.round = 0;
+  net.scores = { host: 0, guest: 0 };
+  net.winner = null;
+  net.pending = null;
+  net.ballBase = null;
+}
+
+function netEvent(ev) {
+  if (net.mode === 'host') net.events.push(ev);
+}
+
+/** The fighter this device controls. */
+function localFighter() {
+  const g = game;
+  if (!g) return null;
+  return g.pvp && net.localSlot === 'b' ? g.boss : g.player;
+}
+
+/** Which player ('host' | 'guest') owns a slot this round. Sides swap each round. */
+function slotOwner(slot) {
+  const hostSlot = net.round % 2 === 1 ? 'a' : 'b';
+  return slot === hostSlot ? 'host' : 'guest';
+}
+
+function savedName() {
+  try {
+    return localStorage.getItem('deflector.name') || '';
+  } catch (_) {
+    return '';
+  }
+}
+
+function rememberName(name) {
+  try {
+    localStorage.setItem('deflector.name', name);
+  } catch (_) {
+    // storage unavailable; fine
+  }
+}
+
+async function openLobby(prefillCode = '') {
+  await audio.init();
+  state = 'title';
+  setInGame(false);
+  stopMarkAnimation();
+  $('hud').hidden = true;
+  const urls = lanInfo ? lanInfo.addresses.map((a) => `http://${a}:${lanInfo.port}/`) : [];
+  showOverlay(`
+    <div class="eyebrow">MULTIPLAYER · SAME WI-FI</div>
+    <h1>Two friends, one room code</h1>
+    <p class="small muted">Both players open this page on the same network${urls.length ? `: <b>${urls.join('</b> or <b>')}</b>` : ''}. One hosts and gets a code, the other joins with it. First to ${WIN_SCORE} points; sides swap every round.</p>
+    <div class="row"><label class="mp-field">Your name <input id="mp-name" maxlength="16" value="${savedName().replace(/"/g, '')}" placeholder="Player" /></label></div>
+    <div class="row">
+      <button id="mp-host" class="primary">Host a match</button>
+      <label class="mp-field">Code <input id="mp-code" maxlength="4" value="${prefillCode.replace(/[^A-Z0-9]/g, '')}" placeholder="XXXX" style="width:5em;text-transform:uppercase" /></label>
+      <button id="mp-join">Join</button>
+      <button id="btn-menu">Main menu</button>
+    </div>
+    <div id="mp-status" class="mp-status"></div>
+  `);
+  $('btn-menu').onclick = goToMenu;
+  $('mp-host').onclick = () => hostRoom();
+  $('mp-join').onclick = () => joinRoom($('mp-code').value);
+  $('mp-code').onkeydown = (e) => {
+    if (e.key === 'Enter') joinRoom($('mp-code').value);
+  };
+}
+
+function lobbyStatus(html) {
+  const el = $('mp-status');
+  if (el) el.innerHTML = html;
+}
+
+function myName() {
+  const el = $('mp-name');
+  const name = ((el && el.value) || 'Player').trim().slice(0, 16) || 'Player';
+  rememberName(name);
+  return name;
+}
+
+async function connectClient() {
+  if (net.client && net.client.connected) return net.client;
+  const client = new NetClient();
+  net.client = client;
+  client.on('error', (m) => lobbyStatus(`<span class="mp-error">${m.msg}</span>`));
+  client.on('peer-left', onPeerLeft);
+  client.on('close', () => {
+    if (net.mode) showNetNotice('Connection lost', 'The link to the other player dropped.');
+  });
+  client.on('setup', onSetup);
+  client.on('s', (msg) => {
+    if (net.mode !== 'guest') return;
+    if (msg.ev) for (const ev of msg.ev) playEvent(ev);
+    net.pending = msg;
+    net.snapAt = performance.now();
+  });
+  client.on('i', (msg) => {
+    if (net.mode === 'host') net.remoteIntent = { mx: msg.mx, my: msg.my, turn: msg.turn, lunge: !!msg.lunge, retract: !!msg.retract };
+  });
+  await client.connect();
+  return client;
+}
+
+async function hostRoom() {
+  const name = myName();
+  lobbyStatus('Connecting…');
+  try {
+    const client = await connectClient();
+    client.on('created', (msg) => {
+      net.names.host = name;
+      const urls = lanInfo ? lanInfo.addresses.map((a) => `http://${a}:${lanInfo.port}/?room=${msg.code}`) : [];
+      lobbyStatus(`
+        <div class="mp-code">${msg.code}</div>
+        <p class="small">Share the code${urls.length ? `, or this link: <b>${urls.join('</b> / <b>')}</b>` : ''}.</p>
+        <p class="small muted" id="mp-wait">Waiting for a friend to join…</p>
+      `);
+    });
+    client.on('peer', (msg) => {
+      net.names.guest = msg.name;
+      const options = LEVELS.map((l, i) => `<option value="${i}">${l.id}. ${l.title}</option>`).join('');
+      lobbyStatus(`
+        <div class="mp-code">${client.code}</div>
+        <p><b>${msg.name}</b> joined.</p>
+        <div class="row"><label class="mp-field">Arena <select id="mp-level">${options}</select></label><button id="mp-start" class="primary">Start match</button></div>
+      `);
+      $('mp-start').onclick = () => startNetMatch(Number($('mp-level').value));
+    });
+    client.create(name);
+  } catch (err) {
+    lobbyStatus(`<span class="mp-error">${err.message}</span>`);
+  }
+}
+
+async function joinRoom(code) {
+  const name = myName();
+  code = String(code || '').toUpperCase().trim();
+  if (code.length !== 4) return lobbyStatus('<span class="mp-error">Enter the 4-letter room code.</span>');
+  lobbyStatus('Connecting…');
+  try {
+    const client = await connectClient();
+    client.on('joined', (msg) => {
+      net.names.guest = name;
+      net.names.host = msg.peerName;
+      lobbyStatus(`<div class="mp-code">${msg.code}</div><p>Joined <b>${msg.peerName}</b>'s room. Waiting for them to start…</p>`);
+    });
+    client.join(code, name);
+  } catch (err) {
+    lobbyStatus(`<span class="mp-error">${err.message}</span>`);
+  }
+}
+
+/** Host: begin a match on the chosen arena. */
+function startNetMatch(levelIdx) {
+  net.mode = 'host';
+  net.levelIndex = levelIdx;
+  net.round = 0;
+  net.scores = { host: 0, guest: 0 };
+  startNetRound();
+}
+
+/** Host: begin the next round (sides swap each round). */
+function startNetRound() {
+  net.round++;
+  net.winner = null;
+  net.localSlot = slotOwner('a') === 'host' ? 'a' : 'b';
+  net.remoteIntent = null;
+  net.events = [];
+  net.client.send({ t: 'setup', level: net.levelIndex, round: net.round, scores: net.scores, names: net.names });
+  beginNetRound();
+}
+
+/** Guest: the host announced a round. */
+function onSetup(msg) {
+  net.mode = 'guest';
+  net.levelIndex = msg.level;
+  net.round = msg.round;
+  net.scores = msg.scores;
+  net.names = msg.names;
+  net.winner = null;
+  net.localSlot = slotOwner('a') === 'guest' ? 'a' : 'b';
+  net.pending = null;
+  net.ballBase = null;
+  beginNetRound();
+}
+
+/** Both sides: build the arena for this round and start the countdown. */
+function beginNetRound() {
+  const def = LEVELS[net.levelIndex];
+  const sameTrack = game && game.def === def && audio.track;
+  levelIndex = net.levelIndex;
+  game = buildGame(def, true);
+  const owners = { a: slotOwner('a'), b: slotOwner('b') };
+  game.player.name = net.names[owners.a] + (net.localSlot === 'a' ? ' (you)' : '');
+  game.boss.name = net.names[owners.b] + (net.localSlot === 'b' ? ' (you)' : '');
+  renderer.setLevel(def);
+  renderer.resize();
+  simTime = 0;
+  acc = 0;
+  countdown = COUNTDOWN_SECONDS;
+  countdownTick = COUNTDOWN_SECONDS + 1;
+  endTimer = 0;
+  state = 'countdown';
+  input.clearPresses();
+  hideOverlay();
+  setInGame(true);
+  $('hud').hidden = false;
+  $('countdown').hidden = true;
+  $('hud-track').textContent = TRACKS[def.track].title;
+  if (!sameTrack) audio.playTrack(TRACKS[def.track]);
+}
+
+/** Host: a body was hit in PvP; the other player scores. */
+function onPvpHit(f, h) {
+  const g = game;
+  const hitSlot = f === g.player ? 'a' : 'b';
+  const scorer = slotOwner(hitSlot === 'a' ? 'b' : 'a');
+  net.scores[scorer]++;
+  net.winner = scorer;
+  state = 'roundEnd';
+  endTimer = 2.4;
+  g.ball.held = true;
+  hitFx(f, h.cx, h.cy, h.nx, h.ny);
+  netEvent({ e: 'hit', s: hitSlot, x: h.cx, y: h.cy, nx: h.nx, ny: h.ny });
+}
+
+function hitFx(f, x, y, nx, ny) {
+  const g = game;
+  f.hitFlash = 3;
+  g.fx.burst(x, y, nx, ny, 90, f.color, 500, Math.PI, 1.2);
+  g.fx.burst(x, y, nx, ny, 40, '#ffffff', 300, Math.PI, 0.8);
+  g.fx.ring(f.x, f.y, '#ffffff', 420, 0.9);
+  g.fx.ring(f.x, f.y, f.color, 260, 0.6);
+  g.fx.addShake(22);
+  g.fx.flash = 1;
+  audio.sfxBossHit();
+}
+
+/** Host: send the state of this frame to the guest. */
+function hostSend() {
+  net.frame++;
+  const meta = { st: state, cd: countdown, sc: net.scores, rd: net.round, w: net.winner };
+  net.client.send(buildSnapshot(game, meta, net.events, net.frame % 4 === 0));
+  net.events = [];
+  pingMaybe();
+}
+
+/** Guest: send this frame's input to the host. */
+function guestSend() {
+  const f = localFighter();
+  if (!f) return;
+  const it = input.intent(f);
+  net.client.send({ t: 'i', mx: +it.mx.toFixed(3), my: +it.my.toFixed(3), turn: it.turn, lunge: it.lunge ? 1 : 0, retract: it.retract ? 1 : 0 });
+  pingMaybe();
+}
+
+function pingMaybe() {
+  const now = performance.now();
+  if (now - net.lastPing > 2000) {
+    net.lastPing = now;
+    net.client.ping();
+  }
+}
+
+/** Guest: mirror the latest host snapshot, extrapolating the ball slightly. */
+function guestApply(now) {
+  const s = net.pending;
+  if (s) {
+    net.pending = null;
+    const g = game;
+    const wasState = state;
+    applySnapshot(g, s);
+    net.ballBase = { x: g.ball.x, y: g.ball.y, vx: g.ball.vx, vy: g.ball.vy };
+    net.scores = s.sc;
+    net.round = s.rd;
+    net.winner = s.w;
+    countdown = s.cd;
+    state = s.st;
+    if (state === 'countdown') {
+      const tick = Math.ceil(countdown);
+      if (tick > 0 && tick !== countdownTick) {
+        countdownTick = tick;
+        $('countdown').hidden = false;
+        $('countdown').textContent = String(tick);
+      }
+    } else $('countdown').hidden = true;
+    if (state === 'matchEnd' && wasState !== 'matchEnd') showNetMatchEnd();
+    if (state === 'matchEnd' && wasState !== 'matchEnd') setInGame(false);
+  }
+  if (net.ballBase && state === 'playing') {
+    const lag = Math.min((now - net.snapAt) / 1000, 0.06);
+    game.ball.x = net.ballBase.x + net.ballBase.vx * lag;
+    game.ball.y = net.ballBase.y + net.ballBase.vy * lag;
+  }
+}
+
+/** Guest: reproduce a host-side effect locally. */
+function playEvent(ev) {
+  const g = game;
+  if (!g) return;
+  switch (ev.e) {
+    case 'wall':
+      wallFx(ev.x, ev.y, ev.nx, ev.ny, ev.n, ev.c);
+      break;
+    case 'paddle': {
+      const f = ev.s === 'a' ? g.player : g.boss;
+      paddleFx(f, ev.x, ev.y, ev.nx, ev.ny, ev.st, !!ev.d);
+      if (ev.ice) audio.sfxIce();
+      break;
+    }
+    case 'mover':
+      moverFx(ev.k, ev.x, ev.y, ev.nx, ev.ny, ev.s, !!ev.d);
+      break;
+    case 'shatter':
+      if (g.panes[ev.i]) shatterFx(g.panes[ev.i], ev.x, ev.y, ev.nx, ev.ny);
+      break;
+    case 'reglaze':
+      if (g.panes[ev.i]) {
+        const c = paneCentre(g.panes[ev.i]);
+        g.fx.ring(c.x, c.y, g.panes[ev.i].color, 70, 0.5);
+        audio.sfxReglaze();
+      }
+      break;
+    case 'freeze':
+      freezeFx(ev.s === 'a' ? g.player : g.boss);
+      break;
+    case 'whack':
+      audio.sfxWhack();
+      break;
+    case 'count':
+      audio.sfxCount(!!ev.f);
+      break;
+    case 'hit':
+      hitFx(ev.s === 'a' ? g.player : g.boss, ev.x, ev.y, ev.nx, ev.ny);
+      break;
+    default:
+      break;
+  }
+}
+
+function showNetMatchEnd() {
+  setInGame(false);
+  const winner = net.scores.host >= WIN_SCORE ? 'host' : 'guest';
+  const you = winner === net.mode;
+  showOverlay(`
+    <div class="eyebrow">${you ? 'VICTORY' : 'DEFEAT'}</div>
+    <h1>${net.names[winner]} wins ${net.scores.host}–${net.scores.guest}</h1>
+    <p class="muted">${LEVELS[net.levelIndex].title} · ${net.round} rounds</p>
+    <div class="row">
+      ${net.mode === 'host' ? '<button id="btn-rematch" class="primary">Rematch</button>' : '<span class="small muted">Waiting for the host to start a rematch…</span>'}
+      <button id="btn-menu">Main menu</button>
+    </div>
+  `);
+  $('btn-menu').onclick = leaveMatch;
+  if (net.mode === 'host') $('btn-rematch').onclick = () => startNetMatch(net.levelIndex);
+}
+
+function showNetNotice(title, text) {
+  setInGame(false);
+  showOverlay(`
+    <h1>${title}</h1>
+    <p class="muted">${text}</p>
+    <div class="row"><button id="btn-menu" class="primary">Main menu</button></div>
+  `);
+  $('btn-menu').onclick = leaveMatch;
+}
+
+function onPeerLeft() {
+  if (net.mode) showNetNotice('Your friend left', 'The other player disconnected.');
+  else lobbyStatus('<span class="mp-error">Your friend left the room.</span>');
+}
+
+function leaveMatch() {
+  goToMenu();
 }
 
 // ---------------------------------------------------------- title mark
@@ -852,10 +1306,12 @@ function showTitle() {
         <ol class="roster">${roster}</ol>
       </div>
     </div>
-    <div class="row"><button id="btn-start" class="primary">Start · Sound on</button><button id="btn-jukebox">Soundtrack</button>${fullscreenHint()}</div>
+    <div class="row"><button id="btn-start" class="primary">Start · Sound on</button><button id="btn-jukebox">Soundtrack</button><button id="btn-multi" ${lanInfo ? '' : 'disabled title="Run npm start on one PC and open its LAN address on both"'}>Multiplayer · LAN</button>${fullscreenHint()}</div>
+    ${lanInfo ? '' : '<p class="small muted">Multiplayer needs the LAN server: run <code>npm start</code> on one PC and open its address on both.</p>'}
   `);
   $('btn-start').onclick = begin;
   $('btn-jukebox').onclick = openJukebox;
+  $('btn-multi').onclick = () => openLobby();
   $('btn-full')?.addEventListener('click', toggleFullscreen);
   startMarkAnimation();
   for (const li of document.querySelectorAll('.roster li[data-level]')) {
@@ -924,6 +1380,12 @@ renderer.setLevel(LEVELS[levelIndex]);
 renderer.resize();
 showTitle();
 requestAnimationFrame(frame);
+NetClient.available().then((info) => {
+  lanInfo = info;
+  if (state === 'title') showTitle();
+  const code = new URLSearchParams(location.search).get('room');
+  if (info && code) openLobby(code.toUpperCase());
+});
 
 // Expose for debugging / automated smoke tests.
-window.__game = { get state() { return state; }, get game() { return game; }, audio, startLevel };
+window.__game = { get state() { return state; }, get game() { return game; }, get net() { return net; }, audio, startLevel };

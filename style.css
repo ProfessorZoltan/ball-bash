@@ -308,3 +308,28 @@ button[disabled] { opacity: 0.45; cursor: default; }
 .jb-title small { color: var(--muted); font-size: 11px; }
 .jb-actions { display: flex; gap: 4px; }
 .jb-actions button { padding: 4px 9px; font-size: 13px; letter-spacing: 0; }
+
+/* Multiplayer lobby ------------------------------------------------------ */
+.mp-field { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; }
+.mp-field input, .mp-field select {
+  font-family: var(--display);
+  font-size: 14px;
+  letter-spacing: 0.1em;
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(127, 233, 255, 0.5);
+  background: rgba(127, 233, 255, 0.08);
+  color: var(--text);
+}
+.mp-status { margin-top: 14px; min-height: 24px; font-size: 14px; }
+.mp-code {
+  font-family: var(--display);
+  font-size: clamp(40px, 8vw, 72px);
+  font-weight: 900;
+  letter-spacing: 0.35em;
+  color: #fff;
+  text-shadow: 0 0 18px var(--cyan), 0 0 40px rgba(127, 233, 255, 0.5);
+  margin: 6px 0;
+}
+.mp-error { color: #ff7a8a; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--cyan); }
