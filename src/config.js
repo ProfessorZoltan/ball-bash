@@ -13,7 +13,9 @@ export const BALL = {
 
 // How much of a moving surface's velocity transfers to the ball.
 // 1.0 is the physically exact result for an infinitely massive moving wall.
-export const SURFACE_VELOCITY_FACTOR = 1.0;
+// `toward` applies when the surface is closing on the ball (it speeds the
+// ball up), `away` when it is retreating (it slows the ball down).
+export const SURFACE_VELOCITY_FACTOR = { toward: 0.7, away: 1.0 };
 
 export const PLAYER = {
   radius: 22,

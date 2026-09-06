@@ -47,11 +47,14 @@ which launches the game chrome-free thanks to `manifest.webmanifest`.
 * Walls and obstacles: the ball leaves at exactly the speed it arrived, mirrored
   about the surface normal.
 * Moving surfaces (a character's shield or body): the bounce is computed in the
-  surface's frame of reference. A surface moving **toward** the ball adds twice
-  its closing speed; one moving **away** removes it. A rotating shield is a
-  moving surface, so the tips of a swinging shield whack the ball hardest.
-  The share of surface velocity transferred is `SURFACE_VELOCITY_FACTOR` in
-  `src/config.js` (1.0 = physically exact).
+  surface's frame of reference. A surface moving **toward** the ball adds
+  speed; one moving **away** removes it. A rotating shield is a moving
+  surface, so the tips of a swinging shield whack the ball hardest. The share
+  of surface velocity transferred is `SURFACE_VELOCITY_FACTOR` in
+  `src/config.js`: 1.0 is physically exact (twice the closing speed). The
+  speed-up is tuned to 0.7 of that; the slow-down from a retreating surface
+  stays at 1.0.
+* During the launch countdown you can turn to aim but not move.
 * The ball is clamped between a minimum and a maximum speed so it never stalls
   and never tunnels through a wall. Physics runs at a fixed 240 Hz.
 * Every arena is a closed polygon; `test/physics.test.js` fires the ball at the

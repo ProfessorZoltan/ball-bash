@@ -77,10 +77,17 @@ export function circleVsCircle(ax, ay, ar, bx, by, br) {
  * surface's frame), in which case the velocity is left untouched.
  *
  * `factor` scales how much of the surface velocity is transferred. 1 is the
- * physically exact answer for an infinitely massive moving wall.
+ * physically exact answer for an infinitely massive moving wall. It may be a
+ * number or `{ toward, away }` to treat a surface closing on the ball (which
+ * adds speed) differently from one retreating (which removes speed).
  */
 export function reflect(ball, nx, ny, svx = 0, svy = 0, restitution = 1, factor = 1) {
-  const relN = (ball.vx - svx * factor) * nx + (ball.vy - svy * factor) * ny;
+  let f = factor;
+  if (typeof factor === 'object') {
+    const closing = svx * nx + svy * ny > 0; // surface moving toward the ball
+    f = closing ? factor.toward : factor.away;
+  }
+  const relN = (ball.vx - svx * f) * nx + (ball.vy - svy * f) * ny;
   if (relN >= 0) return false;
   ball.vx -= (1 + restitution) * relN * nx;
   ball.vy -= (1 + restitution) * relN * ny;

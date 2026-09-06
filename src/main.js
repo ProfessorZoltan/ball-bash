@@ -128,8 +128,13 @@ function step(dt) {
 
   for (const m of g.movers) m.update(dt);
 
-  // Player.
+  // Player. Movement is locked until the ball launches; aiming is allowed.
   const pi = input.intent(g.player);
+  if (state === 'countdown') {
+    pi.mx = 0;
+    pi.my = 0;
+    pi.lunge = false;
+  }
   const wasIdle = g.player.lungeState === 'idle';
   g.player.update(dt, pi);
   if (wasIdle && g.player.lungeState === 'out') audio.sfxWhack();

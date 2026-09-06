@@ -34,6 +34,16 @@ test('surface moving toward the ball speeds it up, moving away slows it down', (
   assert.equal(away.vx, -100); // 400 - 2*150
 });
 
+test('asymmetric transfer: closing surfaces use the toward factor, retreating ones the away factor', () => {
+  const factor = { toward: 0.7, away: 1.0 };
+  const toward = { vx: 400, vy: 0 };
+  reflect(toward, -1, 0, -150, 0, 1, factor); // wall closing on the ball at 150
+  assert.ok(Math.abs(toward.vx - -610) < 1e-9, `expected -610 (400 + 2*0.7*150), got ${toward.vx}`);
+  const away = { vx: 400, vy: 0 };
+  reflect(away, -1, 0, 150, 0, 1, factor); // wall retreating at 150
+  assert.ok(Math.abs(away.vx - -100) < 1e-9, `expected -100 (400 - 2*150), got ${away.vx}`);
+});
+
 test('rotating paddle: the tip swinging into the ball adds speed', () => {
   const f = new Fighter({ x: 0, y: 0, angle: 0, paddleBase: 40, paddleWidth: 100 });
   f.omega = 5; // rad/s, clockwise on screen (y down)
