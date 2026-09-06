@@ -245,6 +245,25 @@ polygon, obstacle polygons via `rect(cx, cy, w, h, angleDeg)`, optional
 `movers`, spawns, boss parameters) and a track to `src/audio/tracks.js`. The
 title screen lists every built level and lets you pick one.
 
+## Lore
+
+You are the Defector. The grid is a system of sealed rooms, the ball is the
+charge that travels between them, and every program in the grid is a
+reflector at heart: it gives the charge back exactly as it came. You were one
+of them, a wall with a name, until you moved (a moving shield adds to or takes
+from the charge, which no wall can do) and then turned on the other programs.
+The written mark is that name being rewritten one reading at a time:
+REFLECTOR, DEFLECTOR, DEFECTOR, and a last reading, VECTOR, that the record
+has not filled in yet.
+
+The title screen carries the system bulletin about you, a dossier line for
+the resident program of the selected level, and a **Read the record** link
+to the full story with all ten residents. Clearing a level marks its resident
+STOPPED in the record (kept in the browser under `deflector.cleared`); the
+cleared and failed screens each carry a line from the record too. The text
+lives in `src/lore.js` and in each level's `record` and `stopped` fields in
+`src/levels.js`.
+
 ## Name
 
 The mark, its readings and the spoken name live in `src/config.js`
@@ -262,6 +281,7 @@ src/entities.js            Ball, Fighter (player), Boss
 src/ai.js                  boss perception delay, path prediction, brace/absorb
 src/ice.js                 ice trail hazard (Coolant Tunnels)
 src/levels.js              level data, the roster and the tutorial's training hall
+src/lore.js                worldbuilding: the bulletin, the record's chapters, status words
 src/input.js               keyboard, mouse, touch -> one intent object
 src/render.js              Canvas 2D neon renderer with 2.5D wall extrusion
 src/fx.js                  particles, rings, screen shake

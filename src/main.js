@@ -3,6 +3,7 @@
 import { GAME_MARK, GAME_NAME, GAME_TAGLINE, MARK_READINGS, PHYSICS_DT, BALL, PLAYER, SURFACE_VELOCITY_FACTOR, COUNTDOWN_SECONDS } from './config.js';
 import { BallHistory, bossIntent, moverSegmentsAt } from './ai.js';
 import { LEVELS, ROSTER, TUTORIAL_LEVEL } from './levels.js';
+import { LORE } from './lore.js';
 import { createGameState, rebuildWalls as rebuildWallsState, bodyHitCounts } from './gamestate.js';
 import { NetClient } from './net.js';
 import { buildSnapshot, applySnapshot } from './netstate.js';
@@ -859,6 +860,63 @@ function hideOverlay() {
   stopMarkAnimation();
 }
 
+// ------------------------------------------------------------------ lore
+
+const CLEARED_KEY = 'deflector.cleared';
+
+/** Ids of the levels this browser has cleared (the record's STOPPED residents). */
+function clearedIds() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(CLEARED_KEY) || '[]');
+    return new Set(Array.isArray(raw) ? raw.map(Number) : []);
+  } catch (_) {
+    return new Set();
+  }
+}
+
+function markCleared(id) {
+  try {
+    const ids = clearedIds();
+    ids.add(id);
+    localStorage.setItem(CLEARED_KEY, JSON.stringify([...ids].sort((a, b) => a - b)));
+  } catch (_) {
+    // storage unavailable; the record just will not remember
+  }
+}
+
+/** The Record: the backstory told through the mark's four readings, then the resident dossier. */
+function showRecord() {
+  state = 'title';
+  setInGame(false);
+  stopMarkAnimation();
+  $('hud').hidden = true;
+  const done = clearedIds();
+  const chapters = LORE.chapters
+    .map((c) => `<section class="chapter"><div class="mark mark-sm" aria-label="${c.reading}">${markHtml(c.reading)}</div><p>${c.text}</p></section>`)
+    .join('');
+  const residents = ROSTER.map((r) => {
+    const lvl = LEVELS.find((l) => l.id === r.id);
+    const stopped = done.has(r.id);
+    return `<li class="${stopped ? 'stopped' : 'active'}">
+      <div class="res-head"><span class="res-num">${String(r.id).padStart(2, '0')}</span><b>${r.boss}</b><span class="muted">· ${r.title}</span><span class="res-status">${stopped ? LORE.status.stopped : LORE.status.active}</span></div>
+      ${lvl && lvl.record ? `<p>${lvl.record}</p>` : ''}
+    </li>`;
+  }).join('');
+  showOverlay(`
+    <div class="eyebrow">THE RECORD</div>
+    <h1>${LORE.title}</h1>
+    <div class="record">
+      ${chapters}
+      <h3>${LORE.residentsHeading}</h3>
+      <ol class="residents">${residents}</ol>
+      <p class="small muted">${LORE.footer}</p>
+    </div>
+    <div class="row"><button id="btn-start" class="primary">Start</button><button id="btn-menu">Back</button></div>
+  `);
+  $('btn-start').onclick = begin;
+  $('btn-menu').onclick = showTitle;
+}
+
 // --------------------------------------------------------------- settings
 
 const OWN_BALL_KEY = 'deflector.ownBallLoss';
@@ -881,7 +939,7 @@ function setOwnBallLoss(on) {
 }
 
 function ownBallToggleHtml() {
-  return `<label class="opt"><input type="checkbox" id="opt-ownball" ${ownBallLoss() ? 'checked' : ''} /> <span><b>Lose to a ball you last hit</b><span class="small muted"> · off: your body just bounces it until the other shield touches it. Bosses play by the same rule.</span></span></label>`;
+  return `<label class="opt"><input type="checkbox" id="opt-ownball" ${ownBallLoss() ? 'checked' : ''} /> <span><b>Lose to a ball you last hit</b><span class="small muted"> · off: it just bounces off you. Bosses play by the same rule.</span></span></label>`;
 }
 
 function bindOwnBallToggle() {
@@ -1500,9 +1558,12 @@ function leaveMatch() {
 
 const PUNCT = new Set(['[', ']', '<', '>', '(', ')', '/']);
 
-function markHtml() {
+/** The mark as glyph spans. With a reading name, the glyphs of that reading (plus the shared ECTOR) come pre-lit and the rest dimmed. */
+function markHtml(reading = null) {
+  const r = reading && MARK_READINGS.find((m) => m.name === reading);
+  const lit = r ? new Set([...r.lit, 14, 15, 16, 17, 18]) : null;
   return [...GAME_MARK]
-    .map((ch, i) => `<span class="g ${PUNCT.has(ch) ? 'p' : 'l'}" data-i="${i}">${ch}</span>`)
+    .map((ch, i) => `<span class="g ${PUNCT.has(ch) ? 'p' : 'l'}${lit ? (lit.has(i) ? ' lit' : ' dim') : ''}" data-i="${i}">${ch}</span>`)
     .join('');
 }
 
@@ -1556,36 +1617,52 @@ function showTitle() {
   showOverlay(`
     <h1 class="title mark" aria-label="${GAME_NAME}">${markHtml()}</h1>
     <p class="tagline">${GAME_TAGLINE}</p>
-    <div class="level-card">
-      <div class="eyebrow">LEVEL ${def.id}</div>
-      <div class="level-title">${def.title}</div>
-      <div class="muted">Boss: ${def.bossName}</div>
-      <p class="intro">${def.intro}</p>
+    <div class="top">
+      <div>
+        <div class="bulletin">
+          <div class="eyebrow">${LORE.bulletin.eyebrow}</div>
+          <p>${LORE.bulletin.text}</p>
+          <p class="you"><span>${LORE.bulletin.you}</span><a id="btn-record" href="#record">${LORE.bulletin.link} ›</a></p>
+        </div>
+        <div class="level-card">
+          <div class="eyebrow">LEVEL ${def.id}</div>
+          <div class="level-title">${def.title}</div>
+          <div class="muted">Boss: ${def.bossName}${clearedIds().has(def.id) ? ` · <span class="stopped">${LORE.status.stopped.toLowerCase()}</span>` : ''}</div>
+          <p class="intro">${def.intro}</p>
+          ${def.record ? `<p class="record"><b>RECORD</b>${def.record}</p>` : ''}
+        </div>
+      </div>
+      <div>
+        <h3>Levels</h3>
+        <ol class="roster">${roster}</ol>
+        <h3>Rules</h3>
+        ${ownBallToggleHtml()}
+      </div>
     </div>
     <div class="columns">
       <div>
         <h3>Controls</h3>
         <ul class="controls">
-          <li><b>Arrow keys</b> or <b>hold mouse</b> — move. Touch: <b>touch anywhere and drag</b> to steer</li>
+          <li><b>Arrow keys</b>, <b>hold mouse</b> or <b>touch and drag</b> — move</li>
           <li><b>A / D</b> — rotate (swing the shield to whack)</li>
           <li><b>W</b> or <b>Space</b> — thrust the shield forward</li>
           <li><b>S</b> — pull the shield in (soften the return)</li>
           <li><b>P</b> pause · <b>M</b> mute · <b>R</b> restart</li>
         </ul>
-        <h3>How to win</h3>
-        <p class="small">The ball only counts when it hits a <b>body</b>. The boss's shield blocks its front, so bank shots off the walls and angled deflectors to strike from the side or behind. One hit on you and the level is lost. A moving or spinning shield adds its speed to the ball; retreating removes it. The soundtrack's tempo follows the ball.</p>
-        <h3>Rules</h3>
-        ${ownBallToggleHtml()}
       </div>
       <div>
-        <h3>Levels</h3>
-        <ol class="roster">${roster}</ol>
+        <h3>How to win</h3>
+        <p class="small">The ball only counts when it hits a <b>body</b>. The boss's shield blocks its front, so bank shots off the walls and angled deflectors to strike from the side or behind. One hit on you and the level is lost. A moving or spinning shield adds its speed to the ball; retreating removes it.</p>
       </div>
     </div>
     <div class="row"><button id="btn-start" class="primary">Start · Sound on</button><button id="btn-tutorial">Tutorial</button><button id="btn-jukebox">Soundtrack</button><button id="btn-multi" ${lanInfo ? '' : 'disabled title="Run npm start on one PC and open its LAN address on both"'}>Multiplayer · LAN</button>${fullscreenHint()}</div>
     ${lanInfo ? '' : '<p class="small muted">Multiplayer needs the LAN server: run <code>npm start</code> on one PC and open its address on both.</p>'}
   `);
   $('btn-start').onclick = begin;
+  $('btn-record').onclick = (e) => {
+    e.preventDefault();
+    showRecord();
+  };
   bindOwnBallToggle();
   $('btn-tutorial').onclick = async () => {
     await audio.init();
@@ -1614,13 +1691,14 @@ async function begin() {
 function showCleared() {
   setInGame(false);
   const def = game.def;
+  markCleared(def.id);
   const next = ROSTER.find((r) => r.id === def.id + 1);
   const nextIdx = LEVELS.findIndex((l) => l.id === def.id + 1);
   const last = !next;
   showOverlay(`
-    <div class="eyebrow">${last ? 'EVERY LEVEL CLEARED' : `LEVEL ${def.id} CLEARED`}</div>
+    <div class="eyebrow">${last ? 'EVERY LEVEL CLEARED' : `LEVEL ${def.id} CLEARED · ${def.bossName.toUpperCase()} ${LORE.status.stopped}`}</div>
     <h1>${last ? 'The arcade is yours' : def.title}</h1>
-    <p class="muted">${last ? `${def.bossName} built every room before this one. You beat them all.` : `${def.bossName} is down.`}</p>
+    <p class="muted">${def.stopped || `${def.bossName} is down.`}</p>
     <table class="stats">
       <tr><td>Time</td><td>${formatTime(game.time)}</td></tr>
       <tr><td>Top ball speed</td><td>${Math.round(game.topSpeed)} px/s</td></tr>
@@ -1644,6 +1722,7 @@ function showFailed() {
     <div class="eyebrow">SHIELD DOWN</div>
     <h1>${def.bossName} holds ${def.title}</h1>
     <p class="muted">One hit is all it takes. You lasted ${formatTime(game.time)}.</p>
+    <p class="small muted record-note">${LORE.failed(def.title)}</p>
     <div class="row"><button id="btn-retry" class="primary">Retry</button><button id="btn-menu">Main menu</button></div>
   `);
   $('btn-retry').onclick = () => startLevel(levelIndex);

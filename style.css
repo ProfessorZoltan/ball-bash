@@ -172,7 +172,7 @@ html, body {
   100% { opacity: 1; }
 }
 .tagline {
-  margin: 0 0 18px;
+  margin: 0 0 12px;
   color: var(--muted);
   font-family: var(--display);
   letter-spacing: 0.3em;
@@ -184,6 +184,37 @@ html, body {
   letter-spacing: 0.3em;
   color: var(--orange);
 }
+.bulletin {
+  max-width: 620px;
+  margin: 0 auto 14px;
+  padding: 10px 16px 12px;
+  text-align: left;
+  border-left: 2px solid var(--cyan);
+  border-radius: 0 8px 8px 0;
+  background: rgba(127, 233, 255, 0.05);
+}
+.bulletin .eyebrow { color: var(--cyan); font-size: 11px; }
+.bulletin p { margin: 6px 0 0; font-size: 13px; line-height: 1.55; color: rgba(232, 244, 255, 0.85); }
+.bulletin .you { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-family: var(--display); font-size: 13px; letter-spacing: 0.12em; color: #fff; }
+.bulletin a { color: var(--cyan); text-decoration: none; }
+.bulletin a:hover { text-decoration: underline; }
+.level-card .record { margin: 8px 0 0; font-size: 13px; line-height: 1.5; color: var(--muted); font-style: italic; }
+.level-card .record b { font-style: normal; font-family: var(--display); font-size: 10px; letter-spacing: 0.25em; color: var(--orange); margin-right: 8px; }
+.level-card .stopped, .residents li.stopped .res-status { color: var(--orange); }
+.record { text-align: left; max-width: 680px; margin: 12px auto 0; }
+.record .chapter { margin: 0 0 18px; }
+.mark-sm { font-family: var(--display); font-weight: 900; font-size: 20px; letter-spacing: 0.08em; white-space: nowrap; color: var(--text); }
+.record .chapter p { margin: 6px 0 0; font-size: 14px; line-height: 1.6; color: rgba(232, 244, 255, 0.85); }
+.record h3 { margin: 22px 0 8px; }
+.residents { list-style: none; margin: 0; padding: 0; }
+.residents li { padding: 8px 0; border-top: 1px solid rgba(127, 233, 255, 0.12); }
+.residents li p { margin: 4px 0 0 30px; font-size: 13px; line-height: 1.5; color: var(--muted); font-style: italic; }
+.res-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.res-num { font-family: var(--display); font-size: 11px; width: 22px; color: var(--muted); }
+.res-head b { color: #fff; }
+.res-status { margin-left: auto; font-family: var(--display); font-size: 11px; letter-spacing: 0.25em; color: var(--muted); }
+.residents li.stopped b { color: var(--muted); text-decoration: line-through; text-decoration-color: rgba(255, 179, 71, 0.6); }
+.record-note { margin: 4px 0 0; font-style: italic; }
 .level-card {
   border: 1px solid rgba(255, 179, 71, 0.35);
   border-radius: 10px;
@@ -201,11 +232,20 @@ html, body {
 .intro { margin: 8px 0 0; font-size: 14px; color: rgba(232, 244, 255, 0.85); }
 .columns {
   display: grid;
-  grid-template-columns: 1.4fr 1fr;
-  gap: 24px;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 0 28px;
   text-align: left;
-  margin-bottom: 18px;
+  margin-bottom: 16px;
 }
+.top {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  gap: 0 28px;
+  text-align: left;
+  margin: 4px 0 0;
+}
+.top .bulletin, .top .level-card { max-width: none; margin-left: 0; margin-right: 0; }
+.top .level-card { text-align: left; margin-bottom: 8px; }
 .panel h3 {
   font-family: var(--display);
   font-size: 12px;
@@ -250,7 +290,7 @@ button[disabled] { opacity: 0.45; cursor: default; }
 .stats td:last-child { font-family: var(--display); text-align: left; }
 
 @media (max-width: 720px) {
-  .columns { grid-template-columns: 1fr; }
+  .columns, .top { grid-template-columns: 1fr; }
   .panel { padding: 20px 18px; }
   #hud { grid-template-columns: 1fr 1fr; }
   .hud-center { display: none; }
@@ -365,4 +405,23 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(-
   #tutor { top: 52px; padding: 8px 12px 6px; }
   .tutor-title { font-size: 15px; }
   .tutor-text { font-size: 12px; }
+}
+
+/* Title screen: heading spacing inside the top grid, and a tighter fit on short (laptop) viewports.
+   These sit at the end of the file so they win over the base .panel h3 / .roster rules above. */
+.top h3 { margin-top: 0; }
+.top .roster + h3 { margin-top: 10px; }
+@media (max-height: 760px) and (min-width: 721px) {
+  .panel { padding: 18px 28px; }
+  .panel h1.mark { font-size: clamp(26px, 4.4vw, 48px); }
+  .tagline { margin-bottom: 8px; }
+  .panel h3 { margin: 8px 0 4px; }
+  .top h3 { margin-top: 0; }
+  .top .roster + h3 { margin-top: 6px; }
+  .controls, .roster { line-height: 1.45; }
+  .columns { margin-bottom: 10px; }
+  .bulletin { padding: 8px 14px 10px; }
+  .bulletin p { line-height: 1.45; }
+  .level-card { padding: 10px 16px; }
+  .level-card .intro, .level-card .record { margin-top: 6px; }
 }
