@@ -163,8 +163,8 @@ function step(dt) {
 
   if (g.ice) {
     g.ice.update(simTime, g.ball);
-    if (g.ice.affect(g.player)) onPlayerFrozen(g.player);
-    if (g.pvp && g.ice.affect(g.boss)) onPlayerFrozen(g.boss);
+    if (g.ice.affect(g.player, 'a')) onPlayerFrozen(g.player);
+    if (g.pvp && g.ice.affect(g.boss, 'b')) onPlayerFrozen(g.boss);
   }
 
   if (g.panes.length) updateGlass();
@@ -361,7 +361,7 @@ function onPaddleHit(f, h, before) {
   // The ice trail follows the boss's blocks; in PvP, either player's.
   let iced = 0;
   if (g.ice && (isBoss || g.pvp)) {
-    g.ice.start(simTime);
+    g.ice.start(simTime, isBoss ? 'b' : 'a');
     audio.sfxIce();
     iced = 1;
   }

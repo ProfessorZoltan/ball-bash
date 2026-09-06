@@ -101,7 +101,7 @@ export class Renderer {
 
     this.drawPredictedPath(game);
     if (game.panes && game.panes.length) this.drawGlass(game.panes, game, time);
-    if (game.ice) this.drawIce(game.ice, level.palette.ice || '#cdf6ff', time);
+    if (game.ice) this.drawIce(game.ice, level.palette.ice || '#cdf6ff', time, game.ice.owner === 'a' ? level.palette.wall : level.palette.obstacle);
     for (const m of game.movers || []) this.drawMover(m, level.palette.obstacle);
     if (game.boss.pulser) this.drawPulse(game.boss, level.palette.obstacle, time);
     this.drawRings(game.fx);
@@ -377,7 +377,7 @@ export class Renderer {
   }
 
   /** Ice trail: a frosted ribbon that melts from the tail. */
-  drawIce(ice, color, time) {
+  drawIce(ice, color, time, ownerColor) {
     const pts = ice.points;
     if (pts.length < 2) return;
     const ctx = this.ctx;
@@ -394,9 +394,12 @@ export class Renderer {
       ctx.lineWidth = ice.width;
       ctx.strokeStyle = `rgba(205, 246, 255, ${0.16 + 0.22 * a})`;
       ctx.stroke();
+      // Core tinted with the colour of whoever laid it (their own ice is harmless to them).
       ctx.lineWidth = ice.width * 0.35;
-      ctx.strokeStyle = `rgba(255, 255, 255, ${0.15 + 0.35 * a})`;
+      ctx.globalAlpha = 0.15 + 0.35 * a;
+      ctx.strokeStyle = ownerColor || '#ffffff';
       ctx.stroke();
+      ctx.globalAlpha = 1;
     }
     // Frost crystals along the trail.
     ctx.strokeStyle = color;

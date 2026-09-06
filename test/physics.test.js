@@ -194,6 +194,18 @@ test('ice trail: laid after a block, melts, freezes once per contact', () => {
   assert.equal(ice.points.length, 0);
 });
 
+test('ice trail: whoever laid it is immune to it', () => {
+  const ice = new IceTrail({ lay: 2, life: 2, freeze: 2, width: 30 });
+  ice.start(0, 'b');
+  for (let t = 0; t <= 1; t += 0.1) ice.update(t, { x: t * 100, y: 0 });
+  const owner = { x: 50, y: 0, r: 20, frozen: 0, iceImmune: false };
+  const other = { x: 50, y: 0, r: 20, frozen: 0, iceImmune: false };
+  assert.equal(ice.affect(owner, 'b'), false, 'own ice never freezes');
+  assert.equal(owner.frozen, 0);
+  assert.equal(ice.affect(other, 'a'), true, 'the opponent freezes');
+  assert.equal(other.frozen, 2);
+});
+
 for (const def of LEVELS) {
   test(`level ${def.id} arena is sealed: the ball never leaves the room or enters an obstacle`, () => {
     const walls = polygonEdges(def.boundary);

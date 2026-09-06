@@ -44,7 +44,8 @@ Both players open that address on the same network. On the title screen,
 code (and a share link), the other joins with it. The host picks the arena and
 starts. First to 3 points wins; one body hit ends a round; sides swap every
 round so the asymmetric arenas balance out. Boss-only abilities are off in
-multiplayer; ice trails lay for either player's blocks.
+multiplayer; ice trails lay for either player's blocks and only freeze the
+other player (its core is tinted in the colour of whoever laid it).
 
 How it works: the server is also a tiny WebSocket relay (`/ws`, no
 dependencies). The host's browser runs the physics exactly as in single
@@ -179,7 +180,8 @@ tunnels on a slow cycle (a sliding slab is a moving surface too, so a closing
 piston whacks the ball). The Sump is slow and huge with a strong absorb, and
 every ball it blocks lays an ice trail for two seconds; each piece of ice melts
 two seconds after it was laid. Touch the ice and you freeze for two seconds,
-and you cannot be re-frozen until you have stepped off it. The Sump is immune.
+and you cannot be re-frozen until you have stepped off it. Whoever laid a trail
+is immune to it, so the Sump never freezes on its own ice.
 All of those numbers live on the level's `ice` entry.
 
 Level 4 is an elliptical ring chamber around a core. Four shield plates orbit

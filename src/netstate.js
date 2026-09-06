@@ -45,7 +45,7 @@ export function buildSnapshot(g, meta, events = [], includeIce = true) {
     mv: g.movers.map(moverState),
   };
   if (g.panes.length) s.pn = g.panes.map((p) => (p.broken ? r1(p.regrowAt) : -1));
-  if (includeIce && g.ice) s.ice = { u: r1(g.ice.layUntil), p: g.ice.points.map((p) => [r1(p.x), r1(p.y), r1(p.t)]) };
+  if (includeIce && g.ice) s.ice = { u: r1(g.ice.layUntil), o: g.ice.owner, p: g.ice.points.map((p) => [r1(p.x), r1(p.y), r1(p.t)]) };
   if (events.length) s.ev = events;
   return s;
 }
@@ -77,6 +77,7 @@ export function applySnapshot(g, s) {
   }
   if (s.ice && g.ice) {
     g.ice.layUntil = s.ice.u;
+    g.ice.owner = s.ice.o ?? null;
     g.ice.points = s.ice.p.map(([x, y, t]) => ({ x, y, t }));
   }
   g.time = s.time;

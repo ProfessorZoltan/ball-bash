@@ -13,19 +13,22 @@ export class IceTrail {
     this.points = [];
     this.layUntil = -1;
     this.startedAt = -1;
+    this.owner = null; // who laid it; their own ice never freezes them
   }
 
   reset() {
     this.points.length = 0;
     this.layUntil = -1;
     this.startedAt = -1;
+    this.owner = null;
   }
 
   /** A block happened: drop the old trail and start laying a new one. */
-  start(t) {
+  start(t, owner = null) {
     this.points.length = 0;
     this.layUntil = t + this.lay;
     this.startedAt = t;
+    this.owner = owner;
   }
 
   get laying() {
@@ -62,10 +65,11 @@ export class IceTrail {
   }
 
   /**
-   * Apply the hazard to a fighter. Returns true on the step the fighter
-   * gets frozen.
+   * Apply the hazard to a fighter identified by `slot`. The fighter who laid
+   * the trail is immune to it. Returns true on the step the fighter freezes.
    */
-  affect(f) {
+  affect(f, slot = null) {
+    if (this.owner !== null && slot !== null && this.owner === slot) return false;
     const touching = this.points.length > 0 && this.touches(f);
     if (touching && f.frozen <= 0 && !f.iceImmune) {
       f.frozen = this.freeze;
