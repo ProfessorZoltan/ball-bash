@@ -499,4 +499,57 @@ export const TRACKS = {
     ],
     loopFrom: 1,
   },
+
+  arcade: {
+    key: 'D minor',
+    title: 'The Last Arcade (Architect Theme)',
+    bpm: 150,
+    progression: [
+      { chord: [62, 65, 69], pad: [50, 57, 62, 65], bass: 38, bars: 2 }, // D minor (where it all began)
+      { chord: [58, 62, 65], pad: [46, 53, 58, 62], bass: 46, bars: 2 }, // Bb major
+      { chord: [55, 58, 62], pad: [43, 50, 55, 58], bass: 43, bars: 2 }, // G minor
+      { chord: [57, 61, 64], pad: [45, 52, 57, 61], bass: 45, bars: 2 }, // A major (the C# leans home)
+    ],
+    arp: {
+      octave: 12,
+      gate: 0.5,
+      // Leaping figure across both octaves.
+      pattern: [0, 3, 1, 4, 2, 5, 3, 0, 4, 1, 5, 2, 0, 3, 1, 4],
+    },
+    bass: {
+      pattern: [
+        [0, 1], [12, 1], [0, 1], [12, 1],
+        [0, 1], [12, 1], [0, 1], [12, 1],
+        [0, 1], [12, 1], [0, 1], [12, 1],
+        [0, 1], [12, 1], [7, 1], [12, 1],
+      ],
+    },
+    drums: {
+      kick: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1],
+      snare: [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0.4, 1, 0, 0, 0],
+      hat: [0.9, 0.5, 0.7, 0.5, 0.9, 0.5, 0.7, 0.5, 0.9, 0.5, 0.7, 0.5, 0.9, 0.5, 0.7, 0.6],
+      hatOpen: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+    },
+    lead: {
+      length: 128,
+      notes: [
+        // bar 0-1 (D minor)
+        [0, 74, 4], [4, 77, 4], [8, 81, 8], [16, 79, 4], [20, 77, 4], [24, 74, 8],
+        // bar 2-3 (Bb)
+        [32, 77, 6], [38, 79, 2], [40, 82, 8], [48, 81, 8], [56, 77, 8],
+        // bar 4-5 (G minor)
+        [64, 79, 8], [72, 82, 4], [76, 79, 4], [80, 74, 8], [88, 77, 8],
+        // bar 6-7 (A: the C# pulls home)
+        [96, 73, 8], [104, 76, 8], [112, 81, 12], [124, 79, 2], [126, 77, 2],
+      ],
+    },
+    sections: [
+      { name: 'intro', bars: 4, layers: ['pad', 'arp'], arpDensity: 8, riser: true },
+      { name: 'build', bars: 8, layers: ['pad', 'arp', 'kick', 'bass', 'hat'], fill: true, riser: true },
+      { name: 'drop', bars: 16, layers: ['pad', 'arp', 'kick', 'bass', 'hat', 'snare', 'lead', 'stab'], fill: true, padBright: 1 },
+      { name: 'break', bars: 8, layers: ['pad', 'lead', 'arp', 'hat'], arpDensity: 8, arpOctave: 12, riser: true },
+      { name: 'drop2', bars: 16, layers: ['pad', 'arp', 'kick', 'bass', 'hat', 'snare', 'lead', 'stab'], fill: true, padBright: 1 },
+    ],
+    loopFrom: 1,
+  },
 };

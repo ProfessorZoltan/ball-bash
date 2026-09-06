@@ -624,6 +624,78 @@ export const LEVELS = [
     },
     ball: { x: 560, y: 450, speed: 450, angleDeg: 25 },
   },
+  {
+    id: 10,
+    title: 'The Last Arcade',
+    bossName: 'The Architect',
+    intro: 'Everything you have learned, in one hall. A prism at the centre, doors that switch the lane, glass around the Architect, ice behind its blocks and a pulse to keep you honest. It built every room before this one. Show it what you learned in them.',
+    width: 1600,
+    height: 900,
+    track: 'arcade',
+    palette: {
+      floor: '#06040f',
+      grid: 'rgba(255, 79, 216, 0.08)',
+      wall: '#7fe9ff',
+      wallDark: '#0d2340',
+      obstacle: '#ff4fd8',
+      obstacleDark: '#3a0f30',
+      obstacleFill: '#1a0a1a',
+      ice: '#cdf6ff',
+    },
+    boundary: [
+      [40, 260], [260, 40], [1340, 40], [1560, 260],
+      [1560, 640], [1340, 860], [260, 860], [40, 640],
+    ],
+    glass: { breakSpeed: 720, regrow: 12, speedKeep: 0.8 },
+    obstacles: [
+      // The rail column: fixed rail above, between and below the two door gaps.
+      rect(1100, 130, 14, 140, 0), rect(1100, 450, 14, 220, 0), rect(1100, 770, 14, 140, 0),
+      // Player-side deflectors so the Architect's returns can flank you.
+      rect(330, 190, 180, 20, 45), rect(330, 710, 180, 20, -45),
+      // Lane diamonds.
+      rect(800, 120, 50, 50, 45), rect(800, 780, 50, 50, 45),
+      // The Architect's screen: four glass panes around its post.
+      { poly: rect(1380 + Math.cos(-1.4) * 170, 450 + Math.sin(-1.4) * 170, 100, 12, -1.4 * 180 / Math.PI + 90), color: '#ffd166', glass: true },
+      { poly: rect(1380 + Math.cos(-0.6) * 170, 450 + Math.sin(-0.6) * 170, 100, 12, -0.6 * 180 / Math.PI + 90), color: '#7fe9d6', glass: true },
+      { poly: rect(1380 + Math.cos(0.6) * 170, 450 + Math.sin(0.6) * 170, 100, 12, 0.6 * 180 / Math.PI + 90), color: '#b892ff', glass: true },
+      { poly: rect(1380 + Math.cos(1.4) * 170, 450 + Math.sin(1.4) * 170, 100, 12, 1.4 * 180 / Math.PI + 90), color: '#ff7eb6', glass: true },
+    ],
+    movers: [
+      // The prism.
+      { type: 'spinner', x: 800, y: 450, length: 200, thick: 8, omega: 0.3, angle: 0.3 },
+      // Two sliding doors on the rail column, opposite phases: the open lane alternates.
+      { type: 'piston', parallel: true, x: 1100, y: 130, length: 150, thick: 7, axisAngle: Math.PI / 2, amp: 140, period: 7, phase: 0 },
+      { type: 'piston', parallel: true, x: 1100, y: 770, length: 150, thick: 7, axisAngle: -Math.PI / 2, amp: 140, period: 7, phase: Math.PI },
+    ],
+    // The Architect's blocks lay ice, like the Sump's.
+    ice: { lay: 2, life: 2, freeze: 2, width: 30 },
+    player: { x: 260, y: 450, angle: 0 },
+    boss: {
+      x: 1380,
+      y: 450,
+      angle: Math.PI,
+      r: 32,
+      paddleWidth: 160,
+      paddleBase: 44,
+      paddleThick: 7,
+      moveSpeed: 260,
+      turnSpeed: 5.2,
+      reaction: 0.26,
+      aggression: 0.1,
+      aim: 0.8,
+      absorb: 0.8,
+      absorbSpeed: 520,
+      threatRadius: 400,
+      blockRadius: 110,
+      safeRadius: 280,
+      leash: 140,
+      lungeExtend: 20,
+      lungeSpeed: 170,
+      // And it pulses, like the Beacon, a little less often and a little softer.
+      pulse: { period: 7, speed: 280, maxRadius: 260, thick: 8, warn: 0.8, delay: 4 },
+    },
+    ball: { x: 560, y: 450, speed: 450, angleDeg: 0 },
+  },
 ];
 
 // Planned roster (number + title). Only level 1 is playable for now.

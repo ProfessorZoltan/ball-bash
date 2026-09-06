@@ -1334,10 +1334,11 @@ function showCleared() {
   const def = game.def;
   const next = ROSTER.find((r) => r.id === def.id + 1);
   const nextIdx = LEVELS.findIndex((l) => l.id === def.id + 1);
+  const last = !next;
   showOverlay(`
-    <div class="eyebrow">LEVEL ${def.id} CLEARED</div>
-    <h1>${def.title}</h1>
-    <p class="muted">${def.bossName} is down.</p>
+    <div class="eyebrow">${last ? 'EVERY LEVEL CLEARED' : `LEVEL ${def.id} CLEARED`}</div>
+    <h1>${last ? 'The arcade is yours' : def.title}</h1>
+    <p class="muted">${last ? `${def.bossName} built every room before this one. You beat them all.` : `${def.bossName} is down.`}</p>
     <table class="stats">
       <tr><td>Time</td><td>${formatTime(game.time)}</td></tr>
       <tr><td>Top ball speed</td><td>${Math.round(game.topSpeed)} px/s</td></tr>
@@ -1345,7 +1346,7 @@ function showCleared() {
     </table>
     <div class="row">
       <button id="btn-replay" class="primary">Play again</button>
-      <button id="btn-next" ${nextIdx >= 0 ? 'class="primary"' : 'disabled'}>${next ? `Level ${next.id} · ${next.title}${nextIdx >= 0 ? '' : ' — coming soon'}` : 'More levels coming soon'}</button>
+      ${next ? `<button id="btn-next" ${nextIdx >= 0 ? 'class="primary"' : 'disabled'}>Level ${next.id} · ${next.title}${nextIdx >= 0 ? '' : ' — coming soon'}</button>` : ''}
       <button id="btn-menu">Main menu</button>
     </div>
   `);

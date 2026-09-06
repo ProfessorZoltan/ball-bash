@@ -152,6 +152,8 @@ Level 8, "Signal Spire (Beacon Theme)", is C# minor at 136 BPM over
 C#m - A - B - G#m, a Morse-like stutter arpeggio over an octave-pumping bass.
 Level 9, "Nullspace (Absence Theme)", is Eb minor at 122 BPM over
 Ebm - Abm - Ebm - Db, a wide, long-gate arpeggio with off-beat hats.
+Level 10, "The Last Arcade (Architect Theme)", returns to D minor, the
+fastest track at 150 BPM over Dm - Bb - Gm - A with a leaping arpeggio.
 
 ## Levels
 
@@ -166,7 +168,7 @@ Ebm - Abm - Ebm - Db, a wide, long-gate arpeggio with off-beat hats.
 | 7 | The Undercroft | The Sexton | playable |
 | 8 | Signal Spire | The Beacon | playable |
 | 9 | Nullspace | The Absence | playable |
-| 10 | The Last Arcade | The Architect | planned |
+| 10 | The Last Arcade | The Architect | playable |
 
 Level 2 introduces a moving obstacle: a prism bar spinning at the centre of the
 vault. It is a moving surface like a paddle, so its tips add or remove ball
@@ -218,6 +220,10 @@ Level 9 has no obstacles: the chamber itself is eight pistons, all in phase,
 so every wall slides inward and back together. Banks off a closing wall come
 back faster and off an opening wall slower, so a rally's speed rises and falls
 with the room's breath. The Absence is drawn as a hole in the grid (`ghost`).
+
+Level 10 is the gauntlet: the prism at the centre, a rail column with two
+alternating sliding doors, a screen of breakable glass around the Architect,
+ice behind its blocks and a pulse. Nothing new to learn; everything to use.
 
 Adding a level means adding an entry to `LEVELS` in `src/levels.js` (boundary
 polygon, obstacle polygons via `rect(cx, cy, w, h, angleDeg)`, optional
