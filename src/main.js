@@ -1,6 +1,6 @@
 // Game bootstrap: state machine, fixed-step physics loop, collision dispatch,
 // HUD/overlay wiring. Everything heavy lives in the modules it imports.
-import { GAME_TITLE, GAME_TAGLINE, PHYSICS_DT, BALL, PLAYER, SURFACE_VELOCITY_FACTOR, COUNTDOWN_SECONDS } from './config.js';
+import { GAME_MARK, GAME_NAME, GAME_TAGLINE, MARK_READINGS, PHYSICS_DT, BALL, PLAYER, SURFACE_VELOCITY_FACTOR, COUNTDOWN_SECONDS } from './config.js';
 import { Ball, Fighter, Boss, createMover } from './entities.js';
 import { IceTrail } from './ice.js';
 import { BallHistory, bossIntent } from './ai.js';
@@ -483,6 +483,51 @@ function showOverlay(html) {
 
 function hideOverlay() {
   $('overlay').hidden = true;
+  stopMarkAnimation();
+}
+
+// ---------------------------------------------------------- title mark
+
+const PUNCT = new Set(['[', ']', '<', '>', '(', ')', '/']);
+
+function markHtml() {
+  return [...GAME_MARK]
+    .map((ch, i) => `<span class="g ${PUNCT.has(ch) ? 'p' : 'l'}" data-i="${i}">${ch}</span>`)
+    .join('');
+}
+
+let markTimer = null;
+
+/**
+ * Cycle the mark through its readings: the shared ECTOR stays lit while the
+ * prefix letters flicker between REFLECTOR, DEFLECTOR, DEFECTOR and VECTOR,
+ * returning to the full notation between passes.
+ */
+function startMarkAnimation() {
+  stopMarkAnimation();
+  const glyphs = [...document.querySelectorAll('.mark .g')];
+  if (!glyphs.length) return;
+  const tail = [14, 15, 16, 17, 18];
+  const states = [null, ...MARK_READINGS, null];
+  let step = 0;
+  const apply = () => {
+    const reading = states[step % states.length];
+    const lit = reading ? new Set([...reading.lit, ...tail]) : null;
+    for (const g of glyphs) {
+      const i = Number(g.dataset.i);
+      g.classList.toggle('full', !lit);
+      g.classList.toggle('lit', !!lit && lit.has(i));
+      g.classList.toggle('dim', !!lit && !lit.has(i));
+    }
+    step++;
+  };
+  apply();
+  markTimer = setInterval(apply, 1500);
+}
+
+function stopMarkAnimation() {
+  if (markTimer) clearInterval(markTimer);
+  markTimer = null;
 }
 
 function showTitle() {
@@ -499,7 +544,7 @@ function showTitle() {
     return `<li class="${cls}" ${idx >= 0 ? `data-level="${idx}"` : ''}><span>${String(r.id).padStart(2, '0')}</span> ${r.title}</li>`;
   }).join('');
   showOverlay(`
-    <h1 class="title">${GAME_TITLE}</h1>
+    <h1 class="title mark" aria-label="${GAME_NAME}">${markHtml()}</h1>
     <p class="tagline">${GAME_TAGLINE}</p>
     <div class="level-card">
       <div class="eyebrow">LEVEL ${def.id}</div>
@@ -529,6 +574,7 @@ function showTitle() {
   `);
   $('btn-start').onclick = begin;
   $('btn-full')?.addEventListener('click', toggleFullscreen);
+  startMarkAnimation();
   for (const li of document.querySelectorAll('.roster li[data-level]')) {
     li.onclick = () => {
       levelIndex = Number(li.dataset.level);
@@ -587,7 +633,7 @@ function showFailed() {
 window.addEventListener('resize', () => renderer.resize());
 $('hud-full').hidden = !canFullscreen();
 $('hud-full').addEventListener('click', toggleFullscreen);
-document.title = `${GAME_TITLE} — ${GAME_TAGLINE}`;
+document.title = `${GAME_NAME} — ${GAME_TAGLINE}`;
 for (const [id, name] of [['tb-left', 'left'], ['tb-right', 'right'], ['tb-whack', 'whack'], ['tb-retract', 'retract']]) {
   input.bindTouchButton($(id), name);
 }

@@ -1,5 +1,5 @@
 {
-  "name": "ball-bash",
+  "name": "deflector",
   "version": "0.1.0",
   "private": true,
   "description": "Pong-inspired arena game: bank an energy ball around the room to blindside the boss.",

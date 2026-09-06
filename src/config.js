@@ -1,6 +1,19 @@
-// Central tunables. Change the working title here.
-export const GAME_TITLE = 'BALL BASH';
-export const GAME_TAGLINE = 'Deflect. Bank. Blindside.';
+// Central tunables.
+// The written mark is a small grammar: <R/D> pick one, (L) optional, and the
+// slash inside the square brackets chooses between the whole left branch and
+// V. It reads as REFLECTOR, DEFLECTOR, DEFECTOR or VECTOR. The spoken name
+// (page title, store listing, home-screen icon) is Deflector.
+export const GAME_MARK = '[<R/D>EF(L)/V]ECTOR';
+export const GAME_NAME = 'Deflector';
+export const GAME_TAGLINE = 'Reflect. Deflect. Defect.';
+
+// Glyph indices of GAME_MARK lit for each reading; ECTOR is always lit.
+export const MARK_READINGS = [
+  { name: 'REFLECTOR', lit: [2, 6, 7, 9] },
+  { name: 'DEFLECTOR', lit: [4, 6, 7, 9] },
+  { name: 'DEFECTOR', lit: [4, 6, 7] },
+  { name: 'VECTOR', lit: [12] },
+];
 
 export const PHYSICS_DT = 1 / 240; // fixed physics step (seconds)
 

@@ -1,4 +1,9 @@
-# Ball Bash (working title)
+# [<R/D>EF(L)/V]ECTOR
+
+Spoken name: **Deflector**. The written mark is a small grammar: `<R/D>` pick
+one, `(L)` optional, and the slash inside the square brackets chooses between
+the whole left branch and `V`. It reads as REFLECTOR, DEFLECTOR, DEFECTOR or
+VECTOR, and the title screen cycles through those readings.
 
 A Pong-inspired arena game for browser and PC, built to move to mobile later.
 An energy ball ricochets around a sealed neon room. You carry a paddle shield;
@@ -149,22 +154,11 @@ polygon, obstacle polygons via `rect(cx, cy, w, h, angleDeg)`, optional
 `movers`, spawns, boss parameters) and a track to `src/audio/tracks.js`. The
 title screen lists every built level and lets you pick one.
 
-## Title ideas
+## Name
 
-The in-game title is one constant, `GAME_TITLE` in `src/config.js`.
-
-| Title | Why it works |
-| --- | --- |
-| **Blindside** | Names the core mechanic: hit the boss where it is not looking |
-| **Ricochet** | Short, punchy, says "bank shot" |
-| **Shieldbreak** | Emphasises the paddle-shield duel |
-| **Deflector** | Both what you hold and what the obstacles are |
-| **Flankshot** | The side/back hit, with a sports edge |
-| **Neon Rebound** | Signals the Tron look immediately |
-| **Backspin** | Playful, hints at the rotation-to-whack mechanic |
-| **Parry Protocol** | Sci-fi flavour, "parry" for the shield |
-| **Ion Volley** | Energy ball + rally |
-| **Ball Bash** | The current working title, straightforward and fun |
+The mark, its readings and the spoken name live in `src/config.js`
+(`GAME_MARK`, `MARK_READINGS`, `GAME_NAME`). The page title, manifest and
+home-screen icon use the spoken name; the title screen renders the mark.
 
 ## Layout
 

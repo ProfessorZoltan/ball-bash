@@ -38,4 +38,4 @@ http
       });
     });
   })
-  .listen(port, () => console.log(`Ball Bash running at http://localhost:${port}`));
+  .listen(port, () => console.log(`Deflector running at http://localhost:${port}`));

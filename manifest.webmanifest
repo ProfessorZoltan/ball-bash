@@ -1,7 +1,7 @@
 {
-  "name": "Ball Bash",
-  "short_name": "Ball Bash",
-  "description": "Deflect. Bank. Blindside. A Pong-inspired arena duel.",
+  "name": "Deflector",
+  "short_name": "Deflector",
+  "description": "Reflect. Deflect. Defect. A Pong-inspired arena duel.",
   "start_url": "./",
   "scope": "./",
   "display": "fullscreen",

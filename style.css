@@ -141,6 +141,36 @@ html, body {
   color: transparent;
   filter: drop-shadow(0 0 18px rgba(127, 233, 255, 0.5));
 }
+/* The mark: each glyph is a span so readings can light up independently. */
+.panel h1.mark {
+  background: none;
+  color: var(--text);
+  filter: none;
+  font-size: clamp(26px, 5.6vw, 60px);
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+.mark .g {
+  display: inline-block;
+  transition: opacity 220ms ease, text-shadow 220ms ease, color 220ms ease;
+  opacity: 0.85;
+}
+.mark .g.p { opacity: 0.5; font-weight: 500; color: var(--cyan); }
+.mark .g.full.l { opacity: 0.9; text-shadow: 0 0 14px rgba(127, 233, 255, 0.5); }
+.mark .g.full.p { opacity: 0.55; }
+.mark .g.lit {
+  opacity: 1;
+  color: #ffffff;
+  text-shadow: 0 0 12px #7fe9ff, 0 0 28px rgba(127, 233, 255, 0.8), 0 0 48px rgba(255, 179, 71, 0.5);
+  animation: strike 220ms ease-out;
+}
+.mark .g.dim { opacity: 0.14; text-shadow: none; }
+@keyframes strike {
+  0% { opacity: 0.3; }
+  35% { opacity: 1; }
+  55% { opacity: 0.55; }
+  100% { opacity: 1; }
+}
 .tagline {
   margin: 0 0 18px;
   color: var(--muted);
