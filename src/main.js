@@ -3,7 +3,7 @@
 import { GAME_MARK, GAME_NAME, GAME_TAGLINE, MARK_READINGS, PHYSICS_DT, BALL, PLAYER, SURFACE_VELOCITY_FACTOR, COUNTDOWN_SECONDS } from './config.js';
 import { BallHistory, bossIntent, moverSegmentsAt } from './ai.js';
 import { LEVELS, ROSTER, TUTORIAL_LEVEL } from './levels.js';
-import { createGameState, rebuildWalls as rebuildWallsState } from './gamestate.js';
+import { createGameState, rebuildWalls as rebuildWallsState, bodyHitCounts } from './gamestate.js';
 import { NetClient } from './net.js';
 import { buildSnapshot, applySnapshot } from './netstate.js';
 import { Input } from './input.js';
@@ -36,8 +36,8 @@ let fps = 60;
 
 // ------------------------------------------------------------------ setup
 
-function buildGame(def, pvp = false) {
-  const g = createGameState(def, { pvp });
+function buildGame(def, pvp = false, rules = { ownBallLoss: ownBallLoss() }) {
+  const g = createGameState(def, { pvp, rules });
   return {
     ...g,
     fx: new Effects(),
@@ -285,6 +285,10 @@ function moveBall(dt) {
       onMover: onMoverHit,
       onBody: (f, h) => {
         if (g.tutorial) return tutorialBody(f, h);
+        if (!bodyHitCounts(g.ball, f, g.rules)) {
+          ownBallBounce(f, h);
+          return false;
+        }
         if (g.pvp) {
           onPvpHit(f, h);
           return true;
@@ -363,6 +367,7 @@ function onPaddleHit(f, h, before) {
   const isBoss = f.kind === 'boss';
   paddleFx(f, h.cx, h.cy, h.nx, h.ny, strength, delta > 100);
   g.ball.lastHitBy = f.kind;
+  g.ball.lastPaddle = f.kind;
   if (!isBoss) g.paddleHits++;
   if (g.tutorial && !isBoss) tutorialPaddle(before, after);
   // The ice trail follows the boss's blocks; in PvP, either player's.
@@ -384,6 +389,19 @@ function paddleFx(f, x, y, nx, ny, strength, big) {
     g.fx.addShake(3 + strength * 7);
     g.fx.ring(x, y, f.color, 60 + 120 * strength, 0.4);
   }
+}
+
+/** The ball touched the body of the fighter who last hit it, and the rules say that is safe: bounce, no loss. */
+function ownBallBounce(f, h) {
+  bodyBounceFx(f, h.cx, h.cy, h.nx, h.ny);
+  netEvent({ e: 'body', s: f === game.player ? 'a' : 'b', x: h.cx, y: h.cy, nx: h.nx, ny: h.ny });
+}
+
+function bodyBounceFx(f, x, y, nx, ny) {
+  f.hitFlash = Math.max(f.hitFlash, 0.25);
+  game.fx.burst(x, y, nx, ny, 10, f.color, 220, 1.2, 0.4);
+  game.fx.ring(f.x, f.y, f.color, 70, 0.3);
+  audio.sfxPaddle(0.25, true);
 }
 
 function onBossHit(h) {
@@ -781,20 +799,33 @@ function setText(id, text) {
   $(id).textContent = text;
 }
 
+function setHtml(id, html) {
+  if (hudCache[id] === html) return;
+  hudCache[id] = html;
+  $(id).innerHTML = html;
+}
+
+/** A name or number in that player's colour (PvP HUD and overlays). */
+function tint(who, text) {
+  const c = net.colors[who] || 'inherit';
+  return `<span style="color:${c}">${text}</span>`;
+}
+
 function updateHud() {
   const g = game;
   setText('hud-time', formatTime(g.time));
   if (g.pvp) {
     setText('hud-lives-label', 'SCORE');
-    setText('hud-lives', `${net.scores.host} – ${net.scores.guest}`);
+    setHtml('hud-lives', `${tint('host', net.scores.host)} <span class="label">–</span> ${tint('guest', net.scores.guest)}`);
     setText('hud-boss-label', 'MATCH');
-    setText('hud-boss', `${net.names.host} vs ${net.names.guest} · first to ${WIN_SCORE}`.toUpperCase());
+    setHtml('hud-boss', `${tint('host', net.names.host.toUpperCase())} <span class="label">VS</span> ${tint('guest', net.names.guest.toUpperCase())} · FIRST TO ${WIN_SCORE}`);
     setText('hud-level', `ROUND ${net.round} · ${g.def.title.toUpperCase()}`);
   } else {
     setText('hud-lives-label', 'SHIELD');
     setText('hud-boss-label', 'BOSS');
     setText('hud-lives', '◆'.repeat(Math.max(0, g.lives)) + '◇'.repeat(Math.max(0, PLAYER.lives - g.lives)));
   }
+  setText('hud-rule', g.rules.ownBallLoss ? '' : '· SAFE OWN BALL');
   const s = g.ball.held && state !== 'cleared' ? 0 : g.ball.speed;
   setText('hud-speed', `${Math.round(s)} px/s`);
   $('hud-speed-bar').style.width = `${speedNorm(s) * 100}%`;
@@ -805,6 +836,7 @@ function updateHud() {
   let status = frozen ? `FROZEN ${me.frozen.toFixed(1)}` : '';
   if (g.pvp && state === 'roundEnd' && net.winner) status = `POINT · ${net.names[net.winner]}`.toUpperCase();
   setText('hud-status', status);
+  $('hud-status').style.color = g.pvp && state === 'roundEnd' && net.winner ? net.colors[net.winner] : '';
   $('hud-status').classList.toggle('on', frozen || state === 'roundEnd');
 }
 
@@ -825,6 +857,36 @@ function showOverlay(html) {
 function hideOverlay() {
   $('overlay').hidden = true;
   stopMarkAnimation();
+}
+
+// --------------------------------------------------------------- settings
+
+const OWN_BALL_KEY = 'deflector.ownBallLoss';
+
+/** Rule: can a fighter lose to a ball its own shield was the last to touch? Default on. */
+function ownBallLoss() {
+  try {
+    return localStorage.getItem(OWN_BALL_KEY) !== 'off';
+  } catch (_) {
+    return true;
+  }
+}
+
+function setOwnBallLoss(on) {
+  try {
+    localStorage.setItem(OWN_BALL_KEY, on ? 'on' : 'off');
+  } catch (_) {
+    // storage unavailable; the choice lasts for this page load only
+  }
+}
+
+function ownBallToggleHtml() {
+  return `<label class="opt"><input type="checkbox" id="opt-ownball" ${ownBallLoss() ? 'checked' : ''} /> <span><b>Lose to a ball you last hit</b><span class="small muted"> · off: your body just bounces it until the other shield touches it. Bosses play by the same rule.</span></span></label>`;
+}
+
+function bindOwnBallToggle() {
+  const el = $('opt-ownball');
+  if (el) el.onchange = () => setOwnBallLoss(el.checked);
 }
 
 // --------------------------------------------------------------- tutorial
@@ -1018,6 +1080,8 @@ const WIN_SCORE = 3;
 const ZERO_INTENT = { mx: 0, my: 0, turn: 0, lunge: false, retract: false };
 let lanInfo = null;
 const net = {
+  colors: { host: '', guest: '' }, // fixed for the whole match, whatever side each player is on
+  rules: null,
   client: null,
   mode: null, // null | 'host' | 'guest'
   localSlot: 'a',
@@ -1168,7 +1232,9 @@ async function hostRoom() {
         <div class="mp-code">${client.code}</div>
         <p><b>${msg.name}</b> joined.</p>
         <div class="row"><label class="mp-field">Arena <select id="mp-level">${options}</select></label><button id="mp-start" class="primary">Start match</button></div>
+        <div class="row">${ownBallToggleHtml()}</div>
       `);
+      bindOwnBallToggle();
       $('mp-start').onclick = () => startNetMatch(Number($('mp-level').value));
     });
     client.create(name);
@@ -1199,6 +1265,7 @@ async function joinRoom(code) {
 function startNetMatch(levelIdx) {
   net.mode = 'host';
   net.levelIndex = levelIdx;
+  net.rules = { ownBallLoss: ownBallLoss() };
   net.round = 0;
   net.scores = { host: 0, guest: 0 };
   startNetRound();
@@ -1211,7 +1278,7 @@ function startNetRound() {
   net.localSlot = slotOwner('a') === 'host' ? 'a' : 'b';
   net.remoteIntent = null;
   net.events = [];
-  net.client.send({ t: 'setup', level: net.levelIndex, round: net.round, scores: net.scores, names: net.names });
+  net.client.send({ t: 'setup', level: net.levelIndex, round: net.round, scores: net.scores, names: net.names, rules: net.rules });
   beginNetRound();
 }
 
@@ -1222,6 +1289,7 @@ function onSetup(msg) {
   net.round = msg.round;
   net.scores = msg.scores;
   net.names = msg.names;
+  net.rules = { ownBallLoss: !msg.rules || msg.rules.ownBallLoss !== false };
   net.winner = null;
   net.localSlot = slotOwner('a') === 'guest' ? 'a' : 'b';
   net.pending = null;
@@ -1234,10 +1302,16 @@ function beginNetRound() {
   const def = LEVELS[net.levelIndex];
   const sameTrack = game && game.def === def && audio.track;
   levelIndex = net.levelIndex;
-  game = buildGame(def, true);
+  game = buildGame(def, true, net.rules);
   const owners = { a: slotOwner('a'), b: slotOwner('b') };
   game.player.name = net.names[owners.a] + (net.localSlot === 'a' ? ' (you)' : '');
   game.boss.name = net.names[owners.b] + (net.localSlot === 'b' ? ' (you)' : '');
+  // Each player keeps one colour for the whole match: the host wears the
+  // arena's wall colour, the guest its obstacle colour, whichever side they spawn on.
+  net.colors = { host: def.palette.wall, guest: def.palette.obstacle };
+  game.player.color = net.colors[owners.a];
+  game.boss.color = net.colors[owners.b];
+  game.local = localFighter();
   renderer.setLevel(def);
   renderer.resize();
   simTime = 0;
@@ -1378,6 +1452,9 @@ function playEvent(ev) {
     case 'hit':
       hitFx(ev.s === 'a' ? g.player : g.boss, ev.x, ev.y, ev.nx, ev.ny);
       break;
+    case 'body':
+      bodyBounceFx(ev.s === 'a' ? g.player : g.boss, ev.x, ev.y, ev.nx, ev.ny);
+      break;
     default:
       break;
   }
@@ -1389,7 +1466,7 @@ function showNetMatchEnd() {
   const you = winner === net.mode;
   showOverlay(`
     <div class="eyebrow">${you ? 'VICTORY' : 'DEFEAT'}</div>
-    <h1>${net.names[winner]} wins ${net.scores.host}–${net.scores.guest}</h1>
+    <h1>${tint(winner, net.names[winner])} wins ${tint('host', net.scores.host)}–${tint('guest', net.scores.guest)}</h1>
     <p class="muted">${LEVELS[net.levelIndex].title} · ${net.round} rounds</p>
     <div class="row">
       ${net.mode === 'host' ? '<button id="btn-rematch" class="primary">Rematch</button>' : '<span class="small muted">Waiting for the host to start a rematch…</span>'}
@@ -1497,6 +1574,8 @@ function showTitle() {
         </ul>
         <h3>How to win</h3>
         <p class="small">The ball only counts when it hits a <b>body</b>. The boss's shield blocks its front, so bank shots off the walls and angled deflectors to strike from the side or behind. One hit on you and the level is lost. A moving or spinning shield adds its speed to the ball; retreating removes it. The soundtrack's tempo follows the ball.</p>
+        <h3>Rules</h3>
+        ${ownBallToggleHtml()}
       </div>
       <div>
         <h3>Levels</h3>
@@ -1507,6 +1586,7 @@ function showTitle() {
     ${lanInfo ? '' : '<p class="small muted">Multiplayer needs the LAN server: run <code>npm start</code> on one PC and open its address on both.</p>'}
   `);
   $('btn-start').onclick = begin;
+  bindOwnBallToggle();
   $('btn-tutorial').onclick = async () => {
     await audio.init();
     startTutorial(true);

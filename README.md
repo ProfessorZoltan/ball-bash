@@ -48,10 +48,13 @@ It prints the machine's LAN address (something like `http://192.168.1.20:8080`).
 Both players open that address on the same network. On the title screen,
 **Multiplayer · LAN** opens the lobby: one player hosts and gets a four-letter
 code (and a share link), the other joins with it. The host picks the arena and
-starts. First to 3 points wins; one body hit ends a round; sides swap every
-round so the asymmetric arenas balance out. Boss-only abilities are off in
-multiplayer; ice trails lay for either player's blocks and only freeze the
-other player (its core is tinted in the colour of whoever laid it).
+starts and chooses the rules. First to 3 points wins; one body hit ends a
+round; sides swap every round so the asymmetric arenas balance out. Each
+player keeps one colour for the whole match whichever side they spawn on (the
+host wears the arena's wall colour, the guest its obstacle colour), and the
+score, names and point notices are tinted to match. Boss-only abilities are
+off in multiplayer; ice trails lay for either player's blocks and only freeze
+the other player (its core is tinted in the colour of whoever laid it).
 
 How it works: the server is also a tiny WebSocket relay (`/ws`, no
 dependencies). The host's browser runs the physics exactly as in single
@@ -97,6 +100,12 @@ which launches the game chrome-free thanks to `manifest.webmanifest`.
   maximum speed for two simulated minutes and asserts it never leaves the room.
 * One hit on your body loses the level, just as one hit on the boss's body
   wins it. (`PLAYER.lives` in `src/config.js` if you ever want more.)
+* **Lose to a ball you last hit** is a rule you can switch off on the title
+  screen (and in the multiplayer lobby, where the host's choice applies to
+  both). Off, a ball bounces harmlessly off the body of whoever's shield
+  touched it last, so you can only be beaten by a ball the other side sent.
+  AI bosses play by the same rule, which removes their self-inflicted losses.
+  The HUD shows *safe own ball* while it is off. Default: on.
 
 ## Bosses
 

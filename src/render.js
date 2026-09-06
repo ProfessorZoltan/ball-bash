@@ -101,12 +101,12 @@ export class Renderer {
 
     this.drawPredictedPath(game);
     if (game.panes && game.panes.length) this.drawGlass(game.panes, game, time);
-    if (game.ice) this.drawIce(game.ice, level.palette.ice || '#cdf6ff', time, game.ice.owner === 'a' ? level.palette.wall : level.palette.obstacle);
+    if (game.ice) this.drawIce(game.ice, level.palette.ice || '#cdf6ff', time, game.ice.owner === 'a' ? game.player.color : game.boss.color);
     for (const m of game.movers || []) this.drawMover(m, level.palette.obstacle);
     if (game.boss.pulser) this.drawPulse(game.boss, level.palette.obstacle, time);
     this.drawRings(game.fx);
-    this.drawFighter(game.boss, time, level.palette.obstacle);
-    this.drawFighter(game.player, time, level.palette.wall);
+    this.drawFighter(game.boss, time, game.boss.color);
+    this.drawFighter(game.player, time, game.player.color);
     this.drawBall(game.ball, state);
     this.drawParticles(game.fx);
 
@@ -118,7 +118,7 @@ export class Renderer {
       ctx.fillRect(-50, -50, level.width + 100, level.height + 100);
     }
 
-    if (joystick && joystick.active) this.drawJoystick(joystick, level.palette.wall);
+    if (joystick && joystick.active) this.drawJoystick(joystick, (game.local && game.local.color) || game.player.color);
   }
 
   /**

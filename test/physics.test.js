@@ -242,3 +242,30 @@ for (const def of LEVELS) {
     assert.ok(bounces > 100, `expected plenty of wall bounces, saw ${bounces}`);
   });
 }
+
+test('own-ball rule: a body hit only counts when the other shield touched the ball last', async () => {
+  const { bodyHitCounts, DEFAULT_RULES, createGameState } = await import('../src/gamestate.js');
+  const ball = new Ball(BALL.radius);
+  const me = { kind: 'player' };
+  const boss = { kind: 'boss' };
+  // Default rules: every body hit counts.
+  ball.lastPaddle = 'player';
+  assert.equal(bodyHitCounts(ball, me, DEFAULT_RULES), true);
+  assert.equal(bodyHitCounts(ball, me), true);
+  // Rule off: the ball I last hit bounces off me, still kills the other side.
+  const off = { ownBallLoss: false };
+  assert.equal(bodyHitCounts(ball, me, off), false);
+  assert.equal(bodyHitCounts(ball, boss, off), true);
+  ball.lastPaddle = 'boss';
+  assert.equal(bodyHitCounts(ball, me, off), true);
+  assert.equal(bodyHitCounts(ball, boss, off), false);
+  // A fresh serve belongs to nobody: both can lose to it.
+  ball.launch(0, 0, 0, 300);
+  assert.equal(ball.lastPaddle, null);
+  assert.equal(bodyHitCounts(ball, me, off), true);
+  assert.equal(bodyHitCounts(ball, boss, off), true);
+  // The rule rides along with the game state and merges over the defaults.
+  const g = createGameState(LEVELS[0], { rules: off });
+  assert.equal(g.rules.ownBallLoss, false);
+  assert.equal(createGameState(LEVELS[0]).rules.ownBallLoss, true);
+});

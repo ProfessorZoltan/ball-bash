@@ -9,7 +9,8 @@ export class Ball {
     this.r = radius;
     this.trail = [];
     this.held = true; // true while the countdown is running
-    this.lastHitBy = null; // 'player' | 'boss' | 'wall'
+    this.lastHitBy = null; // 'player' | 'boss' | 'wall' | 'mover'
+    this.lastPaddle = null; // kind of the last fighter whose shield hit it
   }
 
   get speed() {
@@ -41,6 +42,8 @@ export class Ball {
     this.vy = Math.sin(angle) * speed;
     this.held = false;
     this.trail.length = 0;
+    this.lastHitBy = null;
+    this.lastPaddle = null;
   }
 
   pushTrail(max) {

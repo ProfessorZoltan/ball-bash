@@ -311,6 +311,9 @@ button[disabled] { opacity: 0.45; cursor: default; }
 
 /* Multiplayer lobby ------------------------------------------------------ */
 .mp-field { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; }
+.opt { display: flex; align-items: flex-start; gap: 10px; font-size: 14px; line-height: 1.5; cursor: pointer; text-align: left; }
+.opt input { margin-top: 5px; accent-color: var(--cyan); width: 16px; height: 16px; flex: none; cursor: pointer; }
+.opt b { color: #fff; }
 .mp-field select { color-scheme: dark; }
 .mp-field option { background: #0a1020; color: var(--text); }
 .mp-field input, .mp-field select {

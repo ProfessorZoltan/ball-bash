@@ -28,7 +28,20 @@ function playerStats(def, spawn) {
  * ice and the ball. With `pvp` the second slot is a human-stat fighter at the
  * boss spawn instead of the AI boss (no abilities, no patrol).
  */
-export function createGameState(def, { pvp = false } = {}) {
+/** Default match rules. ownBallLoss: a body hit counts even when that fighter's own shield was the last to touch the ball. */
+export const DEFAULT_RULES = Object.freeze({ ownBallLoss: true });
+
+/**
+ * Does a ball touching `fighter`'s body count (a loss, or a point for the
+ * other side)? With ownBallLoss off, the ball you sent last just bounces off
+ * you until the other shield touches it. Applies to AI bosses the same way.
+ */
+export function bodyHitCounts(ball, fighter, rules = DEFAULT_RULES) {
+  if (!rules || rules.ownBallLoss !== false) return true;
+  return ball.lastPaddle !== fighter.kind;
+}
+
+export function createGameState(def, { pvp = false, rules = DEFAULT_RULES } = {}) {
   const staticWalls = polygonEdges(def.boundary, 'wall');
   const panes = [];
   for (const o of def.obstacles) {
@@ -51,7 +64,7 @@ export function createGameState(def, { pvp = false } = {}) {
   ball.y = def.ball.y;
   ball.held = true;
   const staticPolys = def.obstacles.filter((o) => !o.glass).map(obstaclePoly);
-  const g = { def, staticWalls, staticPolys, panes, walls: [], solidPolys: [], player, boss, movers, ice, ball, pvp };
+  const g = { def, staticWalls, staticPolys, panes, walls: [], solidPolys: [], player, boss, movers, ice, ball, pvp, rules: { ...DEFAULT_RULES, ...rules } };
   rebuildWalls(g);
   return g;
 }
