@@ -7,7 +7,8 @@ import { circleVsCapsule, circleVsCircle, reflect } from './physics.js';
  * fighters' paddles and bodies.
  *
  * hooks (all optional):
- *   onWall(hit, segment)              static surface bounce
+ *   onWall(hit, segment, before)      static surface bounce; `before` is the
+ *                                     velocity the ball had before bouncing
  *   onPaddle(fighter, hit, speedBefore) paddle bounce (surface velocity applied)
  *   onBody(fighter, hit) -> boolean   body contact; return true to stop processing
  *                                     (e.g. boss defeated). Return false to bounce.
@@ -23,11 +24,14 @@ export function advanceBall(ball, walls, fighters, dt, factor = 1, hooks = {}, m
     let any = false;
 
     for (const s of walls) {
+      if (s.broken) continue; // shattered glass: nothing to hit
       const h = circleVsCapsule(ball.x, ball.y, ball.r, s.ax, s.ay, s.bx, s.by, s.thick || 0, ball.vx, ball.vy);
       if (!h) continue;
       ball.x += h.nx * h.depth;
       ball.y += h.ny * h.depth;
-      if (reflect(ball, h.nx, h.ny, 0, 0) && hooks.onWall) hooks.onWall(h, s);
+      const pvx = ball.vx;
+      const pvy = ball.vy;
+      if (reflect(ball, h.nx, h.ny, 0, 0) && hooks.onWall) hooks.onWall(h, s, { vx: pvx, vy: pvy });
       any = true;
     }
 

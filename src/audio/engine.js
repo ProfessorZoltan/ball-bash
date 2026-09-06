@@ -756,6 +756,56 @@ export class AudioEngine {
     this.noiseHit(t, 'highpass', 7000, 0.25, 0.4, this.sfxBus);
   }
 
+  /** Glass breaking: a bright crash and a scatter of falling tinkles. */
+  sfxShatter() {
+    if (!this.ctx) return;
+    const c = this.ctx;
+    const t = c.currentTime;
+    const f = this.noiseHit(t, 'highpass', 3500, 0.7, 0.35, this.sfxBus, 0.8);
+    f.frequency.exponentialRampToValueAtTime(1200, t + 0.3);
+    for (let i = 0; i < 9; i++) {
+      const tt = t + 0.03 + Math.random() * 0.35;
+      const freq = 2000 + Math.random() * 5000;
+      const o = this.osc('triangle', freq, tt);
+      o.frequency.exponentialRampToValueAtTime(freq * 0.6, tt + 0.25);
+      const g = c.createGain();
+      g.gain.setValueAtTime(0.0001, tt);
+      g.gain.linearRampToValueAtTime(0.12, tt + 0.005);
+      g.gain.exponentialRampToValueAtTime(0.0001, tt + 0.3);
+      o.connect(g);
+      g.connect(this.sfxBus);
+      const rs = c.createGain();
+      rs.gain.value = 0.5;
+      g.connect(rs);
+      rs.connect(this.reverbSend);
+      o.start(tt);
+      o.stop(tt + 0.32);
+    }
+  }
+
+  /** A pane reglazing: a soft rising chime. */
+  sfxReglaze() {
+    if (!this.ctx) return;
+    const c = this.ctx;
+    const t = c.currentTime;
+    [880, 1320, 1760].forEach((f, i) => {
+      const tt = t + i * 0.07;
+      const o = this.osc('sine', f, tt);
+      const g = c.createGain();
+      g.gain.setValueAtTime(0.0001, tt);
+      g.gain.linearRampToValueAtTime(0.12, tt + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, tt + 0.6);
+      o.connect(g);
+      g.connect(this.sfxBus);
+      const rs = c.createGain();
+      rs.gain.value = 0.6;
+      g.connect(rs);
+      rs.connect(this.reverbSend);
+      o.start(tt);
+      o.stop(tt + 0.65);
+    });
+  }
+
   sfxCount(final = false) {
     if (!this.ctx) return;
     const c = this.ctx;

@@ -4,7 +4,7 @@ import { reflect, circleVsCapsule, polygonEdges, pointInPolygon, predictPath, ra
 import { Ball, Fighter, Boss, Spinner, Piston, Orbiter, createMover } from '../src/entities.js';
 import { IceTrail } from '../src/ice.js';
 import { advanceBall } from '../src/sim.js';
-import { LEVELS } from '../src/levels.js';
+import { LEVELS, obstaclePoly } from '../src/levels.js';
 import { BALL } from '../src/config.js';
 
 const speed = (b) => Math.hypot(b.vx, b.vy);
@@ -174,7 +174,7 @@ test('ice trail: laid after a block, melts, freezes once per contact', () => {
 for (const def of LEVELS) {
   test(`level ${def.id} arena is sealed: the ball never leaves the room or enters an obstacle`, () => {
     const walls = polygonEdges(def.boundary);
-    for (const poly of def.obstacles) walls.push(...polygonEdges(poly));
+    for (const o of def.obstacles) walls.push(...polygonEdges(obstaclePoly(o)));
     const movers = (def.movers || []).map(createMover);
     const player = new Fighter({ x: def.player.x, y: def.player.y, r: 22, paddleWidth: 116, paddleBase: 36 });
     const boss = new Fighter({ ...def.boss, kind: 'boss' });
@@ -197,8 +197,8 @@ for (const def of LEVELS) {
         advanceBall(ball, walls, [player, boss], dt, 1, { onWall: () => bounces++, onBody: () => false }, movers);
         ball.clampSpeed(BALL.minSpeed, BALL.maxSpeed);
         assert.ok(pointInPolygon(ball.x, ball.y, def.boundary), `ball escaped the room at step ${i}: ${ball.x},${ball.y}`);
-        for (const poly of def.obstacles) {
-          assert.ok(!pointInPolygon(ball.x, ball.y, poly), `ball inside an obstacle at step ${i}`);
+        for (const o of def.obstacles) {
+          assert.ok(!pointInPolygon(ball.x, ball.y, obstaclePoly(o)), `ball inside an obstacle at step ${i}`);
         }
       }
     }

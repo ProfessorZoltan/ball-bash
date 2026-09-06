@@ -99,6 +99,7 @@ export class Renderer {
     ctx.setTransform(v.dpr * v.scale, 0, 0, v.dpr * v.scale, (v.ox + shx) * v.dpr, (v.oy + shy) * v.dpr);
 
     this.drawPredictedPath(game);
+    if (game.panes && game.panes.length) this.drawGlass(game.panes, game, time);
     if (game.ice) this.drawIce(game.ice, level.palette.ice || '#cdf6ff', time);
     for (const m of game.movers || []) this.drawMover(m, level.palette.obstacle);
     this.drawRings(game.fx);
@@ -238,7 +239,9 @@ export class Renderer {
     const height = level.extrude ?? WALL_HEIGHT;
     ctx.save();
     ctx.lineJoin = 'round';
-    for (const poly of level.obstacles) {
+    for (const o of level.obstacles) {
+      if (o.glass) continue; // glass is dynamic; drawn every frame
+      const poly = Array.isArray(o) ? o : o.poly;
       // Side faces (extrusion) first.
       ctx.fillStyle = p.obstacleDark;
       for (let i = 0; i < poly.length; i++) {
@@ -263,6 +266,45 @@ export class Renderer {
       ctx.shadowBlur = 14;
       ctx.stroke();
       ctx.shadowBlur = 0;
+    }
+    ctx.restore();
+  }
+
+  /** Stained-glass panes: translucent when whole, a faint frame when broken. */
+  drawGlass(panes, game, time) {
+    const ctx = this.ctx;
+    const glass = game.def.glass;
+    const hot = glass && game.ball.speed >= glass.breakSpeed;
+    ctx.save();
+    ctx.lineJoin = 'round';
+    for (const pane of panes) {
+      ctx.beginPath();
+      polyPath(ctx, pane.poly);
+      if (pane.broken) {
+        const left = Math.max(0, pane.regrowAt - (game.time || 0));
+        ctx.setLineDash([4, 6]);
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = pane.color;
+        ctx.globalAlpha = 0.25 + 0.25 * Math.max(0, 1 - left / (glass ? glass.regrow : 1));
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+        continue;
+      }
+      ctx.fillStyle = pane.color;
+      ctx.globalAlpha = 0.28;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.lineWidth = hot ? 3 : 2;
+      ctx.strokeStyle = hot ? '#ffffff' : pane.color;
+      ctx.shadowColor = pane.color;
+      ctx.shadowBlur = hot ? 22 + 6 * Math.sin(time * 12) : 12;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      // Glass highlight.
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+      ctx.stroke();
     }
     ctx.restore();
   }

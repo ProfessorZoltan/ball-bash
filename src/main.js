@@ -4,13 +4,13 @@ import { GAME_MARK, GAME_NAME, GAME_TAGLINE, MARK_READINGS, PHYSICS_DT, BALL, PL
 import { Ball, Fighter, Boss, createMover } from './entities.js';
 import { IceTrail } from './ice.js';
 import { BallHistory, bossIntent } from './ai.js';
-import { LEVELS, ROSTER } from './levels.js';
+import { LEVELS, ROSTER, obstaclePoly } from './levels.js';
 import { Input } from './input.js';
 import { Renderer } from './render.js';
 import { Effects } from './fx.js';
 import { AudioEngine } from './audio/engine.js';
 import { TRACKS } from './audio/tracks.js';
-import { circleVsCircle, polygonEdges, pointInPolygon, resolveCircleVsSegments, predictPath } from './physics.js';
+import { circleVsCircle, circleVsCapsule, polygonEdges, pointInPolygon, resolveCircleVsSegments, predictPath } from './physics.js';
 import { advanceBall } from './sim.js';
 import { clamp, rand } from './vec.js';
 
@@ -36,8 +36,18 @@ let fps = 60;
 // ------------------------------------------------------------------ setup
 
 function buildGame(def) {
-  const walls = polygonEdges(def.boundary, 'wall');
-  for (const poly of def.obstacles) walls.push(...polygonEdges(poly, 'obstacle'));
+  const staticWalls = polygonEdges(def.boundary, 'wall');
+  const panes = [];
+  for (const o of def.obstacles) {
+    if (o.glass) {
+      const pane = { poly: o.poly, color: o.color, broken: false, regrowAt: 0, segs: polygonEdges(o.poly, 'glass') };
+      for (const sg of pane.segs) sg.pane = pane;
+      panes.push(pane);
+    } else {
+      staticWalls.push(...polygonEdges(obstaclePoly(o), 'obstacle'));
+    }
+  }
+  const walls = staticWalls.concat(...panes.map((p) => p.segs));
   const player = new Fighter({
     x: def.player.x,
     y: def.player.y,
@@ -65,6 +75,8 @@ function buildGame(def) {
   return {
     def,
     walls,
+    staticWalls,
+    panes,
     player,
     boss,
     movers,
@@ -125,6 +137,7 @@ function respawnBall() {
 function step(dt) {
   const g = game;
   simTime += dt;
+  g.time = simTime;
 
   for (const m of g.movers) m.update(dt);
 
@@ -163,6 +176,64 @@ function step(dt) {
     g.ice.update(simTime, g.ball);
     if (g.ice.affect(g.player)) onPlayerFrozen();
   }
+
+  if (g.panes.length) updateGlass();
+}
+
+/** Reglaze broken panes whose time is up and nothing is standing in them. */
+function updateGlass() {
+  const g = game;
+  let changed = false;
+  for (const pane of g.panes) {
+    if (!pane.broken || simTime < pane.regrowAt) continue;
+    const blocked = [g.ball, g.player, g.boss].some((c) =>
+      pane.segs.some((sg) => circleVsCapsule(c.x, c.y, c.r + 4, sg.ax, sg.ay, sg.bx, sg.by, 0)),
+    );
+    if (blocked) {
+      pane.regrowAt = simTime + 0.5;
+      continue;
+    }
+    pane.broken = false;
+    for (const sg of pane.segs) sg.broken = false;
+    const c = paneCentre(pane);
+    g.fx.ring(c.x, c.y, pane.color, 70, 0.5);
+    audio.sfxReglaze();
+    changed = true;
+  }
+  if (changed) rebuildWalls();
+}
+
+function paneCentre(pane) {
+  let x = 0;
+  let y = 0;
+  for (const p of pane.poly) {
+    x += p[0];
+    y += p[1];
+  }
+  return { x: x / pane.poly.length, y: y / pane.poly.length };
+}
+
+function rebuildWalls() {
+  const g = game;
+  g.walls = g.staticWalls.concat(...g.panes.filter((p) => !p.broken).map((p) => p.segs));
+}
+
+function shatter(pane, h, before) {
+  const g = game;
+  const glass = g.def.glass;
+  pane.broken = true;
+  pane.regrowAt = simTime + glass.regrow;
+  for (const sg of pane.segs) sg.broken = true;
+  // The ball keeps going through the gap, a little slower.
+  g.ball.vx = before.vx * glass.speedKeep;
+  g.ball.vy = before.vy * glass.speedKeep;
+  g.fx.burst(h.cx, h.cy, -h.nx, -h.ny, 26, pane.color, 380, 1.3, 0.7);
+  g.fx.burst(h.cx, h.cy, h.nx, h.ny, 12, '#ffffff', 220, 1.2, 0.5);
+  g.fx.ring(h.cx, h.cy, pane.color, 90, 0.4);
+  g.fx.addShake(6);
+  audio.sfxShatter();
+  rebuildWalls();
+  guideFrame = 0;
 }
 
 function onPlayerFrozen() {
@@ -227,11 +298,18 @@ function speedNorm(s) {
   return clamp((s - BALL.minSpeed) / (BALL.maxSpeed - BALL.minSpeed), 0, 1);
 }
 
-function onWallBounce(h, seg) {
+function onWallBounce(h, seg, before) {
   const g = game;
+  if (seg.kind === 'glass' && before && !seg.pane.broken) {
+    const speed = Math.hypot(before.vx, before.vy);
+    if (speed >= g.def.glass.breakSpeed) {
+      shatter(seg.pane, h, before);
+      return;
+    }
+  }
   const n = speedNorm(g.ball.speed);
   audio.sfxWall(n);
-  const color = seg.kind === 'obstacle' ? g.def.palette.obstacle : g.def.palette.wall;
+  const color = seg.kind === 'glass' ? seg.pane.color : seg.kind === 'obstacle' ? g.def.palette.obstacle : g.def.palette.wall;
   g.fx.burst(h.cx, h.cy, h.nx, h.ny, 4 + Math.floor(n * 8), color, 160 + 300 * n, 1.1, 0.35);
   g.ball.lastHitBy = 'wall';
   guideFrame = 0;
@@ -334,12 +412,13 @@ function frame(now) {
       if (countdown <= 0) launchBall();
     }
     if (state === 'playing') {
-      game.time += dt;
       game.ball.pushTrail(BALL.trailLength);
       audio.setBallSpeed(game.ball.speed, game.def.ball.speed, BALL.minSpeed, BALL.maxSpeed);
       if (guideFrame-- <= 0) {
         guideFrame = 6;
-        game.guidePath = predictPath(game.ball.x, game.ball.y, game.ball.vx, game.ball.vy, game.walls, 1, 900, game.ball.r);
+        const seeThrough = game.def.glass && game.ball.speed >= game.def.glass.breakSpeed;
+        const guideWalls = seeThrough ? game.walls.filter((w) => w.kind !== 'glass') : game.walls;
+        game.guidePath = predictPath(game.ball.x, game.ball.y, game.ball.vx, game.ball.vy, guideWalls, 1, 900, game.ball.r);
       }
     }
     if ((state === 'cleared' || state === 'failed') && !endShown) {

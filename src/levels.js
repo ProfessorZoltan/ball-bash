@@ -19,6 +19,21 @@ export function rect(cx, cy, w, h, angleDeg = 0) {
   return corners.map(([x, y]) => [cx + x * c - y * s, cy + x * s + y * c]);
 }
 
+/** Points on an elliptical arc from angle a0 to a1 (radians), n segments. */
+export function arc(cx, cy, rx, ry, a0, a1, n = 20) {
+  const pts = [];
+  for (let i = 0; i <= n; i++) {
+    const a = a0 + ((a1 - a0) * i) / n;
+    pts.push([cx + Math.cos(a) * rx, cy + Math.sin(a) * ry]);
+  }
+  return pts;
+}
+
+/** Polygon of an obstacle entry (plain point list or { poly, ... } object). */
+export function obstaclePoly(o) {
+  return Array.isArray(o) ? o : o.poly;
+}
+
 /** Ellipse approximated by `n` segments (clockwise on screen). */
 export function ellipse(cx, cy, rx, ry, n = 40, rotate = 0) {
   const pts = [];
@@ -355,6 +370,77 @@ export const LEVELS = [
       lungeSpeed: 170,
     },
     ball: { x: 520, y: 450, speed: 450, angleDeg: 0 },
+  },
+  {
+    id: 6,
+    title: 'Glass Cathedral',
+    bossName: 'The Choirmaster',
+    intro: 'A long nave of stained glass. A slow ball reflects off the panes; a fast one smashes straight through, and the glass reglazes itself a few seconds later. The Choirmaster waits in the apse behind a screen of glass. Thread it, or break it.',
+    width: 1600,
+    height: 900,
+    track: 'cathedral',
+    palette: {
+      floor: '#0a0716',
+      grid: 'rgba(200, 170, 255, 0.08)',
+      wall: '#e6d5ff',
+      wallDark: '#1f1538',
+      obstacle: '#ffd28a',
+      obstacleDark: '#3a2a10',
+      obstacleFill: '#1a1408',
+      ice: '#cdf6ff',
+    },
+    // Nave with a rounded apse at the east end.
+    boundary: [
+      [40, 140], [140, 40], [1250, 40],
+      ...arc(1250, 450, 300, 410, -Math.PI / 2, Math.PI / 2, 22).slice(1, -1),
+      [1250, 860], [140, 860], [40, 760],
+    ],
+    // Breakable glass: a ball at or above breakSpeed smashes through, keeping
+    // `speedKeep` of its speed; the pane reglazes after `regrow` seconds.
+    glass: { breakSpeed: 720, regrow: 14, speedKeep: 0.8 },
+    obstacles: [
+      // Nave columns (stone, unbreakable).
+      rect(420, 235, 40, 40, 45), rect(640, 235, 40, 40, 45), rect(860, 235, 40, 40, 45), rect(1080, 235, 40, 40, 45),
+      rect(420, 665, 40, 40, 45), rect(640, 665, 40, 40, 45), rect(860, 665, 40, 40, 45), rect(1080, 665, 40, 40, 45),
+      // Stained-glass panes down the nave.
+      { poly: rect(530, 450, 170, 12, 30), color: '#ff7eb6', glass: true },
+      { poly: rect(760, 450, 170, 12, -30), color: '#7fe9d6', glass: true },
+      { poly: rect(990, 450, 170, 12, 30), color: '#b892ff', glass: true },
+      // The choir screen: a ring of panes around the apse, with gaps between.
+      { poly: rect(1330 + Math.cos(-2.0) * 205, 450 + Math.sin(-2.0) * 205, 110, 12, -2.0 * 180 / Math.PI + 90), color: '#ffd166', glass: true },
+      { poly: rect(1330 + Math.cos(-1.35) * 205, 450 + Math.sin(-1.35) * 205, 110, 12, -1.35 * 180 / Math.PI + 90), color: '#ff7eb6', glass: true },
+      { poly: rect(1330 + Math.cos(-0.7) * 205, 450 + Math.sin(-0.7) * 205, 110, 12, -0.7 * 180 / Math.PI + 90), color: '#7fe9d6', glass: true },
+      { poly: rect(1330 + Math.cos(0.7) * 205, 450 + Math.sin(0.7) * 205, 110, 12, 0.7 * 180 / Math.PI + 90), color: '#b892ff', glass: true },
+      { poly: rect(1330 + Math.cos(1.35) * 205, 450 + Math.sin(1.35) * 205, 110, 12, 1.35 * 180 / Math.PI + 90), color: '#ffd166', glass: true },
+      { poly: rect(1330 + Math.cos(2.0) * 205, 450 + Math.sin(2.0) * 205, 110, 12, 2.0 * 180 / Math.PI + 90), color: '#ff7eb6', glass: true },
+      // The west window behind the player, so the Choirmaster's returns can flank you too.
+      { poly: rect(210, 250, 120, 12, 60), color: '#b892ff', glass: true },
+      { poly: rect(210, 650, 120, 12, -60), color: '#7fe9d6', glass: true },
+    ],
+    player: { x: 280, y: 450, angle: 0 },
+    boss: {
+      x: 1330,
+      y: 450,
+      angle: Math.PI,
+      r: 30,
+      paddleWidth: 150,
+      paddleBase: 42,
+      paddleThick: 6,
+      moveSpeed: 240,
+      turnSpeed: 4.2,
+      reaction: 0.28,
+      aggression: 0,
+      aim: 0.8,
+      absorb: 0.6,
+      absorbSpeed: 560,
+      threatRadius: 380,
+      blockRadius: 100,
+      safeRadius: 260,
+      leash: 110,
+      lungeExtend: 18,
+      lungeSpeed: 150,
+    },
+    ball: { x: 420, y: 450, speed: 440, angleDeg: 0 },
   },
 ];
 

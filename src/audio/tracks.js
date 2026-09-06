@@ -287,4 +287,57 @@ export const TRACKS = {
     ],
     loopFrom: 1,
   },
+
+  cathedral: {
+    key: 'B minor',
+    title: 'Glass Cathedral (Choirmaster Theme)',
+    bpm: 118,
+    progression: [
+      { chord: [59, 62, 66], pad: [47, 54, 59, 62], bass: 47, bars: 2 }, // B minor
+      { chord: [52, 55, 59], pad: [52, 55, 59, 64], bass: 40, bars: 2 }, // E minor
+      { chord: [57, 61, 64], pad: [45, 52, 57, 61], bass: 45, bars: 2 }, // A major
+      { chord: [54, 58, 61], pad: [42, 54, 58, 61], bass: 42, bars: 2 }, // F# major (the pull home)
+    ],
+    arp: {
+      octave: 12,
+      gate: 0.6,
+      // Bell-like: the high octave answered by the low.
+      pattern: [3, 4, 5, 4, 3, 4, 5, 4, 0, 1, 2, 1, 0, 1, 2, 1],
+    },
+    bass: {
+      pattern: [
+        [0, 8], 0, 0, 0,
+        0, 0, 0, 0,
+        [0, 4], 0, 0, 0,
+        [7, 2], 0, [5, 2], 0,
+      ],
+    },
+    drums: {
+      kick: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0],
+      snare: [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0],
+      hat: [0.5, 0, 0.3, 0, 0.5, 0, 0.3, 0, 0.5, 0, 0.3, 0, 0.5, 0, 0.3, 0.3],
+      hatOpen: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+    },
+    lead: {
+      length: 128,
+      notes: [
+        // bar 0-1 (B minor)
+        [0, 74, 12], [12, 73, 4], [16, 71, 12], [28, 69, 4],
+        // bar 2-3 (E minor)
+        [32, 67, 8], [40, 71, 8], [48, 76, 12], [60, 74, 4],
+        // bar 4-5 (A)
+        [64, 73, 8], [72, 76, 4], [76, 73, 4], [80, 69, 12], [92, 71, 4],
+        // bar 6-7 (F#: the A# leans home)
+        [96, 70, 8], [104, 73, 8], [112, 78, 12], [124, 76, 2], [126, 73, 2],
+      ],
+    },
+    sections: [
+      { name: 'intro', bars: 8, layers: ['pad', 'arp'], arpDensity: 8, riser: true },
+      { name: 'build', bars: 8, layers: ['pad', 'arp', 'kick', 'bass'], arpDensity: 8, fill: true, riser: true },
+      { name: 'drop', bars: 16, layers: ['pad', 'arp', 'kick', 'bass', 'hat', 'snare', 'lead', 'stab'], fill: true, padBright: 0.5 },
+      { name: 'break', bars: 8, layers: ['pad', 'lead', 'arp'], arpDensity: 8, arpOctave: 12, riser: true },
+      { name: 'drop2', bars: 16, layers: ['pad', 'arp', 'kick', 'bass', 'hat', 'snare', 'lead', 'stab'], fill: true, padBright: 0.5 },
+    ],
+    loopFrom: 1,
+  },
 };
