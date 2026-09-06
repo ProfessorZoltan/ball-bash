@@ -14,6 +14,7 @@
 
 export const TRACKS = {
   antechamber: {
+    key: 'D minor',
     title: 'Antechamber (Warden Theme)',
     bpm: 124,
     progression: [
@@ -69,6 +70,7 @@ export const TRACKS = {
   },
 
   prism: {
+    key: 'E minor',
     title: 'Prism Vault (Refractor Theme)',
     bpm: 132,
     progression: [
@@ -126,6 +128,7 @@ export const TRACKS = {
   },
 
   coolant: {
+    key: 'C minor',
     title: 'Coolant Tunnels (Sump Theme)',
     bpm: 96,
     progression: [
@@ -179,6 +182,7 @@ export const TRACKS = {
   },
 
   reactor: {
+    key: 'A minor',
     title: 'Hollow Reactor (Sentinel Theme)',
     bpm: 140,
     progression: [
@@ -231,6 +235,7 @@ export const TRACKS = {
   },
 
   switchyard: {
+    key: 'G minor',
     title: 'Switchyard (Shunter Theme)',
     bpm: 128,
     progression: [

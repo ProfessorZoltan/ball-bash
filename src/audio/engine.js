@@ -22,6 +22,7 @@ export class AudioEngine {
     this.tempoTarget = 1;
     this.currentBpm = 0;
     this.lastWall = 0;
+    this.lastKickAt = 0; // audio-clock time of the most recent scheduled kick
   }
 
   get ready() {
@@ -124,6 +125,30 @@ export class AudioEngine {
     this.master.gain.setTargetAtTime(m ? 0 : 1, t, 0.03);
   }
 
+  /** Direct tempo control (the jukebox): multiplier on the track's BPM. */
+  setTempoScale(scale) {
+    this.tempoTarget = clamp(scale, 0.5, 1.8);
+  }
+
+  /** Direct intensity control (the jukebox). */
+  setIntensity(v) {
+    this.intensityTarget = clamp(v, 0, 1);
+  }
+
+  /**
+   * Where the music is right now (the scheduler runs ahead of the clock):
+   * the audible step, bar, section name and tempo.
+   */
+  playhead() {
+    if (!this.track || !this.ctx) return null;
+    const stepDur = 60 / (this.currentBpm || this.track.bpm) / 4;
+    const ahead = Math.max(0, Math.ceil((this.nextStepTime - this.ctx.currentTime) / stepDur));
+    const step = Math.max(0, this.step - ahead);
+    const bar = Math.floor(step / 16);
+    const { section, barIn } = this.sectionAt(bar);
+    return { step, s16: step % 16, bar, section: section.name, barIn, sectionBars: section.bars, bpm: this.currentBpm, kickAge: this.ctx.currentTime - this.lastKickAt };
+  }
+
   /**
    * Feed the current ball speed. Tempo scales with speed relative to the
    * level's reference speed; intensity (filter brightness, extra hats)
@@ -149,6 +174,8 @@ export class AudioEngine {
     this.tempoScale = 1;
     this.tempoTarget = 1;
     this.intensity = 0;
+    this.intensityTarget = 0;
+    this.currentBpm = track.bpm;
     const g = this.musicBus.gain;
     g.cancelScheduledValues(c.currentTime);
     g.setValueAtTime(0.0001, c.currentTime);
@@ -304,6 +331,7 @@ export class AudioEngine {
 
   kick(t, vel = 1) {
     const c = this.ctx;
+    if (t > this.lastKickAt) this.lastKickAt = t;
     const o = this.osc('sine', 175, t);
     o.frequency.exponentialRampToValueAtTime(44, t + 0.11);
     const g = c.createGain();

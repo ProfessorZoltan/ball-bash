@@ -104,6 +104,11 @@ written BPM; a faster ball pushes it up to 1.5x and a slow ball lets it sag to
 and adds extra hi-hats, so the music brightens as the rally heats up. The HUD
 shows the live BPM.
 
+The title screen's **Soundtrack** button opens a jukebox: every level's track,
+a play order you arrange yourself, a tempo slider that starts at each track's
+own BPM, and one length slider for how long every track runs before the queue
+advances. Esc returns to the menu, N skips.
+
 Level 1, "Antechamber (Warden Theme)", is in D minor at 124 BPM, cycling
 Dm - Bb - F - C through intro, build, drop, break and a second drop, then loops.
 Level 2, "Prism Vault (Refractor Theme)", is in E minor at 132 BPM over

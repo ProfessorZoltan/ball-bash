@@ -20,7 +20,7 @@ const renderer = new Renderer(canvas);
 const input = new Input(canvas, (sx, sy) => renderer.screenToWorld(sx, sy));
 const audio = new AudioEngine();
 
-let state = 'title'; // title | countdown | playing | paused | cleared | failed
+let state = 'title'; // title | countdown | playing | paused | cleared | failed | jukebox
 let game = null;
 let levelIndex = 0;
 let acc = 0;
@@ -353,9 +353,196 @@ function frame(now) {
     updateHud();
   }
 
-  renderer.draw(game, state, now / 1000, input.joystick);
+  if (state === 'jukebox') {
+    jukeboxTick(now / 1000);
+    renderer.drawJukebox(audio.playhead(), jukebox.palette, now / 1000);
+  } else {
+    renderer.draw(game, state, now / 1000, input.joystick);
+  }
   handleGlobalKeys();
   requestAnimationFrame(frame);
+}
+
+// ----------------------------------------------------------------- jukebox
+
+const TRACK_KEYS = Object.keys(TRACKS);
+const jukebox = {
+  queue: [], // track keys in play order
+  index: -1, // position in the queue of the track now playing
+  length: 90, // seconds each track runs before the queue advances
+  tempo: 100, // percent of the track's own BPM
+  startedAt: 0,
+  switching: null, // timeout handle during a fade to the next track
+  playing: false,
+  palette: null,
+};
+
+function trackLevel(key) {
+  return LEVELS.find((l) => l.track === key) || null;
+}
+
+async function openJukebox() {
+  await audio.init();
+  state = 'jukebox';
+  setInGame(false);
+  stopMarkAnimation();
+  $('hud').hidden = true;
+  if (jukebox.queue.length === 0) jukebox.queue = [...TRACK_KEYS];
+  renderJukebox();
+  if (!jukebox.playing) jukeboxPlay(0);
+}
+
+function leaveJukebox() {
+  jukeboxStop();
+  goToMenu();
+}
+
+function jukeboxPlay(index) {
+  if (jukebox.switching) {
+    clearTimeout(jukebox.switching);
+    jukebox.switching = null;
+  }
+  if (jukebox.queue.length === 0) return;
+  jukebox.index = ((index % jukebox.queue.length) + jukebox.queue.length) % jukebox.queue.length;
+  const key = jukebox.queue[jukebox.index];
+  const level = trackLevel(key);
+  jukebox.palette = level ? level.palette : null;
+  jukebox.tempo = 100; // every track starts at its own default BPM
+  audio.playTrack(TRACKS[key]);
+  audio.setTempoScale(1);
+  audio.setIntensity(0.55);
+  jukebox.startedAt = performance.now() / 1000;
+  jukebox.playing = true;
+  renderJukebox();
+}
+
+function jukeboxNext() {
+  if (!jukebox.playing || jukebox.switching) return;
+  // Fade the current track out, then start the next one in the queue.
+  audio.stopTrack(1.2);
+  jukebox.switching = setTimeout(() => {
+    jukebox.switching = null;
+    jukeboxPlay(jukebox.index + 1);
+  }, 1250);
+}
+
+function jukeboxStop() {
+  if (jukebox.switching) clearTimeout(jukebox.switching);
+  jukebox.switching = null;
+  audio.stopTrack(0.6);
+  jukebox.playing = false; // keep `index` so Play resumes the same track
+}
+
+function jukeboxTick(now) {
+  if (!jukebox.playing) return;
+  const elapsed = now - jukebox.startedAt;
+  if (elapsed >= jukebox.length && !jukebox.switching) jukeboxNext();
+  const ph = audio.playhead();
+  const bar = $('jb-progress');
+  if (bar) bar.style.width = `${clamp(elapsed / jukebox.length, 0, 1) * 100}%`;
+  setText('jb-time', `${formatTime(Math.min(elapsed, jukebox.length))} / ${formatTime(jukebox.length)}`);
+  setText('jb-bpm', ph ? `${Math.round(ph.bpm)} BPM` : '');
+  setText('jb-section', ph ? `${ph.section.toUpperCase()} · bar ${ph.barIn + 1}/${ph.sectionBars}` : jukebox.switching ? 'NEXT TRACK…' : '');
+}
+
+function renderJukebox() {
+  const nowKey = jukebox.playing && jukebox.index >= 0 ? jukebox.queue[jukebox.index] : null;
+  const library = TRACK_KEYS.map((key) => {
+    const t = TRACKS[key];
+    const lv = trackLevel(key);
+    const inQueue = jukebox.queue.includes(key);
+    return `<li class="jb-row ${key === nowKey ? 'now' : ''}">
+      <span class="jb-num">${lv ? String(lv.id).padStart(2, '0') : '--'}</span>
+      <span class="jb-title">${t.title}<small>${t.key} · ${t.bpm} BPM</small></span>
+      <span class="jb-actions"><button data-play="${key}" title="Play now">▶</button><button data-add="${key}" ${inQueue ? 'disabled' : ''} title="Add to queue">+</button></span>
+    </li>`;
+  }).join('');
+  const queue = jukebox.queue.map((key, i) => {
+    const t = TRACKS[key];
+    return `<li class="jb-row ${i === jukebox.index && jukebox.playing ? 'now' : ''}">
+      <span class="jb-num">${i + 1}</span>
+      <span class="jb-title">${t.title}</span>
+      <span class="jb-actions"><button data-up="${i}" ${i === 0 ? 'disabled' : ''} title="Move up">↑</button><button data-down="${i}" ${i === jukebox.queue.length - 1 ? 'disabled' : ''} title="Move down">↓</button><button data-remove="${i}" title="Remove">×</button></span>
+    </li>`;
+  }).join('');
+  const now = nowKey ? TRACKS[nowKey] : null;
+  showOverlay(`
+    <div class="eyebrow">SOUNDTRACK</div>
+    <h1>${now ? now.title : 'Nothing playing'}</h1>
+    <div class="jb-now">
+      <div class="jb-meta"><span id="jb-section"></span><span id="jb-bpm"></span><span id="jb-time"></span></div>
+      <div class="bar jb-bar"><div id="jb-progress"></div></div>
+    </div>
+    <div class="jb-sliders">
+      <label>Tempo <input id="jb-tempo" type="range" min="60" max="160" step="1" value="${jukebox.tempo}" /> <span id="jb-tempo-val">${jukebox.tempo}%</span></label>
+      <label>Each track plays for <input id="jb-length" type="range" min="20" max="300" step="5" value="${jukebox.length}" /> <span id="jb-length-val">${formatTime(jukebox.length)}</span></label>
+    </div>
+    <div class="columns jb-columns">
+      <div><h3>Tracks</h3><ul class="jb-list">${library}</ul></div>
+      <div><h3>Play order</h3><ul class="jb-list">${queue || '<li class="muted small">Queue is empty. Add tracks from the left.</li>'}</ul></div>
+    </div>
+    <div class="row">
+      <button id="jb-toggle" class="primary">${jukebox.playing ? 'Stop' : 'Play'}</button>
+      <button id="jb-next" ${jukebox.playing ? '' : 'disabled'}>Next [N]</button>
+      <button id="jb-reset">Reset order</button>
+      <button id="btn-menu">Main menu [Esc]</button>
+    </div>
+  `);
+  const o = $('overlay');
+  o.querySelectorAll('[data-play]').forEach((b) => (b.onclick = () => {
+    const key = b.dataset.play;
+    if (!jukebox.queue.includes(key)) jukebox.queue.push(key);
+    jukeboxPlay(jukebox.queue.indexOf(key));
+  }));
+  o.querySelectorAll('[data-add]').forEach((b) => (b.onclick = () => {
+    jukebox.queue.push(b.dataset.add);
+    renderJukebox();
+  }));
+  o.querySelectorAll('[data-up]').forEach((b) => (b.onclick = () => moveInQueue(Number(b.dataset.up), -1)));
+  o.querySelectorAll('[data-down]').forEach((b) => (b.onclick = () => moveInQueue(Number(b.dataset.down), 1)));
+  o.querySelectorAll('[data-remove]').forEach((b) => (b.onclick = () => {
+    const i = Number(b.dataset.remove);
+    const wasNow = i === jukebox.index;
+    jukebox.queue.splice(i, 1);
+    if (i < jukebox.index) jukebox.index--;
+    if (wasNow) {
+      if (jukebox.queue.length) jukeboxPlay(jukebox.index);
+      else jukeboxStop();
+    }
+    renderJukebox();
+  }));
+  $('jb-tempo').oninput = (e) => {
+    jukebox.tempo = Number(e.target.value);
+    audio.setTempoScale(jukebox.tempo / 100);
+    audio.setIntensity(clamp(0.55 + (jukebox.tempo - 100) / 120, 0.2, 1));
+    setText('jb-tempo-val', `${jukebox.tempo}%`);
+  };
+  $('jb-length').oninput = (e) => {
+    jukebox.length = Number(e.target.value);
+    setText('jb-length-val', formatTime(jukebox.length));
+  };
+  $('jb-toggle').onclick = () => {
+    if (jukebox.playing) {
+      jukeboxStop();
+      renderJukebox();
+    } else jukeboxPlay(Math.max(0, jukebox.index));
+  };
+  $('jb-next').onclick = jukeboxNext;
+  $('jb-reset').onclick = () => {
+    jukebox.queue = [...TRACK_KEYS];
+    jukebox.index = jukebox.playing ? jukebox.queue.indexOf(nowKey) : -1;
+    renderJukebox();
+  };
+  $('btn-menu').onclick = leaveJukebox;
+}
+
+function moveInQueue(i, dir) {
+  const j = i + dir;
+  if (j < 0 || j >= jukebox.queue.length) return;
+  [jukebox.queue[i], jukebox.queue[j]] = [jukebox.queue[j], jukebox.queue[i]];
+  if (jukebox.index === i) jukebox.index = j;
+  else if (jukebox.index === j) jukebox.index = i;
+  renderJukebox();
 }
 
 function handleGlobalKeys() {
@@ -366,7 +553,9 @@ function handleGlobalKeys() {
   if (input.consumePress('p') || input.consumePress('Escape')) {
     if (state === 'playing') pause();
     else if (state === 'paused') resume();
+    else if (state === 'jukebox') leaveJukebox();
   }
+  if (state === 'jukebox' && input.consumePress('n')) jukeboxNext();
   if (input.consumePress('r') && game && state !== 'title') startLevel(levelIndex);
   if (input.consumePress('f')) toggleFullscreen();
   if (input.consumePress('Enter')) {
@@ -570,9 +759,10 @@ function showTitle() {
         <ol class="roster">${roster}</ol>
       </div>
     </div>
-    <div class="row"><button id="btn-start" class="primary">Start · Sound on</button>${fullscreenHint()}</div>
+    <div class="row"><button id="btn-start" class="primary">Start · Sound on</button><button id="btn-jukebox">Soundtrack</button>${fullscreenHint()}</div>
   `);
   $('btn-start').onclick = begin;
+  $('btn-jukebox').onclick = openJukebox;
   $('btn-full')?.addEventListener('click', toggleFullscreen);
   startMarkAnimation();
   for (const li of document.querySelectorAll('.roster li[data-level]')) {

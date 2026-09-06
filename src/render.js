@@ -115,6 +115,48 @@ export class Renderer {
     if (joystick && joystick.active) this.drawJoystick(joystick, level.palette.wall);
   }
 
+  /** Jukebox visual: a beat-pulsing ring and a 16-step lamp row. */
+  drawJukebox(ph, palette, time) {
+    const ctx = this.ctx;
+    const v = this.view;
+    const a = (palette && palette.wall) || '#7fe9ff';
+    const b = (palette && palette.obstacle) || '#ffb347';
+    ctx.setTransform(v.dpr, 0, 0, v.dpr, 0, 0);
+    ctx.fillStyle = (palette && palette.floor) || '#03050c';
+    ctx.fillRect(0, 0, v.w, v.h);
+    if (!ph) return;
+    const cx = v.w / 2;
+    const cy = v.h / 2;
+    const kick = Math.max(0, 1 - ph.kickAge / 0.35);
+    ctx.save();
+    ctx.globalAlpha = 0.35;
+    for (let i = 0; i < 4; i++) {
+      const r = 140 + i * 90 + kick * 30 * (1 - i * 0.2);
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.lineWidth = 2 + kick * 3;
+      ctx.strokeStyle = i % 2 ? b : a;
+      ctx.shadowColor = ctx.strokeStyle;
+      ctx.shadowBlur = 20 * kick;
+      ctx.stroke();
+    }
+    ctx.restore();
+    // Step lamps along the bottom.
+    const w = Math.min(v.w - 80, 720);
+    const x0 = cx - w / 2;
+    const y = v.h - 48;
+    for (let i = 0; i < 16; i++) {
+      const lit = i === ph.s16;
+      ctx.beginPath();
+      ctx.arc(x0 + (i + 0.5) * (w / 16), y, lit ? 9 : 5, 0, Math.PI * 2);
+      ctx.fillStyle = lit ? '#ffffff' : i % 4 === 0 ? a : 'rgba(255,255,255,0.18)';
+      ctx.shadowColor = a;
+      ctx.shadowBlur = lit ? 18 : 0;
+      ctx.fill();
+    }
+    ctx.shadowBlur = 0;
+  }
+
   /** Touch joystick, drawn in screen space on top of everything. */
   drawJoystick(j, color) {
     const ctx = this.ctx;
