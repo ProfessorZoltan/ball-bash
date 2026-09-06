@@ -291,10 +291,11 @@ export class Renderer {
     ctx.lineWidth = 26;
     ctx.strokeStyle = p.wallDark;
     ctx.stroke();
+    const edge = p.boundary || p.wall;
     ctx.lineWidth = 3;
-    ctx.strokeStyle = p.wall;
-    ctx.shadowColor = p.wall;
-    ctx.shadowBlur = 18;
+    ctx.strokeStyle = edge;
+    ctx.shadowColor = edge;
+    ctx.shadowBlur = p.boundary ? 0 : 18;
     ctx.stroke();
     ctx.restore();
   }
@@ -631,24 +632,38 @@ export class Renderer {
       ctx.shadowBlur = 0;
     }
 
-    // Body shadow (extrusion) and body.
-    ctx.beginPath();
-    ctx.arc(f.x, f.y + 6, f.r, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.fill();
-    const g = ctx.createRadialGradient(f.x - f.r * 0.3, f.y - f.r * 0.3, 2, f.x, f.y, f.r);
-    g.addColorStop(0, flash ? '#ffffff' : '#ffffffcc');
-    g.addColorStop(0.35, flash ? '#ffffff' : color);
-    g.addColorStop(1, flash ? color : '#101828');
-    ctx.beginPath();
-    ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2);
-    ctx.fillStyle = g;
-    ctx.fill();
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = color;
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 14;
-    ctx.stroke();
+    if (f.ghost && !flash) {
+      // The Absence: a hole in the grid with a faint, drifting rim.
+      ctx.beginPath();
+      ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2);
+      ctx.fillStyle = '#000000';
+      ctx.fill();
+      ctx.setLineDash([3, 9]);
+      ctx.lineDashOffset = -time * 18;
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+      ctx.stroke();
+      ctx.setLineDash([]);
+    } else {
+      // Body shadow (extrusion) and body.
+      ctx.beginPath();
+      ctx.arc(f.x, f.y + 6, f.r, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fill();
+      const g = ctx.createRadialGradient(f.x - f.r * 0.3, f.y - f.r * 0.3, 2, f.x, f.y, f.r);
+      g.addColorStop(0, flash ? '#ffffff' : '#ffffffcc');
+      g.addColorStop(0.35, flash ? '#ffffff' : color);
+      g.addColorStop(1, flash ? color : '#101828');
+      ctx.beginPath();
+      ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2);
+      ctx.fillStyle = g;
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = color;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 14;
+      ctx.stroke();
+    }
 
     // Facing notch.
     const fx = Math.cos(f.angle);

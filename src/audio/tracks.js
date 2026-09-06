@@ -446,4 +446,57 @@ export const TRACKS = {
     ],
     loopFrom: 1,
   },
+
+  nullspace: {
+    key: 'Eb minor',
+    title: 'Nullspace (Absence Theme)',
+    bpm: 122,
+    progression: [
+      { chord: [63, 66, 70], pad: [39, 51, 54, 58], bass: 39, bars: 2 }, // Eb minor
+      { chord: [56, 59, 63], pad: [44, 51, 56, 59], bass: 44, bars: 2 }, // Ab minor
+      { chord: [63, 66, 70], pad: [39, 51, 54, 58], bass: 39, bars: 2 }, // Eb minor
+      { chord: [61, 65, 68], pad: [49, 53, 56, 61], bass: 37, bars: 2 }, // Db major
+    ],
+    arp: {
+      octave: 12,
+      gate: 0.7,
+      // Wide, spacious leaps: the void has room.
+      pattern: [0, 4, 2, 5, 1, 3, 0, 5, 2, 4, 1, 3, 0, 5, 2, 4],
+    },
+    bass: {
+      pattern: [
+        [0, 2], 0, [0, 1], 0,
+        [0, 2], 0, 0, [0, 1],
+        [0, 2], 0, [0, 1], 0,
+        [12, 1], 0, [0, 2], 0,
+      ],
+    },
+    drums: {
+      kick: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0],
+      snare: [0, 0, 0, 0, 0.6, 0, 0, 0, 0, 0, 0, 0, 0.6, 0, 0, 0],
+      hat: [0, 0, 0.7, 0, 0, 0, 0.7, 0, 0, 0, 0.7, 0, 0, 0, 0.7, 0],
+      hatOpen: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
+    },
+    lead: {
+      length: 128,
+      notes: [
+        // bar 0-1 (Eb minor)
+        [0, 75, 12], [12, 73, 4], [16, 70, 12], [28, 68, 4],
+        // bar 2-3 (Ab minor)
+        [32, 71, 8], [40, 75, 8], [48, 78, 12], [60, 77, 4],
+        // bar 4-5 (Eb minor)
+        [64, 75, 8], [72, 73, 4], [76, 71, 4], [80, 70, 12], [92, 68, 4],
+        // bar 6-7 (Db)
+        [96, 73, 8], [104, 77, 8], [112, 80, 8], [120, 78, 4], [124, 77, 4],
+      ],
+    },
+    sections: [
+      { name: 'intro', bars: 8, layers: ['pad', 'arp'], arpDensity: 8, riser: true },
+      { name: 'build', bars: 8, layers: ['pad', 'arp', 'kick', 'bass'], arpDensity: 8, fill: true, riser: true },
+      { name: 'drop', bars: 16, layers: ['pad', 'arp', 'kick', 'bass', 'hat', 'snare', 'lead', 'stab'], fill: true, padBright: 0.6 },
+      { name: 'break', bars: 8, layers: ['pad', 'lead', 'arp'], arpDensity: 8, arpOctave: 12, riser: true },
+      { name: 'drop2', bars: 16, layers: ['pad', 'arp', 'kick', 'bass', 'hat', 'snare', 'lead', 'stab'], fill: true, padBright: 0.6 },
+    ],
+    loopFrom: 1,
+  },
 };

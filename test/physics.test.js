@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { reflect, circleVsCapsule, polygonEdges, pointInPolygon, predictPath, raycastSegments } from '../src/physics.js';
 import { Ball, Fighter, Boss, Spinner, Piston, Orbiter, Pulser, createMover } from '../src/entities.js';
 import { IceTrail } from '../src/ice.js';
-import { advanceBall } from '../src/sim.js';
+import { advanceBall, separateFightersFromBall } from '../src/sim.js';
 import { LEVELS, obstaclePoly } from '../src/levels.js';
 import { BALL } from '../src/config.js';
 
@@ -218,7 +218,8 @@ for (const def of LEVELS) {
         player.finalizeStep(dt);
         boss.update(dt, { mx: 0, my: 0, turn: 1 });
         boss.finalizeStep(dt);
-        advanceBall(ball, walls, [player, boss], dt, 1, { onWall: () => bounces++, onBody: () => false }, movers);
+        advanceBall(ball, walls, [player, boss], dt, 1, { onWall: () => bounces++, onMover: () => bounces++, onBody: () => false }, movers);
+        separateFightersFromBall(ball, [player, boss]);
         ball.clampSpeed(BALL.minSpeed, BALL.maxSpeed);
         assert.ok(pointInPolygon(ball.x, ball.y, def.boundary), `ball escaped the room at step ${i}: ${ball.x},${ball.y}`);
         for (const o of def.obstacles) {

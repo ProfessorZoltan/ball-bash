@@ -125,6 +125,8 @@ Level 7, "The Undercroft (Sexton Theme)", is F minor at 104 BPM over
 Fm - Db - Ab - C, a slow tolling arpeggio with sparse, open hats.
 Level 8, "Signal Spire (Beacon Theme)", is C# minor at 136 BPM over
 C#m - A - B - G#m, a Morse-like stutter arpeggio over an octave-pumping bass.
+Level 9, "Nullspace (Absence Theme)", is Eb minor at 122 BPM over
+Ebm - Abm - Ebm - Db, a wide, long-gate arpeggio with off-beat hats.
 
 ## Levels
 
@@ -138,7 +140,7 @@ C#m - A - B - G#m, a Morse-like stutter arpeggio over an octave-pumping bass.
 | 6 | Glass Cathedral | The Choirmaster | playable |
 | 7 | The Undercroft | The Sexton | playable |
 | 8 | Signal Spire | The Beacon | playable |
-| 9 | Nullspace | The Absence | planned |
+| 9 | Nullspace | The Absence | playable |
 | 10 | The Last Arcade | The Architect | planned |
 
 Level 2 introduces a moving obstacle: a prism bar spinning at the centre of the
@@ -185,6 +187,11 @@ expanding ring every `period` seconds (telegraphed for `warn` seconds). The
 ring is a thin circular moving wall travelling outward at `speed`, so it flings
 an incoming ball away and boosts a ball it overtakes, then fades at
 `maxRadius`. A transmitter spire splits the arena with a lane over its top.
+
+Level 9 has no obstacles: the chamber itself is eight pistons, all in phase,
+so every wall slides inward and back together. Banks off a closing wall come
+back faster and off an opening wall slower, so a rally's speed rises and falls
+with the room's breath. The Absence is drawn as a hole in the grid (`ghost`).
 
 Adding a level means adding an entry to `LEVELS` in `src/levels.js` (boundary
 polygon, obstacle polygons via `rect(cx, cy, w, h, angleDeg)`, optional

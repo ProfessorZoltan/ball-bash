@@ -172,7 +172,15 @@ function moverSegmentsAt(movers, x, y, speed, delay) {
 function plan(boss, seen, player, walls, now, ballR, movers) {
   const ai = boss.ai;
   const speed = Math.sqrt(seen.vx * seen.vx + seen.vy * seen.vy);
-  let faceAngle = Math.atan2(seen.y - boss.y, seen.x - boss.x);
+  // Idle facing: the ball, unless it is on the opponent's side of the arena
+  // and heading their way, in which case the next shot comes from them.
+  const ballToPlayer = Math.hypot(seen.x - player.x, seen.y - player.y);
+  const ballToBoss = Math.hypot(seen.x - boss.x, seen.y - boss.y);
+  const headingToPlayer = (player.x - seen.x) * seen.vx + (player.y - seen.y) * seen.vy > 0;
+  let faceAngle =
+    ballToPlayer < ballToBoss && headingToPlayer
+      ? Math.atan2(player.y - boss.y, player.x - boss.x)
+      : Math.atan2(seen.y - boss.y, seen.x - boss.x);
   let tx = boss.home.x;
   let ty = boss.home.y;
   ai.lunge = false;

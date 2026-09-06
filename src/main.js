@@ -11,7 +11,7 @@ import { Effects } from './fx.js';
 import { AudioEngine } from './audio/engine.js';
 import { TRACKS } from './audio/tracks.js';
 import { circleVsCircle, circleVsCapsule, polygonEdges, pointInPolygon, resolveCircleVsSegments, predictPath } from './physics.js';
-import { advanceBall } from './sim.js';
+import { advanceBall, separateFightersFromBall } from './sim.js';
 import { clamp, rand } from './vec.js';
 
 const $ = (id) => document.getElementById(id);
@@ -176,7 +176,10 @@ function step(dt) {
 
   if (!g.ball.held) {
     moveBall(dt);
-    if (state === 'playing') g.history.push(simTime, g.ball);
+    if (state === 'playing') {
+      separateFightersFromBall(g.ball, [g.player, g.boss]);
+      g.history.push(simTime, g.ball);
+    }
   }
 
   if (g.ice) {
