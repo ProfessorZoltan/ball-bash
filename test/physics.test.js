@@ -115,6 +115,16 @@ test('piston slides along its axis and reports its sliding velocity', () => {
   assert.ok(Math.abs((pred.ay + pred.by) / 2 - 140) < 1e-9, 'prediction one second ahead matches the cycle');
 });
 
+test('sliding door: slab lies along its axis and slides out to cover the gap', () => {
+  const door = new Piston({ x: 100, y: 0, length: 100, axisAngle: 0, amp: 100, period: 4, phase: 0, parallel: true });
+  let [seg] = door.segments();
+  assert.ok(Math.abs(seg.ay) < 1e-9 && Math.abs(seg.by) < 1e-9, 'horizontal slab');
+  assert.ok(Math.abs(Math.min(seg.ax, seg.bx) - 50) < 1e-9 && Math.abs(Math.max(seg.ax, seg.bx) - 150) < 1e-9, 'retracted over 50..150');
+  door.update(2);
+  [seg] = door.segments();
+  assert.ok(Math.abs(Math.min(seg.ax, seg.bx) - 150) < 1e-9 && Math.abs(Math.max(seg.ax, seg.bx) - 250) < 1e-9, 'extended over 150..250');
+});
+
 test('orbiter: bars stay tangent to the orbit and move with omega x r', () => {
   const o = new Orbiter({ x: 0, y: 0, radius: 100, count: 2, length: 40, omega: 1, angle: 0 });
   const segs = o.segments();

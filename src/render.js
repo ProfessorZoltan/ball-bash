@@ -359,16 +359,18 @@ export class Renderer {
     const cy = (seg.ay + seg.by) / 2;
     ctx.save();
     ctx.lineCap = 'round';
-    // Rod from the rock face to the slab.
-    ctx.beginPath();
-    ctx.moveTo(m.baseX - m.ax * m.thick, m.baseY - m.ay * m.thick);
-    ctx.lineTo(cx, cy);
-    ctx.lineWidth = 10;
-    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
-    ctx.stroke();
-    ctx.lineWidth = 6;
-    ctx.strokeStyle = '#26443a';
-    ctx.stroke();
+    if (!m.parallel) {
+      // Rod from the rock face to the slab.
+      ctx.beginPath();
+      ctx.moveTo(m.baseX - m.ax * m.thick, m.baseY - m.ay * m.thick);
+      ctx.lineTo(cx, cy);
+      ctx.lineWidth = 10;
+      ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+      ctx.stroke();
+      ctx.lineWidth = 6;
+      ctx.strokeStyle = '#26443a';
+      ctx.stroke();
+    }
     // Slab shadow, glow, core.
     ctx.beginPath();
     ctx.moveTo(seg.ax, seg.ay + WALL_HEIGHT);

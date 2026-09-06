@@ -229,4 +229,57 @@ export const TRACKS = {
     ],
     loopFrom: 1,
   },
+
+  switchyard: {
+    title: 'Switchyard (Shunter Theme)',
+    bpm: 128,
+    progression: [
+      { chord: [55, 58, 62], pad: [43, 50, 55, 58], bass: 43, bars: 2 }, // G minor
+      { chord: [48, 51, 55], pad: [48, 55, 60, 63], bass: 36, bars: 2 }, // C minor
+      { chord: [50, 54, 57], pad: [50, 57, 62, 66], bass: 38, bars: 2 }, // D major
+      { chord: [55, 58, 62], pad: [43, 50, 55, 58], bass: 43, bars: 2 }, // G minor
+    ],
+    arp: {
+      octave: 12,
+      gate: 0.4,
+      // Chugging root/octave with the third and fifth on the off-beats.
+      pattern: [0, 3, 0, 3, 0, 3, 1, 4, 0, 3, 0, 3, 2, 5, 2, 5],
+    },
+    bass: {
+      pattern: [
+        [0, 1], 0, [0, 1], 0,
+        [0, 1], 0, [0, 1], [7, 1],
+        [0, 1], 0, [0, 1], 0,
+        [0, 1], [12, 1], [0, 1], 0,
+      ],
+    },
+    drums: {
+      kick: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0],
+      snare: [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0.4, 1, 0, 0, 0],
+      // "Chugga": accents on the beat and the "a".
+      hat: [0.9, 0, 0.5, 0.7, 0.9, 0, 0.5, 0.7, 0.9, 0, 0.5, 0.7, 0.9, 0, 0.5, 0.7],
+      hatOpen: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
+    },
+    lead: {
+      length: 128,
+      notes: [
+        // bar 0-1 (G minor)
+        [0, 74, 6], [6, 77, 2], [8, 79, 8], [16, 77, 4], [20, 74, 4], [24, 70, 8],
+        // bar 2-3 (C minor)
+        [32, 72, 8], [40, 75, 4], [44, 72, 4], [48, 79, 12], [60, 77, 4],
+        // bar 4-5 (D major: the F# leans home)
+        [64, 78, 8], [72, 81, 4], [76, 78, 4], [80, 74, 8], [88, 72, 4], [92, 70, 4],
+        // bar 6-7 (G minor)
+        [96, 67, 6], [102, 70, 2], [104, 74, 8], [112, 79, 8], [120, 77, 4], [124, 74, 4],
+      ],
+    },
+    sections: [
+      { name: 'intro', bars: 4, layers: ['pad', 'arp'], arpDensity: 8, riser: true },
+      { name: 'build', bars: 8, layers: ['pad', 'arp', 'kick', 'bass', 'hat'], fill: true, riser: true },
+      { name: 'drop', bars: 16, layers: ['pad', 'arp', 'kick', 'bass', 'hat', 'snare', 'lead', 'stab'], fill: true, padBright: 0.8 },
+      { name: 'break', bars: 8, layers: ['pad', 'lead', 'arp', 'hat'], arpDensity: 8, arpOctave: 12, riser: true },
+      { name: 'drop2', bars: 16, layers: ['pad', 'arp', 'kick', 'bass', 'hat', 'snare', 'lead', 'stab'], fill: true, padBright: 0.8 },
+    ],
+    loopFrom: 1,
+  },
 };

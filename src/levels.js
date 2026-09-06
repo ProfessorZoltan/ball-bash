@@ -291,6 +291,71 @@ export const LEVELS = [
     },
     ball: { x: 480, y: 450, speed: 460, angleDeg: 150 },
   },
+  {
+    id: 5,
+    title: 'Switchyard',
+    bossName: 'The Shunter',
+    intro: 'Three lanes of rail, two gaps in every rail, and sliding doors that close them on a schedule. The open route to the Shunter changes every few seconds. It runs the lanes fast but turns like a locomotive.',
+    width: 1600,
+    height: 900,
+    track: 'switchyard',
+    palette: {
+      floor: '#0b0907',
+      grid: 'rgba(255, 190, 80, 0.08)',
+      wall: '#8fd3ff',
+      wallDark: '#12253a',
+      obstacle: '#ffb347',
+      obstacleDark: '#3a2408',
+      obstacleFill: '#1c1206',
+      ice: '#cdf6ff',
+    },
+    boundary: [
+      [40, 100], [100, 40], [1500, 40], [1560, 100],
+      [1560, 800], [1500, 860], [100, 860], [40, 800],
+    ],
+    obstacles: [
+      // Rail 1 (y=300) and rail 2 (y=600), each with gaps at 620-760 and 1020-1160.
+      rect(490, 300, 260, 14, 0), rect(890, 300, 260, 14, 0), rect(1210, 300, 100, 14, 0),
+      rect(490, 600, 260, 14, 0), rect(890, 600, 260, 14, 0), rect(1210, 600, 100, 14, 0),
+      // Switch points: angled plates at the lane ends turn a lane shot into a flank shot.
+      rect(1330, 165, 150, 18, 45), rect(1330, 735, 150, 18, -45),
+      rect(270, 165, 150, 18, -45), rect(270, 735, 150, 18, 45),
+      // Buffers in the middle lane so the straight route is not a free shot.
+      rect(800, 450, 22, 110, 0),
+    ],
+    // Sliding doors: each slides out of its rail to close a gap. Opposite
+    // phases on each rail, and the two rails offset, so the open route rotates.
+    movers: [
+      { type: 'piston', parallel: true, x: 550, y: 300, length: 150, thick: 7, axisAngle: 0, amp: 140, period: 7, phase: 0 },
+      { type: 'piston', parallel: true, x: 950, y: 300, length: 150, thick: 7, axisAngle: 0, amp: 140, period: 7, phase: Math.PI },
+      { type: 'piston', parallel: true, x: 550, y: 600, length: 150, thick: 7, axisAngle: 0, amp: 140, period: 7, phase: Math.PI / 2 },
+      { type: 'piston', parallel: true, x: 950, y: 600, length: 150, thick: 7, axisAngle: 0, amp: 140, period: 7, phase: -Math.PI / 2 },
+    ],
+    player: { x: 240, y: 450, angle: 0 },
+    boss: {
+      x: 1300,
+      y: 450,
+      angle: Math.PI,
+      r: 32,
+      paddleWidth: 160,
+      paddleBase: 44,
+      paddleThick: 7,
+      moveSpeed: 300,
+      turnSpeed: 3.6,
+      reaction: 0.3,
+      aggression: 0.2,
+      aim: 0.6,
+      absorb: 0.5,
+      absorbSpeed: 600,
+      threatRadius: 400,
+      blockRadius: 110,
+      safeRadius: 320,
+      leash: 180,
+      lungeExtend: 20,
+      lungeSpeed: 170,
+    },
+    ball: { x: 520, y: 450, speed: 450, angleDeg: 0 },
+  },
 ];
 
 // Planned roster (number + title). Only level 1 is playable for now.

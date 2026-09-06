@@ -112,6 +112,8 @@ Level 3, "Coolant Tunnels (Sump Theme)", is a half-time track in C minor at
 96 BPM over Cm - Fm - Bb - Ab, with a short-gate "dripping" arpeggio.
 Level 4, "Hollow Reactor (Sentinel Theme)", is A minor at 140 BPM over a
 descending A - G - F - E bass, with a hammered stutter arpeggio.
+Level 5, "Switchyard (Shunter Theme)", is G minor at 128 BPM over
+Gm - Cm - D - Gm, with a chugging root/octave arpeggio and "chugga" hats.
 
 ## Levels
 
@@ -121,7 +123,7 @@ descending A - G - F - E bass, with a hammered stutter arpeggio.
 | 2 | Prism Vault | The Refractor | playable |
 | 3 | Coolant Tunnels | The Sump | playable |
 | 4 | The Hollow Reactor | Core Sentinel | playable |
-| 5 | Switchyard | The Shunter | planned |
+| 5 | Switchyard | The Shunter | playable |
 | 6 | Glass Cathedral | The Choirmaster | planned |
 | 7 | The Undercroft | The Sexton | planned |
 | 8 | Signal Spire | The Beacon | planned |
@@ -148,6 +150,11 @@ the core as one rigid rotation (moving surfaces again), and Core Sentinel's
 home position patrols an ellipse instead of staying put, so its back keeps
 swinging toward you as it passes. A boss orbit is declared on its `orbit`
 entry.
+
+Level 5 is a rail yard: three lanes divided by thin rails, two gaps in each
+rail, and sliding doors (pistons in their `parallel` orientation) that close
+the gaps on staggered seven-second cycles, so the open route to the Shunter's
+flank keeps changing. The Shunter runs the lanes fast but turns slowly.
 
 Adding a level means adding an entry to `LEVELS` in `src/levels.js` (boundary
 polygon, obstacle polygons via `rect(cx, cy, w, h, angleDeg)`, optional

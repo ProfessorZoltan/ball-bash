@@ -293,7 +293,7 @@ export class Spinner {
  * Moving surface: a slab sliding toward the ball speeds it up.
  */
 export class Piston {
-  constructor({ x, y, length, thick = 8, axisAngle = 0, amp = 50, period = 5, phase = 0 }) {
+  constructor({ x, y, length, thick = 8, axisAngle = 0, amp = 50, period = 5, phase = 0, parallel = false }) {
     this.baseX = x;
     this.baseY = y;
     this.halfLen = length / 2;
@@ -303,6 +303,7 @@ export class Piston {
     this.amp = amp;
     this.period = period;
     this.phase = phase;
+    this.parallel = parallel; // true: the slab lies along the axis (a sliding door)
     this.t = 0;
     this.kind = 'piston';
     // Centre of the swept area and how far the slab can reach from it.
@@ -327,9 +328,9 @@ export class Piston {
     const off = this.offsetAt(t);
     const cx = this.baseX + this.ax * off;
     const cy = this.baseY + this.ay * off;
-    // Slab lies perpendicular to the sliding axis.
-    const px = -this.ay * this.halfLen;
-    const py = this.ax * this.halfLen;
+    // Slab lies perpendicular to the sliding axis (piston) or along it (door).
+    const px = this.parallel ? this.ax * this.halfLen : -this.ay * this.halfLen;
+    const py = this.parallel ? this.ay * this.halfLen : this.ax * this.halfLen;
     return [{ ax: cx - px, ay: cy - py, bx: cx + px, by: cy + py }];
   }
 
