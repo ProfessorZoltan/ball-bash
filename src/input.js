@@ -16,9 +16,10 @@ export class Input {
     this.joystick = { active: false, ox: 0, oy: 0, dx: 0, dy: 0, radius: 64, dead: 8 };
     this.touchButtons = { left: false, right: false, whack: false, retract: false };
     // Gamepad (standard mapping, e.g. an Xbox controller): read once per
-    // frame by pollGamepad(). Left stick moves, right stick turns (left and
-    // right, like A and D, at a rate set by how far it is pushed), A thrusts,
-    // X pulls the shield in, Start pauses, A also acts as Enter on menus.
+    // frame by pollGamepad(). Left stick moves; right stick, or the LT and RT
+    // triggers, turn (left and right, like A and D, at a rate set by how far
+    // they are pushed); A thrusts, X pulls the shield in, Start pauses, A also
+    // acts as Enter on menus.
     this.pad = { connected: false, id: '', mapping: '', turn: 0, mx: 0, my: 0, lunge: false, retract: false, buttons: [], rightAxes: [2, 3], error: '' };
     window.addEventListener('gamepadconnected', () => {
       this.pad.connected = true;
@@ -161,9 +162,18 @@ export class Input {
     pad.my = left ? left.y : 0;
     // Right stick: only its sideways travel matters, pushed right turns clockwise.
     const tx = ax[rx] || 0;
-    pad.turn = Math.abs(tx) < GAMEPAD_DEADZONE ? 0 : Math.sign(tx) * Math.min(1, (Math.abs(tx) - GAMEPAD_DEADZONE) / (1 - GAMEPAD_DEADZONE));
+    const stickTurn = Math.abs(tx) < GAMEPAD_DEADZONE ? 0 : Math.sign(tx) * Math.min(1, (Math.abs(tx) - GAMEPAD_DEADZONE) / (1 - GAMEPAD_DEADZONE));
     void ry;
+    // Triggers: LT turns left, RT turns right, harder is faster. Whichever of
+    // the stick and the triggers is pushed further wins.
     const buttons = gp.buttons || [];
+    const trigger = (i) => {
+      const b = buttons[i];
+      const v = b == null ? 0 : typeof b === 'number' ? b : b.value || (b.pressed ? 1 : 0);
+      return v < TRIGGER_DEADZONE ? 0 : (v - TRIGGER_DEADZONE) / (1 - TRIGGER_DEADZONE);
+    };
+    const triggerTurn = trigger(7) - trigger(6);
+    pad.turn = Math.abs(triggerTurn) > Math.abs(stickTurn) ? triggerTurn : stickTurn;
     const down = (i) => {
       const b = buttons[i];
       if (b == null) return false;
@@ -248,6 +258,7 @@ export class Input {
 
 const PREVENT = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' ']);
 const GAMEPAD_DEADZONE = 0.22; // stick travel ignored around centre
+const TRIGGER_DEADZONE = 0.08; // trigger travel ignored when resting
 
 function normalizeKey(e) {
   if (e.key.length === 1) return e.key.toLowerCase();
