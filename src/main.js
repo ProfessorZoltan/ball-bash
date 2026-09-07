@@ -2245,7 +2245,7 @@ function showTitle() {
           <li><b>W</b> or <b>Space</b> — thrust the shield</li>
           <li><b>S</b> — pull the shield in (soft return)</li>
           <li><b>P</b> pause · <b>M</b> mute · <b>R</b> restart</li>
-          <li><b>Controller</b>: left stick aims, right stick moves, <b>A</b> thrusts, <b>X</b> pulls in, <b>Start</b> pauses</li>
+          <li><b>Controller</b>: left stick moves, right stick aims, <b>A</b> thrusts, <b>X</b> pulls in, <b>Start</b> pauses</li>
         </ul>
       </div>
       <div>

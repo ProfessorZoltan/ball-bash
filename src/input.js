@@ -16,9 +16,9 @@ export class Input {
     this.joystick = { active: false, ox: 0, oy: 0, dx: 0, dy: 0, radius: 64, dead: 8 };
     this.touchButtons = { left: false, right: false, whack: false, retract: false };
     // Gamepad (standard mapping, e.g. an Xbox controller): read once per
-    // frame by pollGamepad(). Left stick aims the shield (absolute
-    // direction), right stick moves, A thrusts, X pulls the shield in,
-    // Start pauses, A also acts as Enter on menus.
+    // frame by pollGamepad(). Left stick moves, right stick aims the shield
+    // (absolute direction), A thrusts, X pulls the shield in, Start pauses,
+    // A also acts as Enter on menus.
     this.pad = { connected: false, aim: null, mx: 0, my: 0, lunge: false, retract: false, buttons: [] };
     window.addEventListener('gamepadconnected', () => {
       this.pad.connected = true;
@@ -132,9 +132,9 @@ export class Input {
     const ax = gp.axes || [];
     const left = stick(ax[0] || 0, ax[1] || 0);
     const right = stick(ax[2] || 0, ax[3] || 0);
-    pad.aim = left ? left.angle : null;
-    pad.mx = right ? right.x : 0;
-    pad.my = right ? right.y : 0;
+    pad.mx = left ? left.x : 0;
+    pad.my = left ? left.y : 0;
+    pad.aim = right ? right.angle : null;
     const down = (i) => !!(gp.buttons[i] && (gp.buttons[i].pressed || gp.buttons[i].value > 0.5));
     pad.lunge = down(0); // A
     pad.retract = down(2); // X
@@ -194,7 +194,7 @@ export class Input {
       }
     }
 
-    // Gamepad: the right stick moves when nothing else does.
+    // Gamepad: the left stick moves when nothing else does.
     const pad = this.pad;
     if (mx === 0 && my === 0 && pad.connected && (pad.mx || pad.my)) {
       mx = pad.mx;
@@ -204,7 +204,7 @@ export class Input {
     let turn = 0;
     if (k.has('a') || this.touchButtons.left) turn -= 1;
     if (k.has('d') || this.touchButtons.right) turn += 1;
-    // Gamepad: the left stick's direction is where the shield should face;
+    // Gamepad: the right stick's direction is where the shield should face;
     // turn toward it at full speed, easing in over the last few degrees.
     if (turn === 0 && pad.connected && pad.aim !== null && player) {
       const diff = wrapAngle(pad.aim - player.angle);
