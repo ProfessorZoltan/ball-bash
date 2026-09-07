@@ -160,6 +160,35 @@ back at itself, then tilts its shield to send the ball down the best lane. In
 the last quarter second before impact it braces, holding the shield still, so
 it cannot accidentally whack the ball at speed into its own walls.
 
+## Boss anticipation
+
+Bosses do not only react to the ball; while it is still on its way to you they
+read your shield. `predictReturn` in `src/ai.js` traces the ball to your paddle,
+reflects it exactly as the physics will (including your body velocity, your
+rotation and a thrust in progress, so a swinging shield reads differently from
+a still one), traces the return through the walls and timed movers, and the
+boss starts moving toward where that return will pass before you have hit the
+ball. A ball that would reach your body first, or the back of your shield, is
+not read as a return. The real return still triggers a re-plan, so a late
+flick remains a genuine skill.
+
+Each boss has an `anticipation` entry in `src/levels.js`:
+
+| Field | Meaning |
+| --- | --- |
+| `commit` | 0 to 1: how far from its neutral spot toward the predicted intercept the boss moves |
+| `swing` | whether it reads your shield's motion (tier 2) or only its current pose (tier 1) |
+| `error` | degrees of misread, skewed randomly per plan |
+
+The values ramp from the Warden (commits halfway, reads a still shield,
+misreads by up to 6 degrees) to the Architect (commits fully, reads the
+swing, misreads by at most 1 degree). Measured in the headless balance sim
+against a scripted opponent, the read is within 1 to 2 degrees of the real
+return for the later bosses and the boss stands two to three times closer to
+the real return path at the moment you hit the ball. The shots it still
+misses arrive from its side or back beyond its leash: bank shots, which are
+meant to work.
+
 ## Music
 
 Every level has its own soundtrack, generated live by `src/audio/engine.js`

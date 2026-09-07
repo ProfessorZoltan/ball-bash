@@ -307,3 +307,27 @@ test('difficulties: shield pools are easy unlimited, normal 5, hard 3, punishing
   assert.ok(DIFFICULTIES.some((d) => d.id === DEFAULT_DIFFICULTY));
   assert.equal(PLAYER.campSeconds, 8);
 });
+
+test('anticipation: the boss reads the return off the player\'s shield, including a swing', async () => {
+  const { predictReturn } = await import('../src/ai.js');
+  const walls = polygonEdges([[0, 0], [1600, 0], [1600, 900], [0, 900]], 'wall');
+  // A ball heading left at the player, whose shield is tilted 20 degrees.
+  const player = new Fighter({ x: 300, y: 450, angle: 20 * Math.PI / 180, kind: 'player' });
+  player.paddleOffset = player.paddleBase;
+  const seen = { x: 900, y: 450, vx: -500, vy: 0, t: 0 };
+  const ret = predictReturn(seen, 0, player, walls, BALL.radius, { swing: false, error: 0 });
+  assert.ok(ret, 'the ball meets the shield');
+  // A mirror off a plane tilted 20 degrees turns the ball 40 degrees off the straight return.
+  const outA = Math.atan2(ret.vy, ret.vx);
+  assert.ok(Math.abs(outA - 40 * Math.PI / 180) < 0.03, `return angle ${outA}`);
+  assert.ok(Math.abs(Math.hypot(ret.vx, ret.vy) - 500) < 1e-6, 'a still shield keeps the speed');
+  assert.ok(ret.t > 0.9 && ret.t < 1.2, `contact time ${ret.t}`);
+  // Now the player is pushing into the ball: the swing read sees a faster return.
+  player.svx = 300;
+  const hot = predictReturn(seen, 0, player, walls, BALL.radius, { swing: true, error: 0 });
+  assert.ok(hot && Math.hypot(hot.vx, hot.vy) > 700, `swing read speed ${hot && Math.hypot(hot.vx, hot.vy)}`);
+  // A shield turned away from the ball is not read as a return.
+  player.svx = 0;
+  player.angle = Math.PI;
+  assert.equal(predictReturn(seen, 0, player, walls, BALL.radius, { swing: false }), null);
+});

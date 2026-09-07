@@ -250,6 +250,10 @@ export class Boss extends Fighter {
       blockRadius: 90, // a path passing this close is one the boss must block
       safeRadius: 260, // returns that rebound closer than this to the boss are avoided
       leash: 260, // how far from home the boss will roam
+      // Reading the player's shield before the ball gets there (see ai.js):
+      // commit 0..1 = how far toward the predicted return it moves, swing =
+      // whether it reads the shield's motion too, error = degrees of misread.
+      anticipation: { commit: 0.5, swing: false, error: 10 },
       ...opts,
     });
     this.home = { x: this.x, y: this.y };

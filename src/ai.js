@@ -11,8 +11,14 @@
 //     rebounds back at the boss. The paddle angle is then the bisector between
 //     "where the ball comes from" and that chosen direction.
 //  3. Receive: whack (lunge), absorb (pull the shield back) or just block.
-import { closestPointOnSegment, predictPath, raycastSegments } from './physics.js';
+//  4. Anticipate: while the ball is still on its way to the player, read the
+//     player's shield (pose, and with `swing` its motion at contact), reflect
+//     the ball off it the way the physics will, and start moving toward where
+//     that return will pass. How far the boss commits to the read, whether it
+//     reads the swing, and how accurately, are per-boss `anticipation` params.
+import { closestPointOnSegment, predictPath, raycastSegments, reflect } from './physics.js';
 import { angleDiff, clamp } from './vec.js';
+import { BALL, SURFACE_VELOCITY_FACTOR } from './config.js';
 
 const DEG = Math.PI / 180;
 
@@ -72,6 +78,112 @@ function findThreat(boss, seen, walls, ballR, refX = boss.x, refY = boss.y) {
     if (!closest || dd < closest.dd) closest = cand;
   }
   return closest;
+}
+
+/** The paddle segment a fighter would present at a given pose. */
+function paddleSegmentAt(f, pose) {
+  const fx = Math.cos(pose.angle);
+  const fy = Math.sin(pose.angle);
+  const cx = pose.x + fx * pose.offset;
+  const cy = pose.y + fy * pose.offset;
+  const h = f.paddleWidth / 2;
+  return { ax: cx + fy * h, ay: cy - fx * h, bx: cx - fy * h, by: cy + fx * h, cx, cy, fx, fy };
+}
+
+/**
+ * Anticipation: predict the ball's state just after the player's shield
+ * returns it. `seen` is the (delayed) ball snapshot; `segs` the walls and
+ * timed movers it will bounce off before reaching the player.
+ *   swing  read the player's motion: extrapolate the pose to contact time and
+ *          give the shield its surface velocity (a moving shield adds speed
+ *          and changes the angle, exactly as the physics does)
+ *   error  degrees of read error, applied as a random skew per plan
+ * Returns { x, y, vx, vy, t } for the moment after contact, or null when the
+ * ball will not meet the shield (then the boss falls back to waiting).
+ */
+export function predictReturn(seen, now, player, segs, ballR, { swing = true, error = 0 } = {}, diag = null) {
+  const why = (reason) => {
+    if (diag) diag.reason = reason;
+    return null;
+  };
+  const speed = Math.hypot(seen.vx, seen.vy);
+  if (speed < 1) return why('still');
+  const seenAt = seen.t ?? now;
+  const path = predictPath(seen.x, seen.y, seen.vx, seen.vy, segs, 4, 3200, ballR);
+  if (!path.length) return why('no-path');
+
+  // First crossing of the ball's path with the shield presented at `pose`.
+  const contactAt = (pose) => {
+    const seg = paddleSegmentAt(player, pose);
+    const bodyR = player.r + ballR;
+    let travelled = 0;
+    for (const leg of path) {
+      const len = Math.hypot(leg.bx - leg.ax, leg.by - leg.ay);
+      // Only the shield's face returns the ball; from behind, the body is in the way.
+      const facing = seg.fx * leg.dx + seg.fy * leg.dy < -0.05;
+      const hit = facing ? raycastSegments(leg.ax, leg.ay, leg.dx, leg.dy, [seg], len) : null;
+      // A ball that reaches the body first is not returned at all.
+      const near = closestPointOnSegment(pose.x, pose.y, leg.ax, leg.ay, leg.bx, leg.by);
+      if (Math.hypot(near.x - pose.x, near.y - pose.y) < bodyR && (!hit || near.t * len < hit.t)) return { body: true };
+      if (hit) {
+        // The ball's edge, not its centre, meets the shield's face.
+        const cosI = Math.abs(hit.nx * leg.dx + hit.ny * leg.dy) || 1;
+        const t = Math.max(0, hit.t - (player.paddleThick / 2 + ballR) / cosI);
+        const dist = travelled + t;
+        return { x: leg.ax + leg.dx * t, y: leg.ay + leg.dy * t, dx: leg.dx, dy: leg.dy, nx: hit.nx, ny: hit.ny, time: Math.max(0, seenAt + dist / speed - now), seg };
+      }
+      travelled += len;
+    }
+    return null;
+  };
+
+  let pose = { x: player.x, y: player.y, angle: player.angle, offset: player.paddleOffset };
+  let c = contactAt(pose);
+  if (!c) return why('miss');
+  if (c.body) return why('body');
+  let svx = 0;
+  let svy = 0;
+  if (swing) {
+    // Where will the shield be when the ball gets there? Body velocity,
+    // rotation, and a thrust in progress all move it.
+    const tc = c.time;
+    const thrusting = player.lungeState === 'out' && tc < 0.12;
+    pose = {
+      x: player.x + player.svx * tc,
+      y: player.y + player.svy * tc,
+      angle: player.angle + player.omega * tc,
+      offset: thrusting ? player.paddleBase + player.lungeExtend : player.paddleBase,
+    };
+    const c2 = contactAt(pose);
+    if (!c2) return why('swing-miss'); // the swing takes the shield off the ball's path
+    if (c2.body) return why('swing-body');
+    c = c2;
+    const seg = paddleSegmentAt(player, pose);
+    const rx = c.x - pose.x;
+    const ry = c.y - pose.y;
+    const thrust = thrusting ? player.paddleVel : 0;
+    svx = player.svx - player.omega * ry + seg.fx * thrust;
+    svy = player.svy + player.omega * rx + seg.fy * thrust;
+  }
+
+  const out = { vx: c.dx * speed, vy: c.dy * speed };
+  if (!reflect(out, c.nx, c.ny, svx, svy, 1, SURFACE_VELOCITY_FACTOR)) return why('receding');
+  let os = Math.hypot(out.vx, out.vy);
+  if (os < 1e-6) return why('dead');
+  if (diag) diag.reason = 'ok';
+  const clamped = clamp(os, BALL.minSpeed, BALL.maxSpeed);
+  out.vx *= clamped / os;
+  out.vy *= clamped / os;
+  if (error > 0) {
+    const skew = (Math.random() * 2 - 1) * error * DEG;
+    const cs = Math.cos(skew);
+    const sn = Math.sin(skew);
+    const vx = out.vx * cs - out.vy * sn;
+    const vy = out.vx * sn + out.vy * cs;
+    out.vx = vx;
+    out.vy = vy;
+  }
+  return { x: c.x, y: c.y, vx: out.vx, vy: out.vy, t: now + c.time };
 }
 
 /**
@@ -193,6 +305,7 @@ function plan(boss, seen, player, walls, now, ballR, movers) {
   ai.lunge = false;
   ai.absorb = false;
   ai.arrival = -1;
+  ai.anticipating = false;
 
   if (speed > 1) {
     // The snapshot is `reaction` old, so the ball reaches things that much sooner.
@@ -205,6 +318,17 @@ function plan(boss, seen, player, walls, now, ballR, movers) {
       const eta0 = Math.max(0, (seen.t ?? now) + threat.along / speed - now);
       const fut = boss.homeAt(eta0);
       threat = findThreat(boss, seen, segsIn, ballR, fut.x, fut.y);
+    }
+    // Read the player's shield. If the ball meets it before the pass-through
+    // path ever threatens us, the path beyond that contact is fiction and the
+    // read is what to plan for.
+    const ant = boss.anticipation;
+    const diag = {};
+    const ret = ant && ant.commit > 0 ? predictReturn(seen, now, player, segsIn, ballR, ant, diag) : null;
+    ai.readReason = diag.reason || 'off';
+    if (ret && threat) {
+      const contactDist = (ret.t - (seen.t ?? now)) * speed;
+      if (threat.along > contactDist - 1) threat = null;
     }
     if (threat && threat.dd < boss.threatRadius) {
       // Stand on the predicted path so the paddle is centred on it.
@@ -221,6 +345,31 @@ function plan(boss, seen, player, walls, now, ballR, movers) {
       // back to bleed speed off a hot ball), or just block.
       if (eta < 0.28 && Math.random() < boss.aggression) ai.lunge = true;
       else if (speed > boss.absorbSpeed && Math.random() < boss.absorb) ai.absorb = true;
+    } else if (ret) {
+      // Nothing coming yet: pre-position for the return the shield would
+      // produce. The real return still triggers a re-plan.
+      {
+        const retSpeed = Math.hypot(ret.vx, ret.vy);
+        const segsRet = movers.length ? walls.concat(moverSegmentsAt(movers, ret.x, ret.y, ret.vx, ret.vy, ret.t - now)) : walls;
+        let guess = findThreat(boss, ret, segsRet, ballR);
+        if (guess && boss.orbit) {
+          const eta0 = Math.max(0, ret.t + guess.along / retSpeed - now);
+          const fut = boss.homeAt(eta0);
+          guess = findThreat(boss, ret, segsRet, ballR, fut.x, fut.y);
+        }
+        if (guess && guess.dd < boss.threatRadius) {
+          const eta = Math.max(0, ret.t + guess.along / retSpeed - now);
+          const anchor = boss.orbit ? boss.homeAt(eta) : boss.home;
+          // Commit: how far from the neutral spot toward the read the boss goes.
+          tx = anchor.x + (guess.x - anchor.x) * ant.commit;
+          ty = anchor.y + (guess.y - anchor.y) * ant.commit;
+          const incoming = Math.atan2(-guess.seg.dy, -guess.seg.dx);
+          const segsOut = movers.length ? walls.concat(moverSegmentsAt(movers, tx, ty, 0, 0, eta)) : walls;
+          faceAngle = ant.commit >= 0.5 ? chooseReturnAngle(boss, tx, ty, incoming, player, segsOut, eta, ballR, movers) : incoming;
+          ai.anticipating = true;
+          ai.antRet = ret; // the read, kept so tests and sims can score it against the real return
+        }
+      }
     }
   }
 
