@@ -4,6 +4,7 @@ import { BALL } from './config.js';
 import { clamp, lerp } from './vec.js';
 
 const WALL_HEIGHT = 9; // px of extrusion under each wall face
+const DARK_SCALE = 0.5; // the darkness layer's resolution relative to the canvas
 
 export class Renderer {
   constructor(canvas) {
@@ -12,6 +13,21 @@ export class Renderer {
     this.view = { scale: 1, ox: 0, oy: 0, w: 0, h: 0, dpr: 1 };
     this.level = null;
     this.staticLayer = null;
+    this.low = false; // low quality: pixel density capped at 1, no glow on moving things
+    this.maxDpr = 2;
+    this.darkScale = DARK_SCALE;
+    this.darkSmooth = false; // nearest-neighbour upscale: the layer is soft gradients, and bilinear costs 4x more in software rendering
+  }
+
+  /** Quality switch. Call resize() afterwards so the canvas and cached layers follow. */
+  setQuality(low) {
+    this.low = !!low;
+    this.maxDpr = low ? 1 : 2;
+  }
+
+  /** Glow radius for moving things: shadowBlur is the costliest canvas operation, so low quality turns it off. */
+  blur(radius) {
+    return this.low ? 0 : radius;
   }
 
   setLevel(level) {
@@ -20,7 +36,7 @@ export class Renderer {
   }
 
   resize() {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const dpr = Math.min(window.devicePixelRatio || 1, this.maxDpr);
     const w = window.innerWidth;
     const h = window.innerHeight;
     this.canvas.width = Math.floor(w * dpr);
@@ -128,22 +144,27 @@ export class Renderer {
   drawDarkness(game, level, state, time, shx, shy) {
     const v = this.view;
     const d = level.dark;
+    // The layer is soft light only, so it is rendered at half resolution and
+    // scaled up: a quarter of the pixels to fill, punch and composite each frame.
+    const S = this.darkScale;
     if (!this.darkLayer) {
       this.darkLayer = document.createElement('canvas');
-      this.darkLayer.width = this.canvas.width;
-      this.darkLayer.height = this.canvas.height;
+      this.darkLayer.width = Math.ceil(this.canvas.width * S);
+      this.darkLayer.height = Math.ceil(this.canvas.height * S);
     }
     const dc = this.darkLayer.getContext('2d');
     dc.setTransform(1, 0, 0, 1, 0, 0);
-    dc.globalCompositeOperation = 'source-over';
-    dc.clearRect(0, 0, this.darkLayer.width, this.darkLayer.height);
     // The crypt lights up when the level ends.
     const lifted = state === 'cleared' || state === 'failed';
     const ambient = lifted ? 0.7 : d.ambient;
+    // Plain clear + fill: the 'copy' composite would do it in one pass but
+    // takes Chrome's slow full-surface layer path.
+    dc.globalCompositeOperation = 'source-over';
+    dc.clearRect(0, 0, this.darkLayer.width, this.darkLayer.height);
     dc.fillStyle = `rgba(0,0,0,${1 - ambient})`;
     dc.fillRect(0, 0, this.darkLayer.width, this.darkLayer.height);
     dc.globalCompositeOperation = 'destination-out';
-    dc.setTransform(v.dpr * v.scale, 0, 0, v.dpr * v.scale, (v.ox + shx) * v.dpr, (v.oy + shy) * v.dpr);
+    dc.setTransform(v.dpr * v.scale * S, 0, 0, v.dpr * v.scale * S, (v.ox + shx) * v.dpr * S, (v.oy + shy) * v.dpr * S);
     const punch = (x, y, r, core = 0.5) => {
       const g = dc.createRadialGradient(x, y, 0, x, y, r);
       g.addColorStop(0, 'rgba(0,0,0,1)');
@@ -167,16 +188,21 @@ export class Renderer {
     for (const r of game.fx.rings) punch(r.x, r.y, r.maxR * 0.8, 0.3);
     const ctx = this.ctx;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.drawImage(this.darkLayer, 0, 0);
-    // Candle flames on top of the darkness.
+    ctx.imageSmoothingEnabled = this.darkSmooth;
+    ctx.drawImage(this.darkLayer, 0, 0, this.canvas.width, this.canvas.height);
+    ctx.imageSmoothingEnabled = true;
+    // Candle flames on top of the darkness. One small fill per flame: a glow
+    // blur costs by the bounding box of what is drawn, so batching flames from
+    // opposite corners into one path would blur the whole canvas.
     ctx.setTransform(v.dpr * v.scale, 0, 0, v.dpr * v.scale, (v.ox + shx) * v.dpr, (v.oy + shy) * v.dpr);
-    for (let i = 0; i < (level.lights || []).length; i++) {
-      const l = level.lights[i];
+    const lights = level.lights || [];
+    ctx.fillStyle = '#fff1c0';
+    ctx.shadowColor = '#ffc860';
+    ctx.shadowBlur = this.blur(18);
+    for (let i = 0; i < lights.length; i++) {
+      const l = lights[i];
       ctx.beginPath();
       ctx.arc(l.x, l.y, 4 + 1.5 * flicker(i), 0, Math.PI * 2);
-      ctx.fillStyle = '#fff1c0';
-      ctx.shadowColor = '#ffc860';
-      ctx.shadowBlur = 18;
       ctx.fill();
     }
     ctx.shadowBlur = 0;
@@ -204,7 +230,7 @@ export class Renderer {
       ctx.lineWidth = 2 + kick * 3;
       ctx.strokeStyle = i % 2 ? b : a;
       ctx.shadowColor = ctx.strokeStyle;
-      ctx.shadowBlur = 20 * kick;
+      ctx.shadowBlur = this.blur(20 * kick);
       ctx.stroke();
     }
     ctx.restore();
@@ -218,7 +244,7 @@ export class Renderer {
       ctx.arc(x0 + (i + 0.5) * (w / 16), y, lit ? 9 : 5, 0, Math.PI * 2);
       ctx.fillStyle = lit ? '#ffffff' : i % 4 === 0 ? a : 'rgba(255,255,255,0.18)';
       ctx.shadowColor = a;
-      ctx.shadowBlur = lit ? 18 : 0;
+      ctx.shadowBlur = this.blur(lit ? 18 : 0);
       ctx.fill();
     }
     ctx.shadowBlur = 0;
@@ -248,7 +274,7 @@ export class Renderer {
     ctx.arc(j.ox + j.dx, j.oy + j.dy, 22, 0, Math.PI * 2);
     ctx.fillStyle = color;
     ctx.shadowColor = color;
-    ctx.shadowBlur = 14;
+    ctx.shadowBlur = this.blur(14);
     ctx.fill();
     ctx.restore();
   }
@@ -365,7 +391,7 @@ export class Renderer {
       ctx.lineWidth = hot ? 3 : 2;
       ctx.strokeStyle = hot ? '#ffffff' : pane.color;
       ctx.shadowColor = pane.color;
-      ctx.shadowBlur = hot ? 22 + 6 * Math.sin(time * 12) : 12;
+      ctx.shadowBlur = this.blur(hot ? 22 + 6 * Math.sin(time * 12) : 12);
       ctx.stroke();
       ctx.shadowBlur = 0;
       // Glass highlight.
@@ -442,7 +468,7 @@ export class Renderer {
     ctx.lineWidth = m.thick * 2;
     ctx.strokeStyle = color;
     ctx.shadowColor = color;
-    ctx.shadowBlur = 16;
+    ctx.shadowBlur = this.blur(16);
     ctx.stroke();
     ctx.shadowBlur = 0;
     ctx.beginPath();
@@ -482,7 +508,7 @@ export class Renderer {
       ctx.strokeStyle = '#ffffff';
       ctx.globalAlpha = 0.3 + 0.6 * k * (0.6 + 0.4 * Math.sin(time * 40));
       ctx.shadowColor = color;
-      ctx.shadowBlur = 20 * k;
+      ctx.shadowBlur = this.blur(20 * k);
       ctx.stroke();
     }
     const ring = p.ring();
@@ -494,7 +520,7 @@ export class Renderer {
       ctx.lineWidth = ring.thick * 2;
       ctx.strokeStyle = color;
       ctx.shadowColor = color;
-      ctx.shadowBlur = 24;
+      ctx.shadowBlur = this.blur(24);
       ctx.stroke();
       ctx.beginPath();
       ctx.arc(ring.x, ring.y, ring.r, 0, Math.PI * 2);
@@ -531,7 +557,7 @@ export class Renderer {
       ctx.lineWidth = m.thick * 2;
       ctx.strokeStyle = color;
       ctx.shadowColor = color;
-      ctx.shadowBlur = 14;
+      ctx.shadowBlur = this.blur(14);
       ctx.stroke();
       ctx.shadowBlur = 0;
       ctx.beginPath();
@@ -576,7 +602,7 @@ export class Renderer {
     ctx.lineWidth = m.thick * 2;
     ctx.strokeStyle = color;
     ctx.shadowColor = color;
-    ctx.shadowBlur = 14;
+    ctx.shadowBlur = this.blur(14);
     ctx.stroke();
     ctx.shadowBlur = 0;
     ctx.beginPath();
@@ -630,7 +656,7 @@ export class Renderer {
       ctx.lineWidth = 2;
       ctx.strokeStyle = '#ffffff';
       ctx.shadowColor = '#cdf6ff';
-      ctx.shadowBlur = 20;
+      ctx.shadowBlur = this.blur(20);
       ctx.stroke();
       ctx.shadowBlur = 0;
     }
@@ -664,7 +690,7 @@ export class Renderer {
       ctx.lineWidth = 2;
       ctx.strokeStyle = color;
       ctx.shadowColor = color;
-      ctx.shadowBlur = 14;
+      ctx.shadowBlur = this.blur(14);
       ctx.stroke();
     }
 
@@ -693,7 +719,7 @@ export class Renderer {
     ctx.lineWidth = f.paddleThick * 2;
     ctx.strokeStyle = color;
     ctx.shadowColor = color;
-    ctx.shadowBlur = f.lungeState === 'out' ? 30 : 16;
+    ctx.shadowBlur = this.blur(f.lungeState === 'out' ? 30 : 16);
     ctx.stroke();
     ctx.beginPath();
     ctx.moveTo(seg.ax, seg.ay);
@@ -736,7 +762,7 @@ export class Renderer {
 
     ctx.save();
     ctx.shadowColor = color;
-    ctx.shadowBlur = 18 + 30 * t;
+    ctx.shadowBlur = this.blur(18 + 30 * t);
     const g = ctx.createRadialGradient(ball.x, ball.y, 1, ball.x, ball.y, ball.r);
     g.addColorStop(0, '#ffffff');
     g.addColorStop(0.5, color);

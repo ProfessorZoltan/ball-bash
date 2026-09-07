@@ -9,6 +9,8 @@ export class Ball {
     this.r = radius;
     this.trail = [];
     this.held = true; // true while the countdown is running
+    this.rx = 0; // position at the start of the latest physics step (render interpolation)
+    this.ry = 0;
     this.lastHitBy = null; // 'player' | 'boss' | 'wall' | 'mover'
     this.lastPaddle = null; // kind of the last fighter whose shield hit it
   }
@@ -44,6 +46,14 @@ export class Ball {
     this.trail.length = 0;
     this.lastHitBy = null;
     this.lastPaddle = null;
+    this.rx = x;
+    this.ry = y;
+  }
+
+  /** Remember where this step starts, so a frame can be drawn part-way through it. */
+  markRender() {
+    this.rx = this.x;
+    this.ry = this.y;
   }
 
   pushTrail(max) {
@@ -97,6 +107,18 @@ export class Fighter {
     this.iceImmune = false; // true until the fighter steps off the ice after thawing
     this.prevX = this.x;
     this.prevY = this.y;
+    this.rx = this.x; // state at the start of the latest physics step (render interpolation)
+    this.ry = this.y;
+    this.rAngle = this.angle;
+    this.rPaddle = this.paddleOffset;
+  }
+
+  /** Remember where this step starts, so a frame can be drawn part-way through it. */
+  markRender() {
+    this.rx = this.x;
+    this.ry = this.y;
+    this.rAngle = this.angle;
+    this.rPaddle = this.paddleOffset;
   }
 
   facing() {

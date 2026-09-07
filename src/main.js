@@ -14,7 +14,7 @@ import { AudioEngine } from './audio/engine.js';
 import { TRACKS } from './audio/tracks.js';
 import { circleVsCircle, circleVsCapsule, pointInPolygon, resolveCircleVsSegments, predictPath } from './physics.js';
 import { advanceBall, separateFightersFromBall } from './sim.js';
-import { clamp, rand } from './vec.js';
+import { clamp, rand, wrapAngle } from './vec.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('game');
@@ -48,6 +48,7 @@ function buildGame(def, pvp = false, rules = { ownBallLoss: ownBallLoss() }) {
     topSpeed: 0,
     paddleHits: 0,
     guidePath: null,
+    drops: 0, // frames this level that took far longer than the display's refresh interval
   };
 }
 
@@ -55,6 +56,7 @@ function startLevel(index) {
   levelIndex = index;
   const def = LEVELS[index];
   $('tutor').hidden = true;
+  resetFrameWatch();
   game = buildGame(def);
   renderer.setLevel(def);
   renderer.resize();
@@ -105,6 +107,9 @@ function step(dt) {
   const g = game;
   simTime += dt;
   g.time = simTime;
+  g.ball.markRender();
+  g.player.markRender();
+  g.boss.markRender();
 
   for (const m of g.movers) m.update(dt);
 
@@ -443,12 +448,15 @@ function onPlayerHit(h) {
 // ----------------------------------------------------------------- frames
 
 function frame(now) {
-  const dt = Math.min((now - last) / 1000, 0.05);
+  const rawDt = (now - last) / 1000;
+  const dt = Math.min(rawDt, 0.05);
   last = now;
   if (dt > 0) fps += (1 / dt - fps) * 0.05;
+  let alpha = 1; // how far through the current physics step this frame is drawn
 
   if (game && state !== 'title' && state !== 'paused') {
     const guest = net.mode === 'guest';
+    if (state === 'playing') watchFrameTime(rawDt);
     if (guest) guestApply(now);
     acc += dt;
     const simulate = !guest && (state === 'countdown' || state === 'playing');
@@ -456,6 +464,7 @@ function frame(now) {
       if (simulate) step(PHYSICS_DT);
       acc -= PHYSICS_DT;
     }
+    if (simulate) alpha = acc / PHYSICS_DT;
     game.fx.update(dt);
     if (state === 'countdown' && !guest) {
       countdown -= dt;
@@ -480,7 +489,6 @@ function frame(now) {
       }
     }
     if (state === 'playing') {
-      game.ball.pushTrail(BALL.trailLength);
       audio.setBallSpeed(game.ball.speed, game.def.ball.speed, BALL.minSpeed, BALL.maxSpeed);
       if (guideFrame-- <= 0) {
         guideFrame = 6;
@@ -509,10 +517,92 @@ function frame(now) {
     jukeboxTick(now / 1000);
     renderer.drawJukebox(audio.playhead(), jukebox.palette, now / 1000);
   } else {
-    renderer.draw(game, state, now / 1000, input.joystick);
+    drawWorld(now / 1000, alpha);
   }
   handleGlobalKeys();
   requestAnimationFrame(frame);
+}
+
+/**
+ * Draw the world `alpha` of the way from the previous physics step to the
+ * current one. Physics runs in whole 240 Hz steps, so without this a frame
+ * on a 144 Hz or 75 Hz display alternates between one and two steps of ball
+ * travel and judders even at a perfect frame rate. The interpolated values
+ * are swapped in for the draw and restored afterwards.
+ */
+function drawWorld(nowSec, alpha) {
+  const g = game;
+  if (!g || !(alpha > 0 && alpha < 1)) {
+    if (g && state === 'playing') g.ball.pushTrail(BALL.trailLength);
+    renderer.draw(g, state, nowSec, input.joystick);
+    return;
+  }
+  const b = g.ball;
+  const fs = [g.player, g.boss];
+  const bx = b.x;
+  const by = b.y;
+  const saved = fs.map((f) => [f.x, f.y, f.angle, f.paddleOffset]);
+  if (!b.held) {
+    b.x = b.rx + (bx - b.rx) * alpha;
+    b.y = b.ry + (by - b.ry) * alpha;
+  }
+  for (const f of fs) {
+    f.x = f.rx + (f.x - f.rx) * alpha;
+    f.y = f.ry + (f.y - f.ry) * alpha;
+    f.angle = f.rAngle + wrapAngle(f.angle - f.rAngle) * alpha;
+    f.paddleOffset = f.rPaddle + (f.paddleOffset - f.rPaddle) * alpha;
+  }
+  try {
+    if (state === 'playing') b.pushTrail(BALL.trailLength);
+    renderer.draw(g, state, nowSec, input.joystick);
+  } finally {
+    b.x = bx;
+    b.y = by;
+    fs.forEach((f, i) => {
+      [f.x, f.y, f.angle, f.paddleOffset] = saved[i];
+    });
+  }
+}
+
+// ---------------------------------------------------------- frame health
+
+// A frame is "dropped" when it took much longer than the display's refresh
+// interval (estimated as the median of recent frames). Drops are counted per
+// level for the HUD. On the Auto quality setting the renderer steps down to
+// low quality for the rest of the session when a window of frames is either
+// jittery (8% or more dropped) or uniformly slow (a median below 42 fps, which
+// no display's refresh rate explains).
+const FRAME_WINDOW = 90;
+const SLOW_MEDIAN = 1 / 42;
+const perf = { ring: new Array(FRAME_WINDOW).fill(1 / 60), i: 0, filled: false, refresh: 1 / 60, windowDrops: 0, sinceLevel: 0 };
+
+function resetFrameWatch() {
+  perf.i = 0;
+  perf.filled = false;
+  perf.windowDrops = 0;
+  perf.sinceLevel = 0;
+}
+
+function watchFrameTime(dt) {
+  perf.sinceLevel += dt;
+  if (dt <= 0 || dt > 0.25) return; // a tab switch or a hitch, not a frame
+  perf.ring[perf.i] = dt;
+  perf.i = (perf.i + 1) % FRAME_WINDOW;
+  if (perf.filled && perf.sinceLevel > 2 && dt > perf.refresh * 1.6) {
+    game.drops++;
+    perf.windowDrops++;
+  }
+  if (perf.i === 0) {
+    const sorted = [...perf.ring].sort((a, b) => a - b);
+    perf.refresh = sorted[FRAME_WINDOW >> 1];
+    const settled = perf.filled && perf.sinceLevel > 2;
+    if (settled && qualitySetting() === 'auto' && !autoLow && (perf.windowDrops >= FRAME_WINDOW * 0.08 || perf.refresh > SLOW_MEDIAN)) {
+      autoLow = true;
+      applyQuality();
+    }
+    perf.filled = true;
+    perf.windowDrops = 0;
+  }
 }
 
 // ----------------------------------------------------------------- jukebox
@@ -829,9 +919,10 @@ function updateHud() {
   setText('hud-rule', g.rules.ownBallLoss ? '' : '· SAFE OWN BALL');
   const s = g.ball.held && state !== 'cleared' ? 0 : g.ball.speed;
   setText('hud-speed', `${Math.round(s)} px/s`);
-  $('hud-speed-bar').style.width = `${speedNorm(s) * 100}%`;
+  $('hud-speed-bar').style.transform = `scaleX(${speedNorm(s).toFixed(3)})`;
   setText('hud-bpm', audio.currentBpm ? `♪ ${Math.round(audio.currentBpm)} BPM` : '♪');
-  setText('hud-fps', net.mode ? `${Math.round(fps)} FPS · ${Math.round(net.client.rtt)} MS` : `${Math.round(fps)} FPS`);
+  const health = `${Math.round(fps)} FPS${g.drops ? ` · ${g.drops} DROPPED` : ''}${renderer.low ? ` · LOW Q${autoLow && qualitySetting() === 'auto' ? ' (AUTO)' : ''}` : ''}`;
+  setText('hud-fps', net.mode ? `${health} · ${Math.round(net.client.rtt)} MS` : health);
   const me = localFighter();
   const frozen = me.frozen > 0;
   let status = frozen ? `FROZEN ${me.frozen.toFixed(1)}` : '';
@@ -920,6 +1011,47 @@ function showRecord() {
 // --------------------------------------------------------------- settings
 
 const OWN_BALL_KEY = 'deflector.ownBallLoss';
+const QUALITY_KEY = 'deflector.quality'; // 'auto' | 'high' | 'low'
+let autoLow = false; // Auto quality has stepped down to low this session
+
+function qualitySetting() {
+  try {
+    const q = localStorage.getItem(QUALITY_KEY);
+    return q === 'high' || q === 'low' ? q : 'auto';
+  } catch (_) {
+    return 'auto';
+  }
+}
+
+function setQualitySetting(q) {
+  try {
+    localStorage.setItem(QUALITY_KEY, q);
+  } catch (_) {
+    // storage unavailable; the choice lasts for this page load only
+  }
+  autoLow = false;
+  applyQuality();
+}
+
+/** Point the renderer at the effective quality (the setting, or Auto's verdict) and rebuild the canvas if it changed. */
+function applyQuality() {
+  const q = qualitySetting();
+  const low = q === 'low' || (q === 'auto' && autoLow);
+  if (renderer.low === low) return;
+  renderer.setQuality(low);
+  renderer.resize();
+}
+
+function qualitySelectHtml() {
+  const q = qualitySetting();
+  const opt = (v, label) => `<option value="${v}" ${q === v ? 'selected' : ''}>${label}</option>`;
+  return `<div class="opt"><span><b>Quality</b> <select id="opt-quality" class="sel">${opt('auto', 'Auto')}${opt('high', 'High')}${opt('low', 'Low')}</select><span class="small muted"> · Auto steps down to Low if frames keep stuttering. Low halves the pixel density and turns off the glow.</span></span></div>`;
+}
+
+function bindQualitySelect() {
+  const el = $('opt-quality');
+  if (el) el.onchange = () => setQualitySetting(el.value);
+}
 
 /** Rule: can a fighter lose to a ball its own shield was the last to touch? Default on. */
 function ownBallLoss() {
@@ -998,6 +1130,7 @@ const TUTORIAL_STEPS = [
 function startTutorial(fromButton) {
   const def = TUTORIAL_LEVEL;
   $('tutor').hidden = false;
+  resetFrameWatch();
   game = buildGame(def);
   game.tutorial = { step: 0, fromButton, moved: 0, turned: 0, blocks: 0, bestDelta: 0, sinceTouch: 0, drone: false, lastX: def.player.x, lastY: def.player.y, lastAngle: def.player.angle };
   game.boss.name = 'Training drone';
@@ -1360,6 +1493,7 @@ function beginNetRound() {
   const def = LEVELS[net.levelIndex];
   const sameTrack = game && game.def === def && audio.track;
   levelIndex = net.levelIndex;
+  resetFrameWatch();
   game = buildGame(def, true, net.rules);
   const owners = { a: slotOwner('a'), b: slotOwner('b') };
   game.player.name = net.names[owners.a] + (net.localSlot === 'a' ? ' (you)' : '');
@@ -1637,6 +1771,7 @@ function showTitle() {
         <ol class="roster">${roster}</ol>
         <h3>Rules</h3>
         ${ownBallToggleHtml()}
+        ${qualitySelectHtml()}
       </div>
     </div>
     <div class="columns">
@@ -1659,6 +1794,7 @@ function showTitle() {
     ${lanInfo ? '' : '<p class="small muted">Multiplayer needs the LAN server: run <code>npm start</code> on one PC and open its address on both.</p>'}
   `);
   $('btn-start').onclick = begin;
+  bindQualitySelect();
   $('btn-record').onclick = (e) => {
     e.preventDefault();
     showRecord();
@@ -1739,6 +1875,7 @@ for (const [id, name] of [['tb-left', 'left'], ['tb-right', 'right'], ['tb-whack
   input.bindTouchButton($(id), name);
 }
 renderer.setLevel(LEVELS[levelIndex]);
+applyQuality();
 renderer.resize();
 showTitle();
 requestAnimationFrame(frame);
@@ -1750,4 +1887,4 @@ NetClient.available().then((info) => {
 });
 
 // Expose for debugging / automated smoke tests.
-window.__game = { get state() { return state; }, get game() { return game; }, get net() { return net; }, audio, startLevel };
+window.__game = { get state() { return state; }, get game() { return game; }, get net() { return net; }, audio, renderer, startLevel };

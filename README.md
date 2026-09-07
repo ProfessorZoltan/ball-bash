@@ -264,6 +264,33 @@ cleared and failed screens each carry a line from the record too. The text
 lives in `src/lore.js` and in each level's `record` and `stopped` fields in
 `src/levels.js`.
 
+## Performance
+
+The game logic is cheap (physics, AI and garbage collection together take
+under half a percent of a frame); what costs is canvas rasterisation, so the
+renderer does three things about it:
+
+* **Render interpolation.** Physics runs in whole 240 Hz steps, and a frame on
+  a 144 Hz or 75 Hz display would otherwise alternate between one and two
+  steps of ball travel and judder at a perfect frame rate. Each frame is drawn
+  a fraction of the way through the current step instead (`drawWorld` in
+  `src/main.js`, from the `markRender` state each entity keeps).
+* **Half-resolution darkness.** The Undercroft's light layer is a second
+  canvas that is filled, punched and composited every frame; it is rendered at
+  half size and scaled up with nearest-neighbour sampling (it is soft
+  gradients only, and a bilinear upscale costs four times more in software
+  rendering). Two canvas pitfalls found on the way, worth knowing when
+  touching the renderer: the `copy` composite operation takes Chrome's slow
+  full-surface layer path, and a glow blur costs by the bounding box of the
+  path drawn, so never batch far-apart shapes into one glowing path.
+* **Quality setting** on the title screen: Auto, High or Low. Low caps the
+  pixel density at 1 and turns off the glow on moving things (the cached
+  static layer keeps its glow). Auto starts high and steps down to Low for the
+  rest of the session if 8% or more of the frames in a 90-frame window took
+  more than 1.6 times the display's refresh interval. The HUD's FPS readout
+  shows dropped frames per level and the active quality, so a tester can say
+  which level stutters.
+
 ## Name
 
 The mark, its readings and the spoken name live in `src/config.js`
