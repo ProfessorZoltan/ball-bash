@@ -1,0 +1,65 @@
+# Deploys the online relay (relay/) to Cloudflare Workers, then writes the
+# relay's address into src/config.js so the game on Vercel uses it.
+#
+# One-time setup, in the repository's Settings > Secrets and variables > Actions:
+#   CLOUDFLARE_API_TOKEN   a token made from the "Edit Cloudflare Workers" template
+#                          (Cloudflare dashboard > My Profile > API Tokens > Create Token)
+#   CLOUDFLARE_ACCOUNT_ID  from the Workers & Pages overview page in the dashboard
+# Then run this workflow from the Actions tab (Run workflow), or push a change under relay/.
+name: Deploy relay
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'relay/**'
+      - '.github/workflows/deploy-relay.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: deploy-relay
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Deploy the Worker
+        id: deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: relay
+          command: deploy
+
+      - name: Point the game at the relay
+        env:
+          URL: ${{ steps.deploy.outputs.deployment-url }}
+        run: |
+          set -e
+          if [ -z "$URL" ]; then echo "wrangler did not report a deployment URL"; exit 1; fi
+          HOST=$(echo "$URL" | sed -E 's#^https?://##; s#/.*$##')
+          echo "Relay deployed at https://$HOST" >> "$GITHUB_STEP_SUMMARY"
+          curl -fsS "https://$HOST/health" && echo
+          CURRENT=$(grep -oE "DEFAULT_RELAY = '[^']*'" src/config.js | sed -E "s/DEFAULT_RELAY = '([^']*)'/\1/")
+          if [ "$CURRENT" = "wss://$HOST" ]; then echo "src/config.js already points at wss://$HOST"; exit 0; fi
+          sed -i -E "s#DEFAULT_RELAY = '[^']*'#DEFAULT_RELAY = 'wss://$HOST'#" src/config.js
+          grep -n "DEFAULT_RELAY = " src/config.js
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/config.js
+          git commit -m "Point the game at the deployed relay wss://$HOST"
+          git push origin HEAD:main
+          echo "src/config.js now points at wss://$HOST; Vercel will redeploy the site." >> "$GITHUB_STEP_SUMMARY"

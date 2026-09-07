@@ -113,7 +113,23 @@ npx wrangler deploy  # prints https://deflector-relay.<your-subdomain>.workers.d
 Then either put that address in `DEFAULT_RELAY` in `src/config.js` and
 redeploy the site, so every player gets online play from the title screen, or
 have players paste it under **Relay** in the lobby (remembered in their
-browser), or open the game with `?relay=<address>`. The title button reads
+browser), or open the game with `?relay=<address>`.
+
+**Hands-off alternative: let GitHub deploy it.** The workflow in
+`.github/workflows/deploy-relay.yml` deploys the relay and then commits its
+address into `src/config.js`, so Vercel redeploys the site already pointed at
+it. One-time setup:
+
+1. In the Cloudflare dashboard, open My Profile > API Tokens > Create Token
+   and use the **Edit Cloudflare Workers** template. Copy the token.
+2. Copy your **Account ID** from the Workers & Pages overview page.
+3. In the GitHub repository, Settings > Secrets and variables > Actions, add
+   `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
+4. Actions tab > Deploy relay > Run workflow. It also runs by itself whenever
+   something under `relay/` changes on `main`.
+
+The token never leaves GitHub's secret store, and the job summary shows the
+relay address and a `/health` check. The title button reads
 **Online match** when a relay is configured and answers on `/health`. Room
 codes and share links work as on LAN; the share link is the game's own URL
 with `?room=CODE`.
