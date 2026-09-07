@@ -546,6 +546,10 @@ function reserve(reason, slot) {
 
 function frame(now) {
   input.pollGamepad();
+  if (state === 'title') {
+    const el = $('pad-state');
+    if (el) el.textContent = input.pad.connected ? `· detected: ${input.pad.id.slice(0, 40)}` : '· none detected yet (press any button on it)';
+  }
   const rawDt = (now - last) / 1000;
   const dt = Math.min(rawDt, 0.05);
   last = now;
@@ -1042,7 +1046,8 @@ function updateHud() {
   $('hud-speed-bar').style.transform = `scaleX(${speedNorm(s).toFixed(3)})`;
   setText('hud-bpm', audio.currentBpm ? `♪ ${Math.round(audio.currentBpm)} BPM` : '♪');
   const health = `${Math.round(fps)} FPS${g.drops ? ` · ${g.drops} DROPPED` : ''}${renderer.low ? ` · LOW Q${autoLow && qualitySetting() === 'auto' ? ' (AUTO)' : ''}` : ''}`;
-  setText('hud-fps', net.mode ? `${health} · ${Math.round(net.client.rtt)} MS` : health);
+  const padTag = input.pad.connected ? ' · 🎮' : '';
+  setText('hud-fps', (net.mode ? `${health} · ${Math.round(net.client.rtt)} MS` : health) + padTag);
   const me = localFighter();
   const frozen = me.frozen > 0;
   const campLeft = PLAYER.campSeconds - me.campTimer;
@@ -2245,7 +2250,7 @@ function showTitle() {
           <li><b>W</b> or <b>Space</b> — thrust the shield</li>
           <li><b>S</b> — pull the shield in (soft return)</li>
           <li><b>P</b> pause · <b>M</b> mute · <b>R</b> restart</li>
-          <li><b>Controller</b>: left stick moves, right stick aims, <b>A</b> thrusts, <b>X</b> pulls in, <b>Start</b> pauses</li>
+          <li><b>Controller</b>: left stick moves, right stick aims, <b>A</b> thrusts, <b>X</b> pulls in, <b>Start</b> pauses <span id="pad-state" class="small muted">${input.pad.connected ? `· detected: ${input.pad.id.slice(0, 40)}` : '· none detected yet (press any button on it)'}</span></li>
         </ul>
       </div>
       <div>
@@ -2486,4 +2491,4 @@ NetClient.available().then((info) => {
 });
 
 // Expose for debugging / automated smoke tests.
-window.__game = { get state() { return state; }, get game() { return game; }, get net() { return net; }, audio, renderer, startLevel };
+window.__game = { get state() { return state; }, get game() { return game; }, get net() { return net; }, audio, renderer, input, startLevel };

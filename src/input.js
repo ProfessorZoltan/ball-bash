@@ -19,7 +19,7 @@ export class Input {
     // frame by pollGamepad(). Left stick moves, right stick aims the shield
     // (absolute direction), A thrusts, X pulls the shield in, Start pauses,
     // A also acts as Enter on menus.
-    this.pad = { connected: false, aim: null, mx: 0, my: 0, lunge: false, retract: false, buttons: [] };
+    this.pad = { connected: false, id: '', mapping: '', aim: null, mx: 0, my: 0, lunge: false, retract: false, buttons: [], rightAxes: [2, 3], error: '' };
     window.addEventListener('gamepadconnected', () => {
       this.pad.connected = true;
     });
@@ -112,15 +112,40 @@ export class Input {
   }
 
   /** True once for the frame the key went down. */
-  /** Read the first connected gamepad. Call once per frame; intent() uses the result. */
+  /** Read the first connected gamepad. Call once per frame; intent() uses the result. Never throws. */
   pollGamepad() {
-    const pads = typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : null;
+    try {
+      this.readGamepad();
+    } catch (err) {
+      // A browser quirk in the Gamepad API must never stop the game loop.
+      this.pad.error = String(err && err.message ? err.message : err);
+      this.pad.connected = false;
+      this.pad.aim = null;
+      this.pad.mx = 0;
+      this.pad.my = 0;
+      this.pad.lunge = false;
+      this.pad.retract = false;
+    }
+  }
+
+  readGamepad() {
+    const pads = typeof navigator !== 'undefined' && typeof navigator.getGamepads === 'function' ? navigator.getGamepads() : null;
     let gp = null;
-    if (pads) for (const p of pads) if (p && p.connected) { gp = p; break; }
+    if (pads) for (const p of pads) if (p && p.connected !== false && p.axes) { gp = p; break; }
     const pad = this.pad;
     if (!gp) {
-      if (pad.connected) this.pad = { ...pad, connected: false, aim: null, mx: 0, my: 0, lunge: false, retract: false };
+      if (pad.connected) Object.assign(pad, { connected: false, id: '', aim: null, mx: 0, my: 0, lunge: false, retract: false, buttons: [] });
       return;
+    }
+    if (!pad.connected || pad.id !== gp.id) {
+      // A newly seen pad: remember it and work out where its right stick is.
+      pad.id = gp.id || 'gamepad';
+      pad.mapping = gp.mapping || '';
+      pad.buttons = [];
+      const ax = gp.axes || [];
+      // Standard mapping puts the right stick on axes 2 and 3. Some non-standard
+      // layouts put a trigger on axis 2 (resting at -1) and the stick on 3 and 4.
+      pad.rightAxes = gp.mapping !== 'standard' && ax.length >= 5 && Math.abs(ax[2] || 0) > 0.9 ? [3, 4] : [2, 3];
     }
     pad.connected = true;
     const stick = (x, y) => {
@@ -130,22 +155,28 @@ export class Input {
       return { x: (x / len) * mag, y: (y / len) * mag, angle: Math.atan2(y, x), mag };
     };
     const ax = gp.axes || [];
+    const [rx, ry] = pad.rightAxes;
     const left = stick(ax[0] || 0, ax[1] || 0);
-    const right = stick(ax[2] || 0, ax[3] || 0);
+    const right = stick(ax[rx] || 0, ax[ry] || 0);
     pad.mx = left ? left.x : 0;
     pad.my = left ? left.y : 0;
     pad.aim = right ? right.angle : null;
-    const down = (i) => !!(gp.buttons[i] && (gp.buttons[i].pressed || gp.buttons[i].value > 0.5));
+    const buttons = gp.buttons || [];
+    const down = (i) => {
+      const b = buttons[i];
+      if (b == null) return false;
+      if (typeof b === 'number') return b > 0.5; // very old Firefox reported plain numbers
+      return !!(b.pressed || b.value > 0.5);
+    };
     pad.lunge = down(0); // A
     pad.retract = down(2); // X
     // Edge-triggered buttons feed the same press queue as the keyboard.
     const edges = [[0, 'Enter'], [9, 'p'], [1, 'Escape']];
     const prev = pad.buttons;
-    for (const [i, key] of edges) {
-      const now = down(i);
-      if (now && !prev[i]) this.pressed.add(key);
-    }
-    pad.buttons = gp.buttons.map((b, i) => down(i));
+    const now = [];
+    for (let i = 0; i < buttons.length; i++) now[i] = down(i);
+    for (const [i, key] of edges) if (now[i] && !prev[i]) this.pressed.add(key);
+    pad.buttons = now;
   }
 
   consumePress(key) {
