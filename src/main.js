@@ -4,7 +4,7 @@ import { GAME_MARK, GAME_NAME, GAME_TAGLINE, MARK_READINGS, PHYSICS_DT, BALL, PL
 import { BallHistory, bossIntent, moverSegmentsAt } from './ai.js';
 import { LEVELS, ROSTER, TUTORIAL_LEVEL } from './levels.js';
 import { LORE } from './lore.js';
-import { createGameState, rebuildWalls as rebuildWallsState, bodyHitCounts } from './gamestate.js';
+import { createGameState, rebuildWalls as rebuildWallsState, bodyHitCounts, tickCamp } from './gamestate.js';
 import { NetClient } from './net.js';
 import { buildSnapshot, applySnapshot } from './netstate.js';
 import { Input } from './input.js';
@@ -49,6 +49,7 @@ function buildGame(def, pvp = false, rules = { ownBallLoss: ownBallLoss() }) {
     paddleHits: 0,
     guidePath: null,
     drops: 0, // frames this level that took far longer than the display's refresh interval
+    lossReason: null, // 'hit' | 'camp' once the level is lost
   };
 }
 
@@ -83,6 +84,8 @@ function launchBall() {
   game.ball.launch(def.ball.x, def.ball.y, a, def.ball.speed);
   game.history.reset();
   game.history.push(simTime, game.ball);
+  game.player.resetCamp();
+  game.boss.resetCamp();
   state = 'playing';
   $('countdown').hidden = true;
   audio.sfxCount(true);
@@ -178,6 +181,52 @@ function step(dt) {
   }
 
   if (g.panes.length) updateGlass();
+
+  // Keep-moving rule: human players only, never in the tutorial.
+  if (state === 'playing' && !g.ball.held && !g.tutorial) {
+    campStep(g.player, 'a', dt);
+    if (g.pvp && state === 'playing') campStep(g.boss, 'b', dt);
+  }
+}
+
+function campStep(f, slot, dt) {
+  const before = PLAYER.campSeconds - f.campTimer;
+  const out = tickCamp(f, dt);
+  if (f === localFighter()) campTick(before, PLAYER.campSeconds - f.campTimer);
+  if (out) onCamped(f, slot);
+}
+
+/** One countdown tick per second while the keep-moving warning is showing. */
+function campTick(leftBefore, leftNow) {
+  if (leftNow > PLAYER.campWarn || leftNow >= leftBefore) return;
+  if (Math.ceil(leftNow) !== Math.ceil(leftBefore)) audio.sfxCount(false);
+}
+
+/** A human player stood within a body length of one spot for too long: that is a loss. */
+function onCamped(f, slot) {
+  const g = game;
+  campFx(f);
+  netEvent({ e: 'camp', s: slot });
+  if (g.pvp) {
+    pvpPoint(f, 'camp');
+    return;
+  }
+  g.lossReason = 'camp';
+  g.lives = 0;
+  state = 'failed';
+  g.ball.held = true;
+  audio.stopTrack(1.5);
+  endTimer = 1.2;
+}
+
+function campFx(f) {
+  const g = game;
+  f.hitFlash = 1;
+  g.fx.ring(f.x, f.y, '#ff4d6d', 160, 0.6);
+  g.fx.ring(f.x, f.y, '#ffffff', 90, 0.4);
+  g.fx.burst(f.x, f.y, 1, 0, 40, '#ff4d6d', 320, Math.PI, 0.7);
+  g.fx.addShake(12);
+  audio.sfxPlayerHit();
 }
 
 function onWhack() {
@@ -438,6 +487,7 @@ function onPlayerHit(h) {
   g.fx.addShake(12);
   audio.sfxPlayerHit();
   if (g.lives <= 0) {
+    g.lossReason = 'hit';
     state = 'failed';
     g.ball.held = true;
     audio.stopTrack(1.5);
@@ -925,11 +975,13 @@ function updateHud() {
   setText('hud-fps', net.mode ? `${health} · ${Math.round(net.client.rtt)} MS` : health);
   const me = localFighter();
   const frozen = me.frozen > 0;
-  let status = frozen ? `FROZEN ${me.frozen.toFixed(1)}` : '';
-  if (g.pvp && state === 'roundEnd' && net.winner) status = `POINT · ${net.names[net.winner]}`.toUpperCase();
+  const campLeft = PLAYER.campSeconds - me.campTimer;
+  const camping = state === 'playing' && !g.tutorial && me.campTimer > 0 && campLeft <= PLAYER.campWarn;
+  let status = frozen ? `FROZEN ${me.frozen.toFixed(1)}` : camping ? `MOVE · ${Math.max(0, campLeft).toFixed(1)}` : '';
+  if (g.pvp && state === 'roundEnd' && net.winner) status = `POINT · ${net.names[net.winner]}${net.reason === 'camp' ? ' · STOOD STILL' : ''}`.toUpperCase();
   setText('hud-status', status);
-  $('hud-status').style.color = g.pvp && state === 'roundEnd' && net.winner ? net.colors[net.winner] : '';
-  $('hud-status').classList.toggle('on', frozen || state === 'roundEnd');
+  $('hud-status').style.color = g.pvp && state === 'roundEnd' && net.winner ? net.colors[net.winner] : camping ? '#ff4d6d' : '';
+  $('hud-status').classList.toggle('on', frozen || camping || state === 'roundEnd');
 }
 
 function formatTime(t) {
@@ -1273,6 +1325,7 @@ let lanInfo = null;
 const net = {
   colors: { host: '', guest: '' }, // fixed for the whole match, whatever side each player is on
   rules: null,
+  reason: null, // why the last round ended: 'hit' | 'camp'
   client: null,
   mode: null, // null | 'host' | 'guest'
   localSlot: 'a',
@@ -1523,16 +1576,23 @@ function beginNetRound() {
 
 /** Host: a body was hit in PvP; the other player scores. */
 function onPvpHit(f, h) {
+  const hitSlot = f === game.player ? 'a' : 'b';
+  hitFx(f, h.cx, h.cy, h.nx, h.ny);
+  netEvent({ e: 'hit', s: hitSlot, x: h.cx, y: h.cy, nx: h.nx, ny: h.ny });
+  pvpPoint(f, 'hit');
+}
+
+/** Host: fighter `f` lost the round (a body hit, or standing still); the other player scores. */
+function pvpPoint(f, reason) {
   const g = game;
-  const hitSlot = f === g.player ? 'a' : 'b';
-  const scorer = slotOwner(hitSlot === 'a' ? 'b' : 'a');
+  const lostSlot = f === g.player ? 'a' : 'b';
+  const scorer = slotOwner(lostSlot === 'a' ? 'b' : 'a');
   net.scores[scorer]++;
   net.winner = scorer;
+  net.reason = reason;
   state = 'roundEnd';
   endTimer = 2.4;
   g.ball.held = true;
-  hitFx(f, h.cx, h.cy, h.nx, h.ny);
-  netEvent({ e: 'hit', s: hitSlot, x: h.cx, y: h.cy, nx: h.nx, ny: h.ny });
 }
 
 function hitFx(f, x, y, nx, ny) {
@@ -1550,7 +1610,7 @@ function hitFx(f, x, y, nx, ny) {
 /** Host: send the state of this frame to the guest. */
 function hostSend() {
   net.frame++;
-  const meta = { st: state, cd: countdown, sc: net.scores, rd: net.round, w: net.winner };
+  const meta = { st: state, cd: countdown, sc: net.scores, rd: net.round, w: net.winner, rs: net.reason };
   net.client.send(buildSnapshot(game, meta, net.events, net.frame % 4 === 0));
   net.events = [];
   pingMaybe();
@@ -1580,11 +1640,15 @@ function guestApply(now) {
     net.pending = null;
     const g = game;
     const wasState = state;
+    const me = localFighter();
+    const leftBefore = PLAYER.campSeconds - me.campTimer;
     applySnapshot(g, s);
+    if (state === 'playing') campTick(leftBefore, PLAYER.campSeconds - me.campTimer);
     net.ballBase = { x: g.ball.x, y: g.ball.y, vx: g.ball.vx, vy: g.ball.vy };
     net.scores = s.sc;
     net.round = s.rd;
     net.winner = s.w;
+    net.reason = s.rs || null;
     countdown = s.cd;
     state = s.st;
     if (state === 'countdown') {
@@ -1646,6 +1710,9 @@ function playEvent(ev) {
       break;
     case 'body':
       bodyBounceFx(ev.s === 'a' ? g.player : g.boss, ev.x, ev.y, ev.nx, ev.ny);
+      break;
+    case 'camp':
+      campFx(ev.s === 'a' ? g.player : g.boss);
       break;
     default:
       break;
@@ -1787,7 +1854,7 @@ function showTitle() {
       </div>
       <div>
         <h3>How to win</h3>
-        <p class="small">The ball only counts when it hits a <b>body</b>. The boss's shield blocks its front, so bank shots off the walls and angled deflectors to strike from the side or behind. One hit on you and the level is lost. A moving or spinning shield adds its speed to the ball; retreating removes it.</p>
+        <p class="small">The ball only counts when it hits a <b>body</b>. The boss's shield blocks its front, so bank shots off the walls and angled deflectors to strike from the side or behind. One hit on you and the level is lost. <b>Keep moving</b>: stay within a body length of one spot for five seconds and you lose too. A moving or spinning shield adds its speed to the ball; retreating removes it.</p>
       </div>
     </div>
     <div class="row"><button id="btn-start" class="primary">Start · Sound on</button><button id="btn-tutorial">Tutorial</button><button id="btn-jukebox">Soundtrack</button><button id="btn-multi" ${lanInfo ? '' : 'disabled title="Run npm start on one PC and open its LAN address on both"'}>Multiplayer · LAN</button>${fullscreenHint()}</div>
@@ -1855,9 +1922,9 @@ function showFailed() {
   setInGame(false);
   const def = game.def;
   showOverlay(`
-    <div class="eyebrow">SHIELD DOWN</div>
+    <div class="eyebrow">${game.lossReason === 'camp' ? 'STOOD STILL' : 'SHIELD DOWN'}</div>
     <h1>${def.bossName} holds ${def.title}</h1>
-    <p class="muted">One hit is all it takes. You lasted ${formatTime(game.time)}.</p>
+    <p class="muted">${game.lossReason === 'camp' ? `You stayed within a body length of one spot for ${PLAYER.campSeconds} seconds. The grid does not allow hiding.` : 'One hit is all it takes.'} You lasted ${formatTime(game.time)}.</p>
     <p class="small muted record-note">${LORE.failed(def.title)}</p>
     <div class="row"><button id="btn-retry" class="primary">Retry</button><button id="btn-menu">Main menu</button></div>
   `);

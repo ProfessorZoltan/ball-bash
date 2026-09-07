@@ -41,6 +41,11 @@ export const PLAYER = {
   lungeSpeed: 260, // px/s of paddle travel during a whack
   retractPull: 16, // px the paddle pulls in while holding S
   lives: 1, // one body hit ends the level
+  // Keep-moving rule (human players only): cover a full body diameter within
+  // campSeconds or lose; the HUD and a ring warn for the last campWarn seconds.
+  campDistance: 44, // px, 2 x radius
+  campSeconds: 5,
+  campWarn: 2,
   invulnTime: 1.0, // seconds of immunity after being hit (only matters if lives > 1)
 };
 

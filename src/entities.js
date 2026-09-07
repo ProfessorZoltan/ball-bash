@@ -107,10 +107,20 @@ export class Fighter {
     this.iceImmune = false; // true until the fighter steps off the ice after thawing
     this.prevX = this.x;
     this.prevY = this.y;
+    this.campX = this.x; // keep-moving rule: where the fighter was last counted as having moved
+    this.campY = this.y;
+    this.campTimer = 0; // seconds spent within campDistance of that spot
     this.rx = this.x; // state at the start of the latest physics step (render interpolation)
     this.ry = this.y;
     this.rAngle = this.angle;
     this.rPaddle = this.paddleOffset;
+  }
+
+  /** Keep-moving rule: count the current spot as the new anchor. */
+  resetCamp() {
+    this.campX = this.x;
+    this.campY = this.y;
+    this.campTimer = 0;
   }
 
   /** Remember where this step starts, so a frame can be drawn part-way through it. */

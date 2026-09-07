@@ -6,7 +6,7 @@ const r1 = (v) => Math.round(v * 10) / 10;
 const r3 = (v) => Math.round(v * 1000) / 1000;
 
 export function fighterState(f) {
-  return [r1(f.x), r1(f.y), r3(f.angle), r1(f.paddleOffset), r1(f.frozen), f.lungeState === 'out' ? 1 : 0, r1(f.hitFlash), r1(f.invuln)];
+  return [r1(f.x), r1(f.y), r3(f.angle), r1(f.paddleOffset), r1(f.frozen), f.lungeState === 'out' ? 1 : 0, r1(f.hitFlash), r1(f.invuln), r1(f.campTimer)];
 }
 
 export function applyFighter(f, a) {
@@ -18,6 +18,7 @@ export function applyFighter(f, a) {
   f.lungeState = a[5] ? 'out' : 'idle';
   f.hitFlash = a[6];
   f.invuln = a[7];
+  f.campTimer = a[8] || 0;
 }
 
 export function moverState(m) {

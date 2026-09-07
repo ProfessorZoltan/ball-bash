@@ -41,6 +41,22 @@ export function bodyHitCounts(ball, fighter, rules = DEFAULT_RULES) {
   return ball.lastPaddle !== fighter.kind;
 }
 
+/**
+ * Keep-moving rule for human players: advance `f`'s stand-still clock by dt.
+ * Moving a full body diameter (net displacement from the anchor, so turning
+ * in place or jittering does not count) resets it; being frozen pauses it.
+ * Returns true when the clock runs out, which is a loss for that player.
+ */
+export function tickCamp(f, dt, { distance = PLAYER.campDistance, seconds = PLAYER.campSeconds } = {}) {
+  if (f.frozen > 0) return false;
+  if (Math.hypot(f.x - f.campX, f.y - f.campY) >= distance) {
+    f.resetCamp();
+    return false;
+  }
+  f.campTimer += dt;
+  return f.campTimer >= seconds;
+}
+
 export function createGameState(def, { pvp = false, rules = DEFAULT_RULES } = {}) {
   const staticWalls = polygonEdges(def.boundary, 'wall');
   const panes = [];

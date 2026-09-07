@@ -1,6 +1,6 @@
 // Canvas 2D renderer. Neon-on-dark look with a slight 2.5D extrusion on the
 // walls to give the "slightly off-centre top-down" feel.
-import { BALL } from './config.js';
+import { BALL, PLAYER } from './config.js';
 import { clamp, lerp } from './vec.js';
 
 const WALL_HEIGHT = 9; // px of extrusion under each wall face
@@ -728,6 +728,20 @@ export class Renderer {
     ctx.strokeStyle = '#ffffff';
     ctx.shadowBlur = 0;
     ctx.stroke();
+
+    // Keep-moving warning: a red ring closes in over the last seconds of standing still.
+    const campLeft = PLAYER.campSeconds - f.campTimer;
+    if (f.campTimer > 0 && campLeft <= PLAYER.campWarn) {
+      const k = clamp(1 - campLeft / PLAYER.campWarn, 0, 1);
+      ctx.beginPath();
+      ctx.arc(f.x, f.y, f.r + 30 - 22 * k, 0, Math.PI * 2);
+      ctx.lineWidth = 2 + 2 * k;
+      ctx.strokeStyle = `rgba(255, 77, 109, ${0.5 + 0.5 * Math.abs(Math.sin(time * 10))})`;
+      ctx.shadowColor = '#ff4d6d';
+      ctx.shadowBlur = this.blur(12);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
 
     // Name label.
     ctx.font = '600 13px system-ui, sans-serif';

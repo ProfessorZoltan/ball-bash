@@ -269,3 +269,33 @@ test('own-ball rule: a body hit only counts when the other shield touched the ba
   assert.equal(g.rules.ownBallLoss, false);
   assert.equal(createGameState(LEVELS[0]).rules.ownBallLoss, true);
 });
+
+test('keep-moving rule: standing still for 5 s loses, a body diameter of net movement resets, turning and freezing do not count', async () => {
+  const { tickCamp } = await import('../src/gamestate.js');
+  const { PLAYER } = await import('../src/config.js');
+  const f = new Fighter({ x: 300, y: 450, angle: 0, kind: 'player' });
+  f.resetCamp();
+  // Turning in place and jittering below a diameter do not reset the clock.
+  let out = false;
+  for (let i = 0; i < 240 * 4.9 && !out; i++) {
+    f.angle += 0.01;
+    f.x = 300 + (i % 2 ? 20 : -20);
+    out = tickCamp(f, 1 / 240);
+  }
+  assert.equal(out, false);
+  assert.ok(f.campTimer > 4.8);
+  for (let i = 0; i < 240 * 0.2 && !out; i++) out = tickCamp(f, 1 / 240);
+  assert.equal(out, true, 'the clock runs out at 5 s');
+  // A full diameter of net movement resets the clock.
+  f.x = 300;
+  f.resetCamp();
+  for (let i = 0; i < 240 * 4; i++) tickCamp(f, 1 / 240);
+  f.x = 300 + PLAYER.campDistance;
+  assert.equal(tickCamp(f, 1 / 240), false);
+  assert.equal(f.campTimer, 0);
+  assert.equal(f.campX, 300 + PLAYER.campDistance);
+  // Frozen time is not counted.
+  f.frozen = 2;
+  for (let i = 0; i < 240 * 6; i++) assert.equal(tickCamp(f, 1 / 240), false);
+  assert.equal(f.campTimer, 0);
+});

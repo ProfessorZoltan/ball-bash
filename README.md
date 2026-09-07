@@ -100,6 +100,13 @@ which launches the game chrome-free thanks to `manifest.webmanifest`.
   maximum speed for two simulated minutes and asserts it never leaves the room.
 * One hit on your body loses the level, just as one hit on the boss's body
   wins it. (`PLAYER.lives` in `src/config.js` if you ever want more.)
+* **Keep moving.** A human player who stays within a body diameter (44 px)
+  of one spot for 5 seconds loses: the level in single player, the round in
+  multiplayer. It is net displacement, so turning in place or jittering does
+  not count, and time spent frozen on ice does not count against you. The
+  HUD shows a red MOVE countdown and a ring closes in on your character for
+  the last 2 seconds. AI bosses are exempt. Tunables are `campDistance`,
+  `campSeconds` and `campWarn` under `PLAYER` in `src/config.js`.
 * **Lose to a ball you last hit** is a rule you can switch off on the title
   screen (and in the multiplayer lobby, where the host's choice applies to
   both). Off, a ball bounces harmlessly off the body of whoever's shield
