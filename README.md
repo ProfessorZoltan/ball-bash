@@ -170,7 +170,7 @@ static Vercel deployment cannot relay, so the button is disabled there.
 | Thrust the shield forward ("whack") | **W** or **Space** |
 | Pull the shield in (soft return, slows the ball) | **S** |
 | Pause / mute / restart | **P** / **M** / **R** |
-| Controller (Xbox or any standard gamepad) | **left stick** moves, **right stick** points the shield where it aims, **A** thrusts, **X** pulls the shield in, **Start** pauses, **A** also confirms on menus |
+| Controller (Xbox or any standard gamepad) | **left stick** moves, **right stick** rotates like A and D (further is faster), **A** thrusts, **X** pulls the shield in, **Start** pauses, **A** also confirms on menus |
 
 On touch devices, touch anywhere on the arena and drag: the first touch becomes
 a floating joystick and the drag direction steers, so your finger never has to

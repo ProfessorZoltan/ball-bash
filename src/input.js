@@ -2,7 +2,7 @@
 // never touches raw events. Mouse, keyboard and touch all funnel through here,
 // which is what will let the mobile build reuse the same game code.
 
-import { clamp, wrapAngle } from './vec.js';
+import { clamp } from './vec.js';
 
 export class Input {
   constructor(canvas, screenToWorld) {
@@ -16,15 +16,15 @@ export class Input {
     this.joystick = { active: false, ox: 0, oy: 0, dx: 0, dy: 0, radius: 64, dead: 8 };
     this.touchButtons = { left: false, right: false, whack: false, retract: false };
     // Gamepad (standard mapping, e.g. an Xbox controller): read once per
-    // frame by pollGamepad(). Left stick moves, right stick aims the shield
-    // (absolute direction), A thrusts, X pulls the shield in, Start pauses,
-    // A also acts as Enter on menus.
-    this.pad = { connected: false, id: '', mapping: '', aim: null, mx: 0, my: 0, lunge: false, retract: false, buttons: [], rightAxes: [2, 3], error: '' };
+    // frame by pollGamepad(). Left stick moves, right stick turns (left and
+    // right, like A and D, at a rate set by how far it is pushed), A thrusts,
+    // X pulls the shield in, Start pauses, A also acts as Enter on menus.
+    this.pad = { connected: false, id: '', mapping: '', turn: 0, mx: 0, my: 0, lunge: false, retract: false, buttons: [], rightAxes: [2, 3], error: '' };
     window.addEventListener('gamepadconnected', () => {
       this.pad.connected = true;
     });
     window.addEventListener('gamepaddisconnected', () => {
-      this.pad = { ...this.pad, connected: false, aim: null, mx: 0, my: 0, lunge: false, retract: false };
+      this.pad = { ...this.pad, connected: false, turn: 0, mx: 0, my: 0, lunge: false, retract: false };
     });
 
     window.addEventListener('keydown', (e) => {
@@ -120,7 +120,7 @@ export class Input {
       // A browser quirk in the Gamepad API must never stop the game loop.
       this.pad.error = String(err && err.message ? err.message : err);
       this.pad.connected = false;
-      this.pad.aim = null;
+      this.pad.turn = 0;
       this.pad.mx = 0;
       this.pad.my = 0;
       this.pad.lunge = false;
@@ -134,7 +134,7 @@ export class Input {
     if (pads) for (const p of pads) if (p && p.connected !== false && p.axes) { gp = p; break; }
     const pad = this.pad;
     if (!gp) {
-      if (pad.connected) Object.assign(pad, { connected: false, id: '', aim: null, mx: 0, my: 0, lunge: false, retract: false, buttons: [] });
+      if (pad.connected) Object.assign(pad, { connected: false, id: '', turn: 0, mx: 0, my: 0, lunge: false, retract: false, buttons: [] });
       return;
     }
     if (!pad.connected || pad.id !== gp.id) {
@@ -157,10 +157,12 @@ export class Input {
     const ax = gp.axes || [];
     const [rx, ry] = pad.rightAxes;
     const left = stick(ax[0] || 0, ax[1] || 0);
-    const right = stick(ax[rx] || 0, ax[ry] || 0);
     pad.mx = left ? left.x : 0;
     pad.my = left ? left.y : 0;
-    pad.aim = right ? right.angle : null;
+    // Right stick: only its sideways travel matters, pushed right turns clockwise.
+    const tx = ax[rx] || 0;
+    pad.turn = Math.abs(tx) < GAMEPAD_DEADZONE ? 0 : Math.sign(tx) * Math.min(1, (Math.abs(tx) - GAMEPAD_DEADZONE) / (1 - GAMEPAD_DEADZONE));
+    void ry;
     const buttons = gp.buttons || [];
     const down = (i) => {
       const b = buttons[i];
@@ -235,12 +237,8 @@ export class Input {
     let turn = 0;
     if (k.has('a') || this.touchButtons.left) turn -= 1;
     if (k.has('d') || this.touchButtons.right) turn += 1;
-    // Gamepad: the right stick's direction is where the shield should face;
-    // turn toward it at full speed, easing in over the last few degrees.
-    if (turn === 0 && pad.connected && pad.aim !== null && player) {
-      const diff = wrapAngle(pad.aim - player.angle);
-      turn = clamp(diff / (player.turnSpeed * GAMEPAD_AIM_EASE), -1, 1);
-    }
+    // Gamepad: the right stick turns like A and D, faster the further it is pushed.
+    if (turn === 0 && pad.connected && pad.turn) turn = clamp(pad.turn, -1, 1);
 
     const lunge = k.has('w') || k.has(' ') || this.touchButtons.whack || (pad.connected && pad.lunge);
     const retract = k.has('s') || this.touchButtons.retract || (pad.connected && pad.retract);
@@ -250,7 +248,6 @@ export class Input {
 
 const PREVENT = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' ']);
 const GAMEPAD_DEADZONE = 0.22; // stick travel ignored around centre
-const GAMEPAD_AIM_EASE = 1 / 30; // seconds of turning over which the aim eases in (smaller = snappier)
 
 function normalizeKey(e) {
   if (e.key.length === 1) return e.key.toLowerCase();
