@@ -35,8 +35,24 @@ jobs:
         with:
           node-version: '20'
 
+      # Without the secrets (the relay is deployed by hand) the job skips
+      # instead of failing, so a push touching relay/ stays green.
+      - name: Check for Cloudflare secrets
+        id: check
+        env:
+          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$TOKEN" ] || [ -z "$ACCOUNT" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID is not set; skipping. Deploy by hand with: cd relay && npx wrangler deploy"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Deploy the Worker
         id: deploy
+        if: steps.check.outputs.skip != 'true'
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -45,6 +61,7 @@ jobs:
           command: deploy
 
       - name: Point the game at the relay
+        if: steps.check.outputs.skip != 'true'
         env:
           URL: ${{ steps.deploy.outputs.deployment-url }}
         run: |

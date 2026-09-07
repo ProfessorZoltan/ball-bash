@@ -19,6 +19,7 @@ export function relayConfig() {
   }
   raw = String(raw).trim();
   if (!raw) return null;
+  if (/^(local|lan|origin)$/i.test(raw)) return null; // the page's own server, even when a default relay is configured
   const m = raw.match(/^(?:(wss?|https?):\/\/)?([^/\s]+)/i);
   if (!m) return null;
   const proto = (m[1] || 'wss').toLowerCase();
@@ -44,7 +45,9 @@ export class NetClient {
     this.connected = false;
     this.role = null;
     this.code = null;
+    this.id = null; // 'a' as host, 'c' or 'd' as a guest
     this.peerName = null;
+    this.peers = []; // guests in the room other than this client: [{ id, name }]
     this.rtt = 0;
   }
 
@@ -108,15 +111,23 @@ export class NetClient {
     switch (msg.t) {
       case 'created':
         this.role = 'host';
+        this.id = 'a';
         this.code = msg.code;
+        this.peers = [];
         break;
       case 'joined':
         this.role = 'guest';
+        this.id = msg.id || 'c';
         this.code = msg.code;
         this.peerName = msg.peerName;
+        this.peers = Array.isArray(msg.peers) ? msg.peers : [];
         break;
       case 'peer':
         this.peerName = msg.name;
+        if (!this.peers.some((p) => p.id === (msg.id || 'c'))) this.peers.push({ id: msg.id || 'c', name: msg.name });
+        break;
+      case 'peer-left':
+        this.peers = this.peers.filter((p) => p.id !== msg.id);
         break;
       case 'ping':
         this.send({ t: 'pong', ts: msg.ts });
@@ -149,8 +160,10 @@ export class NetClient {
   leave() {
     this.send({ t: 'leave' });
     this.role = null;
+    this.id = null;
     this.code = null;
     this.peerName = null;
+    this.peers = [];
   }
 
   close() {

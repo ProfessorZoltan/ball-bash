@@ -1,6 +1,6 @@
 // Game bootstrap: state machine, fixed-step physics loop, collision dispatch,
 // HUD/overlay wiring. Everything heavy lives in the modules it imports.
-import { GAME_MARK, GAME_NAME, GAME_TAGLINE, GAME_VERSION, MARK_READINGS, PHYSICS_DT, BALL, PLAYER, SURFACE_VELOCITY_FACTOR, COUNTDOWN_SECONDS, DIFFICULTIES, DEFAULT_DIFFICULTY, COOP } from './config.js';
+import { GAME_MARK, GAME_NAME, GAME_TAGLINE, GAME_VERSION, MARK_READINGS, PHYSICS_DT, BALL, PLAYER, SURFACE_VELOCITY_FACTOR, COUNTDOWN_SECONDS, DIFFICULTIES, DEFAULT_DIFFICULTY, COOP, RELAY_PROTOCOL } from './config.js';
 import { BallHistory, bossIntent, moverSegmentsAt } from './ai.js';
 import { LEVELS, ROSTER, TUTORIAL_LEVEL } from './levels.js';
 import { LORE } from './lore.js';
@@ -39,6 +39,7 @@ let fps = 60;
 
 function buildGame(def, pvp = false, rules = { ownBallLoss: ownBallLoss() }, coop = false) {
   const g = createGameState(def, { pvp, coop, rules });
+  const bossHits = g.coop ? g.humans.length * COOP.bossHitsPerHuman : 1;
   return {
     ...g,
     fx: new Effects(),
@@ -48,8 +49,8 @@ function buildGame(def, pvp = false, rules = { ownBallLoss: ownBallLoss() }, coo
     difficulty: null,
     shieldsLost: 0,
     lastLoss: null, // { reason, slot, at } while the ball re-serves after a lost shield (or a boss hit in co-op)
-    bossHits: coop ? COOP.bossHits : 1, // body hits the boss can still take
-    maxBossHits: coop ? COOP.bossHits : 1,
+    bossHits, // body hits the boss can still take
+    maxBossHits: bossHits,
     time: 0,
     topSpeed: 0,
     paddleHits: 0,
@@ -130,16 +131,16 @@ function step(dt) {
   // yours gets your input; a remote human gets its latest intent; the boss
   // gets its brain.
   const local = input.intent(localFighter());
-  const remote = net.remoteIntent || ZERO_INTENT;
-  const intents = { a: ZERO_INTENT, b: ZERO_INTENT, c: ZERO_INTENT };
+  const intents = { a: ZERO_INTENT, b: ZERO_INTENT, c: ZERO_INTENT, d: ZERO_INTENT };
   if (g.pvp) {
+    const remote = net.remoteIntents.c || ZERO_INTENT; // versus has one guest, relay id c
     intents.a = net.localSlot === 'a' ? local : remote;
     intents.b = net.localSlot === 'a' ? remote : local;
   } else if (g.tutorial) {
     intents.a = local; // the training drone never moves
   } else {
-    intents.a = g.coop && net.localSlot !== 'a' ? remote : local;
-    if (g.coop) intents.c = net.localSlot === 'c' ? local : remote;
+    intents.a = local; // the host's human (only the host simulates)
+    for (const f of g.allies) intents[f.slot] = net.remoteIntents[f.slot] || ZERO_INTENT;
     intents.b = state === 'playing' ? bossIntent(g.boss, g.history, g.humans, g.walls, dt, simTime, g.movers) : ZERO_INTENT;
   }
   // Movement is locked until the ball launches; aiming is allowed.
@@ -1033,7 +1034,7 @@ function updateHud() {
     setText('hud-lives', g.lives === Infinity ? '∞' : '◆'.repeat(Math.max(0, g.lives)) + '◇'.repeat(Math.max(0, g.maxLives - g.lives)));
     if (g.coop) setText('hud-boss', `${g.def.bossName.toUpperCase()} ${'◆'.repeat(Math.max(0, g.bossHits))}${'◇'.repeat(Math.max(0, g.maxBossHits - g.bossHits))}`);
   }
-  const tags = [g.coop ? `CO-OP · ${net.names.host.toUpperCase()} & ${net.names.guest.toUpperCase()}` : '', campaign || (g.coop && net.coopCampaign) ? 'CAMPAIGN' : '', g.difficulty ? g.difficulty.name.toUpperCase() : '', g.rules.ownBallLoss ? '' : 'SAFE OWN BALL'].filter(Boolean);
+  const tags = [g.coop ? `CO-OP · ${[net.names.host, ...net.roster.map((r) => r.name)].join(' & ').toUpperCase()}` : '', campaign || (g.coop && net.coopCampaign) ? 'CAMPAIGN' : '', g.difficulty ? g.difficulty.name.toUpperCase() : '', g.rules.ownBallLoss ? '' : 'SAFE OWN BALL'].filter(Boolean);
   setText('hud-rule', tags.map((t) => `· ${t}`).join(' '));
   const s = g.ball.held && state !== 'cleared' ? 0 : g.ball.speed;
   setText('hud-speed', `${Math.round(s)} px/s`);
@@ -1444,13 +1445,14 @@ const net = {
   // host's state. `smooth` is the leftover visual offset after a correction,
   // eased out so corrections do not pop.
   seq: 0,
-  remoteSeq: 0,
+  remoteSeqs: {}, // host: latest input sequence acted on, per guest id
   inputs: [], // guest: [{ seq, dt, intent }] not yet acknowledged by the host
+  roster: [], // guests in the room: [{ id, name }] (host: everyone who joined; guest: the others)
   smooth: { x: 0, y: 0 },
   client: null,
   mode: null, // null | 'host' | 'guest'
   localSlot: 'a',
-  remoteIntent: null,
+  remoteIntents: {}, // host: latest intent per guest id
   events: [],
   round: 0,
   scores: { host: 0, guest: 0 },
@@ -1473,9 +1475,10 @@ function netReset() {
   net.mode = null;
   net.coop = false;
   net.coopCampaign = false;
-  net.remoteIntent = null;
+  net.remoteIntents = {};
   net.seq = 0;
-  net.remoteSeq = 0;
+  net.remoteSeqs = {};
+  net.roster = [];
   net.inputs = [];
   net.smooth = { x: 0, y: 0 };
   net.events = [];
@@ -1548,10 +1551,11 @@ async function openLobby(prefillCode = '') {
     </div>
     <div id="mp-status" class="mp-status"></div>
     <details class="mp-adv"><summary>Relay</summary>
-      <p class="small muted">Leave empty to use the server that serves this page (LAN play). For play over the internet, paste the address of a deployed relay (see the README) and it is remembered in this browser.</p>
+      <p class="small muted">For play over the internet, paste the address of a deployed relay (see the README); it is remembered in this browser. Enter <b>local</b> to use the server that serves this page instead (LAN play with <code>npm start</code>), or leave it empty for the game's default.</p>
       <div class="row"><label class="mp-field">Relay <input id="mp-relay" maxlength="120" value="${relay ? relay.label.replace(/"/g, '') : ''}" placeholder="deflector-relay.example.workers.dev" style="width:20em" /></label><button id="mp-relay-set">Use</button></div>
     </details>
   `);
+  if (online && (lanInfo.v || 1) < RELAY_PROTOCOL) lobbyStatus(`<span class="mp-error">This relay is out of date (protocol ${lanInfo.v || 1}, the game needs ${RELAY_PROTOCOL}). Redeploy it: see "Online multiplayer" in the README.</span>`);
   $('btn-menu').onclick = goToMenu;
   $('mp-relay-set').onclick = async () => {
     saveRelay($('mp-relay').value);
@@ -1598,8 +1602,9 @@ async function connectClient() {
   });
   client.on('i', (msg) => {
     if (net.mode !== 'host') return;
-    net.remoteIntent = { mx: msg.mx, my: msg.my, turn: msg.turn, lunge: !!msg.lunge, retract: !!msg.retract };
-    if (typeof msg.seq === 'number') net.remoteSeq = msg.seq;
+    const id = msg.id || 'c';
+    net.remoteIntents[id] = { mx: msg.mx, my: msg.my, turn: msg.turn, lunge: !!msg.lunge, retract: !!msg.retract };
+    if (typeof msg.seq === 'number') net.remoteSeqs[id] = msg.seq;
   });
   await client.connect();
   return client;
@@ -1620,24 +1625,55 @@ async function hostRoom() {
       `);
     });
     client.on('peer', (msg) => {
-      net.names.guest = msg.name;
-      const options = LEVELS.map((l, i) => `<option value="${i}">${l.id}. ${l.title}</option>`).join('');
-      const saved = loadCampaign();
-      const diff = difficultySetting();
+      if (net.mode) return; // a late joiner while a match runs: nothing to do until the lobby
+      const id = msg.id || 'c';
+      if (!net.roster.some((r) => r.id === id)) net.roster.push({ id, name: msg.name });
+      renderHostLobby(client);
+    });
+    client.on('peer-left', (msg) => {
+      if (net.mode) return onPeerLeft(msg); // a handler per type: in a match this is the match's notice
+      net.roster = net.roster.filter((r) => r.id !== (msg && msg.id));
+      renderHostLobby(client);
+    });
+    client.create(name);
+  } catch (err) {
+    lobbyStatus(`<span class="mp-error">${err.message}</span>`);
+  }
+}
+
+/** Host: the lobby once at least one friend is in the room; re-rendered as people come and go. */
+function renderHostLobby(client) {
+  const options = LEVELS.map((l, i) => `<option value="${i}">${l.id}. ${l.title}</option>`).join('');
+  const saved = loadCampaign();
+  const diff = difficultySetting();
+  const esc = (t) => String(t).replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+  if (!net.roster.length) {
+    lobbyStatus(`
+      <div class="mp-code">${client.code}</div>
+      <p class="small muted" id="mp-wait">Waiting for a friend to join…</p>
+    `);
+    return;
+  }
+  const names = net.roster.map((r) => `<b>${esc(r.name)}</b>`).join(' and ');
+  const many = net.roster.length > 1;
+  const people = net.roster.length + 1;
+  const prevMode = $('mp-mode') ? $('mp-mode').value : many ? 'coop' : 'versus';
+  {
       lobbyStatus(`
         <div class="mp-code">${client.code}</div>
-        <p><b>${msg.name}</b> joined.</p>
-        <div class="row"><label class="mp-field">Mode <select id="mp-mode"><option value="versus">Versus · first to ${WIN_SCORE}</option><option value="coop">Co-op · together against the boss</option></select></label></div>
+        <p>${names} joined${net.roster.length < COOP.maxAllies ? ` · room for ${COOP.maxAllies - net.roster.length} more` : ' · the room is full'}.</p>
+        <div class="row"><label class="mp-field">Mode <select id="mp-mode"><option value="versus" ${many ? 'disabled' : ''}>Versus · first to ${WIN_SCORE}${many ? ' (two players only)' : ''}</option><option value="coop">Co-op · ${people} of you against the boss</option></select></label></div>
         <div class="row" id="mp-versus-opts"><label class="mp-field">Arena <select id="mp-level">${options}</select></label></div>
         <div class="row" id="mp-coop-opts" hidden>
           <label class="mp-field">Play <select id="mp-coop-play"><option value="level">One level</option><option value="campaign">New campaign</option>${saved ? `<option value="resume">Continue campaign · Level ${LEVELS[saved.levelIndex].id}</option>` : ''}</select></label>
           <label class="mp-field">Level <select id="mp-coop-level">${options}</select></label>
         </div>
-        <p class="small muted" id="mp-coop-note" hidden>Co-op shares one pool of shields (${diff.name}: ${diff.blurb}, set on the title screen) and the boss takes ${COOP.bossHits} hits.</p>
+        <p class="small muted" id="mp-coop-note" hidden>Co-op shares one pool of shields (${diff.name}: ${diff.blurb}, set on the title screen) and the boss takes ${people * COOP.bossHitsPerHuman} hits.</p>
         <div class="row"><button id="mp-start" class="primary">Start match</button></div>
         <div class="row">${ownBallToggleHtml()}</div>
       `);
       bindOwnBallToggle();
+      $('mp-mode').value = many ? 'coop' : prevMode;
       const syncMode = () => {
         const coop = $('mp-mode').value === 'coop';
         $('mp-versus-opts').hidden = coop;
@@ -1647,15 +1683,12 @@ async function hostRoom() {
       };
       $('mp-mode').onchange = syncMode;
       $('mp-coop-play').onchange = syncMode;
+      syncMode();
       $('mp-start').onclick = () => {
         if ($('mp-mode').value !== 'coop') return startNetMatch(Number($('mp-level').value));
         const play = $('mp-coop-play').value;
         startCoop({ campaign: play !== 'level', resume: play === 'resume', levelIdx: Number($('mp-coop-level').value) });
       };
-    });
-    client.create(name);
-  } catch (err) {
-    lobbyStatus(`<span class="mp-error">${err.message}</span>`);
   }
 }
 
@@ -1666,10 +1699,23 @@ async function joinRoom(code) {
   lobbyStatus('Connecting…');
   try {
     const client = await connectClient();
+    const renderGuestLobby = () => {
+      const esc = (t) => String(t).replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+      const others = client.peers.map((p) => `<b>${esc(p.name)}</b>`);
+      lobbyStatus(`<div class="mp-code">${client.code}</div><p>Joined <b>${esc(net.names.host)}</b>'s room${others.length ? ` with ${others.join(' and ')}` : ''}. Waiting for ${esc(net.names.host)} to start…</p>`);
+    };
     client.on('joined', (msg) => {
       net.names.guest = name;
       net.names.host = msg.peerName;
-      lobbyStatus(`<div class="mp-code">${msg.code}</div><p>Joined <b>${msg.peerName}</b>'s room. Waiting for them to start…</p>`);
+      renderGuestLobby();
+    });
+    client.on('peer', () => {
+      if (!net.mode) renderGuestLobby();
+    });
+    client.on('peer-left', (msg) => {
+      if (net.mode) return onPeerLeft(msg);
+      if (msg && msg.id === 'a') lobbyStatus('<span class="mp-error">The host left the room.</span>');
+      else renderGuestLobby();
     });
     client.join(code, name);
   } catch (err) {
@@ -1680,6 +1726,7 @@ async function joinRoom(code) {
 /** Host: begin a match on the chosen arena. */
 function startNetMatch(levelIdx) {
   net.mode = 'host';
+  if (net.roster[0]) net.names.guest = net.roster[0].name;
   net.levelIndex = levelIdx;
   net.rules = { ownBallLoss: ownBallLoss() };
   net.round = 0;
@@ -1692,7 +1739,7 @@ function startNetRound() {
   net.round++;
   net.winner = null;
   net.localSlot = slotOwner('a') === 'host' ? 'a' : 'b';
-  net.remoteIntent = null;
+  net.remoteIntents = {};
   net.events = [];
   net.client.send({ t: 'setup', level: net.levelIndex, round: net.round, scores: net.scores, names: net.names, rules: net.rules });
   beginNetRound();
@@ -1704,7 +1751,8 @@ function onSetup(msg) {
   if (msg.coop) {
     net.coop = true;
     net.coopCampaign = !!msg.campaign;
-    net.localSlot = 'c';
+    net.roster = Array.isArray(msg.roster) && msg.roster.length ? msg.roster : [{ id: 'c', name: msg.names.guest }];
+    net.localSlot = net.client.id || 'c';
     net.levelIndex = msg.level;
     net.names = msg.names;
     net.rules = { ownBallLoss: !msg.rules || msg.rules.ownBallLoss !== false };
@@ -1783,11 +1831,12 @@ function startCoop(opts) {
 /** Host: build a co-op level and tell the guest to build the same one. */
 function coopStartLevel(index) {
   net.levelIndex = index;
-  net.remoteIntent = null;
+  net.remoteIntents = {};
   net.events = [];
+  if (net.roster[0]) net.names.guest = net.roster[0].name;
   const diff = campaign ? difficultyById(campaign.difficulty) : difficultySetting();
   const shields = campaign ? campaign.shields : diff.shields;
-  net.client.send({ t: 'setup', coop: true, level: index, names: net.names, rules: net.rules, difficulty: diff.id, campaign: !!campaign, shields: shields === Infinity ? 'inf' : shields });
+  net.client.send({ t: 'setup', coop: true, level: index, names: net.names, roster: net.roster, rules: net.rules, difficulty: diff.id, campaign: !!campaign, shields: shields === Infinity ? 'inf' : shields });
   beginCoopLevel(diff, shields === Infinity ? 'inf' : shields);
 }
 
@@ -1797,15 +1846,17 @@ function beginCoopLevel(diff, shields) {
   const sameTrack = game && game.def === def && audio.track;
   levelIndex = net.levelIndex;
   resetFrameWatch();
-  game = buildGame(def, false, net.rules, true);
+  game = buildGame(def, false, net.rules, Math.max(1, net.roster.length));
   game.difficulty = diff;
   game.maxLives = diff.shields;
   game.lives = shields === 'inf' ? Infinity : Number(shields);
   game.player.name = net.names.host + (net.localSlot === 'a' ? ' (you)' : '');
-  game.ally.name = net.names.guest + (net.localSlot === 'c' ? ' (you)' : '');
-  net.colors = { host: def.palette.wall, guest: COOP.allyColor };
+  for (const f of game.allies) {
+    const entry = net.roster.find((r) => r.id === f.slot);
+    f.name = (entry ? entry.name : 'Ally') + (net.localSlot === f.slot ? ' (you)' : '');
+  }
+  net.colors = { host: def.palette.wall, guest: COOP.allyColors[0] };
   game.player.color = net.colors.host;
-  game.ally.color = net.colors.guest;
   game.local = localFighter();
   renderer.setLevel(def);
   renderer.resize();
@@ -1883,7 +1934,7 @@ function hitFx(f, x, y, nx, ny) {
 /** Host: send the state of this frame to the guest. */
 function hostSend() {
   net.frame++;
-  const meta = { st: state, cd: countdown, sc: net.scores, rd: net.round, w: net.winner, rs: net.reason, ak: net.remoteSeq };
+  const meta = { st: state, cd: countdown, sc: net.scores, rd: net.round, w: net.winner, rs: net.reason, ak: net.remoteSeqs };
   if (net.coop) {
     meta.lv = game.lives === Infinity ? 'inf' : game.lives;
     meta.bh = game.bossHits;
@@ -1900,7 +1951,7 @@ function guestSend() {
   if (!f) return;
   const it = input.intent(f);
   net.seq++;
-  net.client.send({ t: 'i', seq: net.seq, mx: +it.mx.toFixed(3), my: +it.my.toFixed(3), turn: it.turn, lunge: it.lunge ? 1 : 0, retract: it.retract ? 1 : 0 });
+  net.client.send({ t: 'i', id: net.client.id || 'c', seq: net.seq, mx: +it.mx.toFixed(3), my: +it.my.toFixed(3), turn: it.turn, lunge: it.lunge ? 1 : 0, retract: it.retract ? 1 : 0 });
   pingMaybe();
 }
 
@@ -1925,7 +1976,7 @@ function guestApply(now) {
     const predY = me.y;
     applySnapshot(g, s);
     for (const f of g.fighters) if (f !== me) f.markRender();
-    guestReconcile(s.ak, predX, predY);
+    guestReconcile(s.ak && typeof s.ak === 'object' ? s.ak[net.client.id || 'c'] : s.ak, predX, predY);
     if (state === 'playing') campTick(leftBefore, PLAYER.campSeconds - me.campTimer);
     net.ballBase = { x: g.ball.x, y: g.ball.y, vx: g.ball.vx, vy: g.ball.vy };
     net.scores = s.sc;
@@ -2091,9 +2142,10 @@ function showNetNotice(title, text) {
   $('btn-menu').onclick = leaveMatch;
 }
 
-function onPeerLeft() {
-  if (net.mode) showNetNotice('Your friend left', 'The other player disconnected.');
-  else lobbyStatus('<span class="mp-error">Your friend left the room.</span>');
+function onPeerLeft(msg) {
+  if (!net.mode) return; // in the lobby the room handlers update the list
+  const who = msg && msg.name ? msg.name : 'Your friend';
+  showNetNotice(`${who} left`, msg && msg.id === 'a' ? 'The host disconnected, so the match is over.' : 'A player disconnected, so the match is over.');
 }
 
 function leaveMatch() {

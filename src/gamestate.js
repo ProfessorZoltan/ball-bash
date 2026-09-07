@@ -45,8 +45,8 @@ export function bodyHitCounts(ball, fighter, rules = DEFAULT_RULES) {
  * Where the co-op ally spawns: near the host's spawn, inside the room, clear
  * of walls, obstacles and movers. Levels may set `ally: { x, y }` to override.
  */
-export function findAllySpawn(def, movers = []) {
-  if (def.ally) return { ...def.player, ...def.ally };
+export function findAllySpawn(def, movers = [], taken = []) {
+  if (def.ally && !taken.length) return { ...def.player, ...def.ally };
   const p = def.player;
   const r = PLAYER.radius + 14;
   const walls = polygonEdges(def.boundary).concat(...def.obstacles.map((o) => polygonEdges(obstaclePoly(o))));
@@ -59,11 +59,12 @@ export function findAllySpawn(def, movers = []) {
     }
     for (const m of movers) if (Math.hypot(m.x - x, m.y - y) < (m.reach || 0) + r + 10) return false;
     if (Math.hypot(def.boss.x - x, def.boss.y - y) < 260) return false;
+    for (const t of taken) if (Math.hypot(t.x - x, t.y - y) < 2 * PLAYER.radius + 12) return false;
     return true;
   };
-  const offsets = [[0, 130], [0, -130], [0, 190], [0, -190], [-90, 100], [-90, -100], [90, 100], [90, -100], [-130, 0], [130, 0], [0, 250], [0, -250]];
+  const offsets = [[0, 130], [0, -130], [0, 190], [0, -190], [-90, 100], [-90, -100], [90, 100], [90, -100], [-130, 0], [130, 0], [0, 250], [0, -250], [-130, 180], [-130, -180], [130, 180], [130, -180]];
   for (const [dx, dy] of offsets) if (clear(p.x + dx, p.y + dy)) return { ...p, x: p.x + dx, y: p.y + dy };
-  return { ...p, x: p.x, y: p.y + 60 }; // last resort: the physics pushes the two apart
+  return { ...p, x: p.x, y: p.y + 60 * (taken.length + 1) }; // last resort: the physics pushes them apart
 }
 
 /**
@@ -82,7 +83,12 @@ export function tickCamp(f, dt, { distance = PLAYER.campDistance, seconds = PLAY
   return f.campTimer >= seconds;
 }
 
+/**
+ * `coop`: false, or the number of allies (true means one) playing beside the
+ * host's human against the boss.
+ */
 export function createGameState(def, { pvp = false, coop = false, rules = DEFAULT_RULES } = {}) {
+  const allyCount = coop === true ? 1 : Math.max(0, Math.min(COOP.maxAllies, Number(coop) || 0));
   const staticWalls = polygonEdges(def.boundary, 'wall');
   const panes = [];
   for (const o of def.obstacles) {
@@ -99,16 +105,23 @@ export function createGameState(def, { pvp = false, coop = false, rules = DEFAUL
     ? new Fighter({ ...playerStats(def, def.boss), name: 'Rival', kind: 'boss', slot: 'b', team: 'b', color: def.palette.obstacle })
     : new Boss({ ...def.boss, name: def.bossName, color: def.palette.obstacle, slot: 'b', team: 'boss' });
   const movers = (def.movers || []).map(createMover);
-  const ally = coop ? new Fighter({ ...playerStats(def, findAllySpawn(def, movers)), name: 'Ally', kind: 'player', slot: 'c', team: 'us', color: COOP.allyColor }) : null;
-  const fighters = ally ? [player, ally, boss] : [player, boss];
-  const humans = pvp ? [player, boss] : ally ? [player, ally] : [player];
+  const allies = [];
+  const taken = [];
+  for (let i = 0; i < allyCount; i++) {
+    const spawn = findAllySpawn(def, movers, taken);
+    taken.push(spawn);
+    allies.push(new Fighter({ ...playerStats(def, spawn), name: `Ally ${i + 1}`, kind: 'player', slot: 'cd'[i], team: 'us', color: COOP.allyColors[i] }));
+  }
+  const ally = allies[0] || null;
+  const fighters = [player, ...allies, boss];
+  const humans = pvp ? [player, boss] : [player, ...allies];
   const ice = def.ice ? new IceTrail(def.ice) : null;
   const ball = new Ball(BALL.radius);
   ball.x = def.ball.x;
   ball.y = def.ball.y;
   ball.held = true;
   const staticPolys = def.obstacles.filter((o) => !o.glass).map(obstaclePoly);
-  const g = { def, staticWalls, staticPolys, panes, walls: [], solidPolys: [], player, ally, boss, fighters, humans, movers, ice, ball, pvp, coop, rules: { ...DEFAULT_RULES, ...rules } };
+  const g = { def, staticWalls, staticPolys, panes, walls: [], solidPolys: [], player, ally, allies, boss, fighters, humans, movers, ice, ball, pvp, coop: allyCount > 0, rules: { ...DEFAULT_RULES, ...rules } };
   rebuildWalls(g);
   return g;
 }

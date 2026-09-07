@@ -29,7 +29,7 @@ export default {
     const stub = env.RELAY.get(env.RELAY.idFromName('main'));
     if (url.pathname === '/health' || url.pathname === '/lan') {
       const stats = await stub.fetch(new Request('https://relay/stats')).then((r) => r.json());
-      return json({ ok: true, online: true, rooms: stats.rooms, addresses: [], port: null });
+      return json({ ok: true, v: PROTOCOL, online: true, rooms: stats.rooms, addresses: [], port: null });
     }
     if (url.pathname === '/ws') {
       if ((req.headers.get('Upgrade') || '').toLowerCase() !== 'websocket') return new Response('Expected a WebSocket upgrade', { status: 426, headers: CORS });
@@ -40,29 +40,32 @@ export default {
 };
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const MAX_GUESTS = 2; // a host and up to two friends (three-player co-op)
+const GUEST_IDS = ['c', 'd'];
+const PROTOCOL = 2; // bumped when the relay protocol changes; the game warns about a stale relay
 
 export class RelayRoom {
   constructor(state) {
     this.state = state;
-    // code -> { host, guest, hostName }, rebuilt from socket attachments after a wake-up.
+    // code -> { host, hostName, guests: [{ ws, id, name }] }, rebuilt from socket attachments after a wake-up.
     this.rooms = new Map();
     for (const ws of state.getWebSockets()) {
       const a = this.attachment(ws);
       if (!a.room) continue;
-      const room = this.rooms.get(a.room) || { code: a.room, host: null, guest: null, hostName: '' };
+      const room = this.rooms.get(a.room) || { code: a.room, host: null, hostName: '', guests: [] };
       if (a.role === 'host') {
         room.host = ws;
         room.hostName = a.name;
-      } else room.guest = ws;
+      } else room.guests.push({ ws, id: a.id, name: a.name });
       this.rooms.set(a.room, room);
     }
   }
 
   attachment(ws) {
     try {
-      return ws.deserializeAttachment() || { room: null, role: null, name: '' };
+      return ws.deserializeAttachment() || { room: null, role: null, id: null, name: '' };
     } catch (_) {
-      return { room: null, role: null, name: '' };
+      return { room: null, role: null, id: null, name: '' };
     }
   }
 
@@ -76,7 +79,7 @@ export class RelayRoom {
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     this.state.acceptWebSocket(server);
-    this.setAttachment(server, { room: null, role: null, name: '' });
+    this.setAttachment(server, { room: null, role: null, id: null, name: '' });
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -111,33 +114,38 @@ export class RelayRoom {
       if (a.room) this.leaveRoom(ws);
       const code = this.makeCode();
       const name = String(msg.name || 'Host').slice(0, 16);
-      this.rooms.set(code, { code, host: ws, guest: null, hostName: name });
-      this.setAttachment(ws, { room: code, role: 'host', name });
-      this.send(ws, { t: 'created', code });
+      this.rooms.set(code, { code, host: ws, hostName: name, guests: [] });
+      this.setAttachment(ws, { room: code, role: 'host', id: 'a', name });
+      this.send(ws, { t: 'created', code, v: PROTOCOL });
       return;
     }
     if (msg.t === 'join') {
       const code = String(msg.code || '').toUpperCase().trim();
       const room = this.rooms.get(code);
       if (!room) return this.send(ws, { t: 'error', msg: `No room ${code}` });
-      if (room.guest) return this.send(ws, { t: 'error', msg: 'That room is full' });
+      if (room.guests.length >= MAX_GUESTS) return this.send(ws, { t: 'error', msg: 'That room is full' });
       if (a.room) this.leaveRoom(ws);
       const name = String(msg.name || 'Guest').slice(0, 16);
-      room.guest = ws;
-      this.setAttachment(ws, { room: code, role: 'guest', name });
-      this.send(ws, { t: 'joined', code, peerName: room.hostName });
-      this.send(room.host, { t: 'peer', name });
+      const id = GUEST_IDS.find((g) => !room.guests.some((x) => x.id === g));
+      const peers = room.guests.map((g) => ({ id: g.id, name: g.name }));
+      room.guests.push({ ws, id, name });
+      this.setAttachment(ws, { room: code, role: 'guest', id, name });
+      this.send(ws, { t: 'joined', code, id, peerName: room.hostName, peers, v: PROTOCOL });
+      this.send(room.host, { t: 'peer', id, name });
+      for (const g of room.guests) if (g.ws !== ws) this.send(g.ws, { t: 'peer', id, name });
       return;
     }
     if (msg.t === 'leave') {
       this.leaveRoom(ws);
       return;
     }
-    // Everything else is relayed to the other player untouched.
+    // Everything else is relayed untouched: a guest's messages go to the host,
+    // the host's to every guest.
     const room = a.room && this.rooms.get(a.room);
     if (!room) return;
-    const peer = a.role === 'host' ? room.guest : room.host;
-    if (peer) this.send(peer, message);
+    if (a.role === 'host') {
+      for (const g of room.guests) this.send(g.ws, message);
+    } else if (room.host) this.send(room.host, message);
   }
 
   webSocketClose(ws) {
@@ -151,18 +159,18 @@ export class RelayRoom {
   leaveRoom(ws) {
     const a = this.attachment(ws);
     const room = a.room && this.rooms.get(a.room);
-    this.setAttachment(ws, { room: null, role: null, name: a.name });
+    this.setAttachment(ws, { room: null, role: null, id: null, name: a.name });
     if (!room) return;
     if (a.role === 'host') {
-      if (room.guest) {
-        this.send(room.guest, { t: 'peer-left' });
-        const g = this.attachment(room.guest);
-        this.setAttachment(room.guest, { room: null, role: null, name: g.name });
+      for (const g of room.guests) {
+        this.send(g.ws, { t: 'peer-left', id: 'a', name: a.name });
+        this.setAttachment(g.ws, { room: null, role: null, id: null, name: g.name });
       }
       this.rooms.delete(room.code);
     } else {
-      room.guest = null;
-      this.send(room.host, { t: 'peer-left' });
+      room.guests = room.guests.filter((g) => g.ws !== ws);
+      if (room.host) this.send(room.host, { t: 'peer-left', id: a.id, name: a.name });
+      for (const g of room.guests) this.send(g.ws, { t: 'peer-left', id: a.id, name: a.name });
     }
   }
 }

@@ -73,6 +73,11 @@ export const DEFAULT_DIFFICULTY = 'normal';
 // Co-op: two humans on one shield pool against the AI boss. Two shields cover
 // far more lanes than one, so the boss takes this many body hits to go down.
 export const COOP = {
-  bossHits: 2,
-  allyColor: '#8dff9d', // the second human's colour in every arena
+  bossHitsPerHuman: 1, // the boss takes one body hit per human on the team (two humans: two hits)
+  allyColors: ['#8dff9d', '#ff8df0'], // the second and third humans' colours in every arena
+  maxAllies: 2,
 };
+
+// The relay protocol this build speaks; a relay reporting an older version in
+// /health is out of date (redeploy relay/).
+export const RELAY_PROTOCOL = 2;

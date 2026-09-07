@@ -38,7 +38,7 @@ const server = http.createServer((req, res) => {
   const url = decodeURIComponent(req.url.split('?')[0]);
   if (url === '/lan' || url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache', 'Access-Control-Allow-Origin': '*' });
-    res.end(JSON.stringify({ ok: true, addresses: lanAddresses(), port, rooms: rooms.size }));
+    res.end(JSON.stringify({ ok: true, v: PROTOCOL, addresses: lanAddresses(), port, rooms: rooms.size }));
     return;
   }
   let file = path.normalize(path.join(root, url === '/' ? 'index.html' : url));
@@ -175,7 +175,10 @@ class WsConn {
 
 // ----------------------------------------------------------------- rooms
 
-const rooms = new Map(); // code -> { code, host, guest }
+const rooms = new Map(); // code -> { code, host, guests: [] }
+const MAX_GUESTS = 2; // a host and up to two friends (three-player co-op)
+const GUEST_IDS = ['c', 'd']; // relay identity of each guest; the game uses the same letters as slots
+const PROTOCOL = 2; // bumped when the relay protocol changes; the game warns about a stale relay
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 function makeCode() {
@@ -201,36 +204,43 @@ function handleMessage(conn, text) {
   if (msg.t === 'create') {
     if (conn.room) leaveRoom(conn);
     const code = makeCode();
-    rooms.set(code, { code, host: conn, guest: null });
+    rooms.set(code, { code, host: conn, guests: [] });
     conn.room = code;
     conn.role = 'host';
+    conn.id = 'a';
     conn.name = String(msg.name || 'Host').slice(0, 16);
-    sendJson(conn, { t: 'created', code });
+    sendJson(conn, { t: 'created', code, v: PROTOCOL });
     return;
   }
   if (msg.t === 'join') {
     const code = String(msg.code || '').toUpperCase().trim();
     const room = rooms.get(code);
     if (!room) return sendJson(conn, { t: 'error', msg: `No room ${code}` });
-    if (room.guest) return sendJson(conn, { t: 'error', msg: 'That room is full' });
+    if (room.guests.length >= MAX_GUESTS) return sendJson(conn, { t: 'error', msg: 'That room is full' });
     if (conn.room) leaveRoom(conn);
-    room.guest = conn;
+    const id = GUEST_IDS.find((g) => !room.guests.some((c) => c.id === g));
     conn.room = code;
     conn.role = 'guest';
+    conn.id = id;
     conn.name = String(msg.name || 'Guest').slice(0, 16);
-    sendJson(conn, { t: 'joined', code, peerName: room.host.name });
-    sendJson(room.host, { t: 'peer', name: conn.name });
+    const peers = room.guests.map((g) => ({ id: g.id, name: g.name }));
+    room.guests.push(conn);
+    sendJson(conn, { t: 'joined', code, id, peerName: room.host.name, peers, v: PROTOCOL });
+    sendJson(room.host, { t: 'peer', id, name: conn.name });
+    for (const g of room.guests) if (g !== conn && !g.closed) sendJson(g, { t: 'peer', id, name: conn.name });
     return;
   }
   if (msg.t === 'leave') {
     leaveRoom(conn);
     return;
   }
-  // Everything else is relayed to the other player untouched.
+  // Everything else is relayed untouched: a guest's messages go to the host,
+  // the host's to every guest.
   const room = conn.room && rooms.get(conn.room);
   if (!room) return;
-  const peer = conn.role === 'host' ? room.guest : room.host;
-  if (peer && !peer.closed) peer.send(text);
+  if (conn.role === 'host') {
+    for (const g of room.guests) if (!g.closed) g.send(text);
+  } else if (!room.host.closed) room.host.send(text);
 }
 
 function leaveRoom(conn) {
@@ -238,12 +248,15 @@ function leaveRoom(conn) {
   conn.room = null;
   if (!room) return;
   if (conn.role === 'host') {
-    if (room.guest && !room.guest.closed) sendJson(room.guest, { t: 'peer-left' });
-    if (room.guest) room.guest.room = null;
+    for (const g of room.guests) {
+      if (!g.closed) sendJson(g, { t: 'peer-left', id: 'a', name: conn.name });
+      g.room = null;
+    }
     rooms.delete(room.code);
   } else {
-    room.guest = null;
-    if (!room.host.closed) sendJson(room.host, { t: 'peer-left' });
+    room.guests = room.guests.filter((g) => g !== conn);
+    if (!room.host.closed) sendJson(room.host, { t: 'peer-left', id: conn.id, name: conn.name });
+    for (const g of room.guests) if (!g.closed) sendJson(g, { t: 'peer-left', id: conn.id, name: conn.name });
   }
 }
 
@@ -267,6 +280,7 @@ server.on('upgrade', (req, socket) => {
   const conn = new WsConn(socket);
   conn.room = null;
   conn.role = null;
+  conn.id = null;
   conn.name = '';
   conn.onmessage = (text) => handleMessage(conn, text);
   conn.onclose = () => leaveRoom(conn);

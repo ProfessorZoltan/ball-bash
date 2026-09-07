@@ -277,6 +277,10 @@ test('own-ball rule: a body hit only counts when the other team touched the ball
   const coop = createGameState(LEVELS[0], { coop: true });
   assert.deepEqual(coop.fighters.map((f) => [f.slot, f.team]), [['a', 'us'], ['c', 'us'], ['b', 'boss']]);
   assert.equal(coop.humans.length, 2);
+  const three = createGameState(LEVELS[0], { coop: 2 });
+  assert.deepEqual(three.fighters.map((f) => [f.slot, f.team]), [['a', 'us'], ['c', 'us'], ['d', 'us'], ['b', 'boss']]);
+  assert.equal(three.humans.length, 3);
+  assert.notEqual(three.allies[0].color, three.allies[1].color);
 });
 
 test('co-op ally spawns are inside every arena and clear of walls, obstacles and movers', async () => {
@@ -296,6 +300,16 @@ test('co-op ally spawns are inside every arena and clear of walls, obstacles and
     assert.ok(dPlayer >= 2 * PLAYER.radius, `${def.title}: ally does not overlap the host`);
     const g = createGameState(def, { coop: true });
     assert.equal(g.ally.x, s.x);
+    // A second ally gets its own clear spot, apart from the host and the first ally.
+    const g3 = createGameState(def, { coop: 2 });
+    const [a1, a2] = g3.allies;
+    assert.ok(pointInPolygon(a2.x, a2.y, def.boundary), `${def.title}: second ally inside the room`);
+    assert.ok(Math.hypot(a2.x - a1.x, a2.y - a1.y) >= 2 * PLAYER.radius, `${def.title}: allies do not overlap`);
+    assert.ok(Math.hypot(a2.x - def.player.x, a2.y - def.player.y) >= 2 * PLAYER.radius, `${def.title}: second ally clear of the host`);
+    for (const sg of segs) {
+      const c = closestPointOnSegment(a2.x, a2.y, sg.ax, sg.ay, sg.bx, sg.by);
+      assert.ok(Math.hypot(c.x - a2.x, c.y - a2.y) >= PLAYER.radius + 10, `${def.title}: second ally clear of walls`);
+    }
   }
 });
 

@@ -78,19 +78,22 @@ score, names and point notices are tinted to match. Boss-only abilities are
 off in multiplayer; ice trails lay for either player's blocks and only freeze
 the other player (its core is tinted in the colour of whoever laid it).
 
-**Co-op.** In the lobby the host can pick **Co-op** instead of Versus: both
-humans play on the same side against the AI boss, on one level or on the
-host's campaign (new, or continued from the host's save). The two of you share
-one pool of shields at the host's difficulty setting; a body hit or a
-stand-still by either of you costs one, and the ball re-serves. Because two
-shields cover far more lanes than one, the boss takes two body hits in co-op
-(pips next to its name in the HUD; `COOP.bossHits` in `src/config.js`). The
-own-ball rule treats the team as one body: with it off, a ball your partner
-hit last just bounces off you. The host wears the arena's wall colour, the
-ally a fixed green, and the ally spawns near the host at a spot chosen to be
-clear of walls, obstacles and movers (`findAllySpawn`, or a level's `ally`
-override). End-of-level screens and the campaign's continue, restart and
-summary choices belong to the host; the guest sees the same screen and waits.
+**Co-op.** A room holds the host and up to two friends. In the lobby the host
+can pick **Co-op** instead of Versus: everyone plays on the same side against
+the AI boss, on one level or on the host's campaign (new, or continued from
+the host's save). The team shares one pool of shields at the host's difficulty
+setting; a body hit or a stand-still by anyone costs one, and the ball
+re-serves. Because more shields cover more lanes, the boss takes one body hit
+per human (pips next to its name in the HUD; `COOP.bossHitsPerHuman` in
+`src/config.js`). The own-ball rule treats the team as one body: with it off,
+a ball a partner hit last just bounces off you. The host wears the arena's
+wall colour, the allies a fixed green and pink, and each ally spawns near the
+host at a spot chosen to be clear of walls, obstacles, movers and each other
+(`findAllySpawn`, or a level's `ally` override for the first). Versus stays a
+two-player mode, so the lobby only offers it while one friend is in the room.
+End-of-level screens and the campaign's continue, restart and summary choices
+belong to the host; the guests see the same screen and wait. If anyone drops
+out mid-match the match ends for everyone.
 
 ## Online multiplayer (different networks)
 
@@ -115,6 +118,10 @@ redeploy the site, so every player gets online play from the title screen, or
 have players paste it under **Relay** in the lobby (remembered in their
 browser), or open the game with `?relay=<address>`.
 
+The relay protocol carries a version, and the lobby warns when a deployed
+relay is older than the game (redeploy it with the same command, or let the
+workflow below do it).
+
 **Hands-off alternative: let GitHub deploy it.** The workflow in
 `.github/workflows/deploy-relay.yml` deploys the relay and then commits its
 address into `src/config.js`, so Vercel redeploys the site already pointed at
@@ -130,7 +137,9 @@ it. One-time setup:
 
 The token never leaves GitHub's secret store, and the job summary shows the
 relay address and a `/health` check. The title button reads
-**Online match** when a relay is configured and answers on `/health`. Room
+**Online match** when a relay is configured and answers on `/health`. To play
+on a LAN with `npm start` while a default relay is configured, enter `local`
+as the relay in the lobby (or open the game with `?relay=local`). Room
 codes and share links work as on LAN; the share link is the game's own URL
 with `?room=CODE`.
 
