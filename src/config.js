@@ -6,7 +6,7 @@
 export const GAME_MARK = '[<R/D>EF(L)/V]ECTOR';
 export const GAME_NAME = 'Deflector';
 export const GAME_TAGLINE = 'Reflect. Deflect. Defect.';
-export const GAME_VERSION = '0.1.0-alpha'; // shown on the title screen; bump on each release
+export const GAME_VERSION = '0.2.0-alpha'; // shown on the title screen; bump on each release
 
 // Glyph indices of GAME_MARK lit for each reading; ECTOR is always lit.
 export const MARK_READINGS = [
