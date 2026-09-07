@@ -14,7 +14,7 @@ export const GAME_VERSION = '0.2.0-alpha'; // shown on the title screen; bump on
 // static site (Vercel) gets online play. Players can also paste a relay
 // address in the lobby, which is remembered in their browser, or open the
 // game with ?relay=<address>.
-export const DEFAULT_RELAY = '';
+export const DEFAULT_RELAY = 'wss://deflector-relay.deflector-relay.workers.dev';
 
 // Glyph indices of GAME_MARK lit for each reading; ECTOR is always lit.
 export const MARK_READINGS = [
