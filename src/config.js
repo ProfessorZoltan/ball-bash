@@ -61,3 +61,10 @@ export const DIFFICULTIES = [
   { id: 'punishing', name: 'Punishing', shields: 1, blurb: '1 shield' },
 ];
 export const DEFAULT_DIFFICULTY = 'normal';
+
+// Co-op: two humans on one shield pool against the AI boss. Two shields cover
+// far more lanes than one, so the boss takes this many body hits to go down.
+export const COOP = {
+  bossHits: 2,
+  allyColor: '#8dff9d', // the second human's colour in every arena
+};

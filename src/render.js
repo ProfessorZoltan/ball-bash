@@ -117,12 +117,11 @@ export class Renderer {
 
     this.drawPredictedPath(game);
     if (game.panes && game.panes.length) this.drawGlass(game.panes, game, time);
-    if (game.ice) this.drawIce(game.ice, level.palette.ice || '#cdf6ff', time, game.ice.owner === 'a' ? game.player.color : game.boss.color);
+    if (game.ice) this.drawIce(game.ice, level.palette.ice || '#cdf6ff', time, ((game.fighters || []).find((f) => f.slot === game.ice.owner) || game.boss).color);
     for (const m of game.movers || []) this.drawMover(m, level.palette.obstacle);
     if (game.boss.pulser) this.drawPulse(game.boss, level.palette.obstacle, time);
     this.drawRings(game.fx);
-    this.drawFighter(game.boss, time, game.boss.color);
-    this.drawFighter(game.player, time, game.player.color);
+    for (const f of game.fighters || [game.boss, game.player]) this.drawFighter(f, time, f.color);
     this.drawBall(game.ball, state);
     this.drawParticles(game.fx);
 
@@ -180,8 +179,7 @@ export class Renderer {
       const l = level.lights[i];
       punch(l.x, l.y, (l.r || d.candle) * flicker(i * 3.1), 0.35);
     }
-    punch(game.player.x, game.player.y, d.player * flicker(0.5), 0.5);
-    punch(game.boss.x, game.boss.y, d.boss * flicker(1.9), 0.5);
+    for (const f of game.fighters || [game.player, game.boss]) punch(f.x, f.y, (f.kind === 'boss' ? d.boss : d.player) * flicker(f.slot === 'b' ? 1.9 : f.slot === 'c' ? 1.2 : 0.5), 0.5);
     if (!game.ball.held || state === 'countdown') {
       punch(game.ball.x, game.ball.y, d.ball + game.ball.speed * 0.07, 0.45);
     }

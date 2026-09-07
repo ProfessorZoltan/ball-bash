@@ -1,6 +1,6 @@
 // Game bootstrap: state machine, fixed-step physics loop, collision dispatch,
 // HUD/overlay wiring. Everything heavy lives in the modules it imports.
-import { GAME_MARK, GAME_NAME, GAME_TAGLINE, GAME_VERSION, MARK_READINGS, PHYSICS_DT, BALL, PLAYER, SURFACE_VELOCITY_FACTOR, COUNTDOWN_SECONDS, DIFFICULTIES, DEFAULT_DIFFICULTY } from './config.js';
+import { GAME_MARK, GAME_NAME, GAME_TAGLINE, GAME_VERSION, MARK_READINGS, PHYSICS_DT, BALL, PLAYER, SURFACE_VELOCITY_FACTOR, COUNTDOWN_SECONDS, DIFFICULTIES, DEFAULT_DIFFICULTY, COOP } from './config.js';
 import { BallHistory, bossIntent, moverSegmentsAt } from './ai.js';
 import { LEVELS, ROSTER, TUTORIAL_LEVEL } from './levels.js';
 import { LORE } from './lore.js';
@@ -37,8 +37,8 @@ let fps = 60;
 
 // ------------------------------------------------------------------ setup
 
-function buildGame(def, pvp = false, rules = { ownBallLoss: ownBallLoss() }) {
-  const g = createGameState(def, { pvp, rules });
+function buildGame(def, pvp = false, rules = { ownBallLoss: ownBallLoss() }, coop = false) {
+  const g = createGameState(def, { pvp, coop, rules });
   return {
     ...g,
     fx: new Effects(),
@@ -47,7 +47,9 @@ function buildGame(def, pvp = false, rules = { ownBallLoss: ownBallLoss() }) {
     maxLives: Infinity,
     difficulty: null,
     shieldsLost: 0,
-    lastLoss: null, // { reason, at } while the ball re-serves after a lost shield
+    lastLoss: null, // { reason, slot, at } while the ball re-serves after a lost shield (or a boss hit in co-op)
+    bossHits: coop ? COOP.bossHits : 1, // body hits the boss can still take
+    maxBossHits: coop ? COOP.bossHits : 1,
     time: 0,
     topSpeed: 0,
     paddleHits: 0,
@@ -58,6 +60,7 @@ function buildGame(def, pvp = false, rules = { ownBallLoss: ownBallLoss() }) {
 }
 
 function startLevel(index) {
+  if (net.mode === 'host' && net.coop) return coopStartLevel(index);
   levelIndex = index;
   const def = LEVELS[index];
   $('tutor').hidden = true;
@@ -92,8 +95,7 @@ function launchBall() {
   game.ball.launch(def.ball.x, def.ball.y, a, def.ball.speed);
   game.history.reset();
   game.history.push(simTime, game.ball);
-  game.player.resetCamp();
-  game.boss.resetCamp();
+  for (const f of game.fighters) f.resetCamp();
   state = 'playing';
   $('countdown').hidden = true;
   audio.sfxCount(true);
@@ -119,39 +121,37 @@ function step(dt) {
   simTime += dt;
   g.time = simTime;
   g.ball.markRender();
-  g.player.markRender();
-  g.boss.markRender();
+  for (const f of g.fighters) f.markRender();
 
   for (const m of g.movers) m.update(dt);
 
-  // Intents. Slot a is the left spawn (g.player), slot b the right (g.boss).
-  // Single player: a = you, b = the AI. PvP: whichever slot is yours gets
-  // your input and the other gets the remote player's latest intent.
+  // Intents by slot. a = the host's human (the left spawn), b = the AI boss
+  // or, in versus, the rival human, c = the co-op ally. Whichever slot is
+  // yours gets your input; a remote human gets its latest intent; the boss
+  // gets its brain.
   const local = input.intent(localFighter());
-  let ia;
-  let ib;
+  const remote = net.remoteIntent || ZERO_INTENT;
+  const intents = { a: ZERO_INTENT, b: ZERO_INTENT, c: ZERO_INTENT };
   if (g.pvp) {
-    const remote = net.remoteIntent || ZERO_INTENT;
-    ia = net.localSlot === 'a' ? local : remote;
-    ib = net.localSlot === 'a' ? remote : local;
+    intents.a = net.localSlot === 'a' ? local : remote;
+    intents.b = net.localSlot === 'a' ? remote : local;
   } else if (g.tutorial) {
-    ia = local;
-    ib = ZERO_INTENT; // the training drone never moves
+    intents.a = local; // the training drone never moves
   } else {
-    ia = local;
-    ib = state === 'playing' ? bossIntent(g.boss, g.history, g.player, g.walls, dt, simTime, g.movers) : ZERO_INTENT;
+    intents.a = g.coop && net.localSlot !== 'a' ? remote : local;
+    if (g.coop) intents.c = net.localSlot === 'c' ? local : remote;
+    intents.b = state === 'playing' ? bossIntent(g.boss, g.history, g.humans, g.walls, dt, simTime, g.movers) : ZERO_INTENT;
   }
   // Movement is locked until the ball launches; aiming is allowed.
-  if (state === 'countdown') {
-    ia = { ...ia, mx: 0, my: 0, lunge: false };
-    ib = { ...ib, mx: 0, my: 0, lunge: false };
-  }
+  if (state === 'countdown') for (const k of Object.keys(intents)) intents[k] = { ...intents[k], mx: 0, my: 0, lunge: false };
 
-  const wasIdle = g.player.lungeState === 'idle';
-  g.player.update(dt, ia);
-  if (wasIdle && g.player.lungeState === 'out') onWhack();
-  resolveCircleVsSegments(g.player, g.walls);
-  pushOutOfMovers(g.player);
+  for (const f of g.humans) {
+    const wasIdle = f.lungeState === 'idle';
+    f.update(dt, intents[f.slot]);
+    if (wasIdle && f.lungeState === 'out') onWhack();
+    resolveCircleVsSegments(f, g.walls);
+    pushOutOfMovers(f);
+  }
 
   // Slot b: the AI boss (with its patrol and abilities) or the rival human.
   if (!g.pvp && !g.tutorial && state === 'playing') {
@@ -164,36 +164,38 @@ function step(dt) {
       }
     }
   }
-  const bossWasIdle = g.boss.lungeState === 'idle';
-  g.boss.update(dt, ib);
-  if (bossWasIdle && g.boss.lungeState === 'out') onWhack();
-  resolveCircleVsSegments(g.boss, g.walls);
-  pushOutOfMovers(g.boss);
+  if (!g.pvp) {
+    const bossWasIdle = g.boss.lungeState === 'idle';
+    g.boss.update(dt, intents.b);
+    if (bossWasIdle && g.boss.lungeState === 'out') onWhack();
+    resolveCircleVsSegments(g.boss, g.walls);
+    pushOutOfMovers(g.boss);
+  }
 
-  separateCircles(g.player, g.boss);
-  g.player.finalizeStep(dt);
-  g.boss.finalizeStep(dt);
+  for (let i = 0; i < g.fighters.length; i++) for (let j = i + 1; j < g.fighters.length; j++) separateCircles(g.fighters[i], g.fighters[j]);
+  for (const f of g.fighters) f.finalizeStep(dt);
 
   if (!g.ball.held) {
     moveBall(dt);
     if (state === 'playing') {
-      separateFightersFromBall(g.ball, [g.player, g.boss]);
+      separateFightersFromBall(g.ball, g.fighters);
       g.history.push(simTime, g.ball);
     }
   }
 
   if (g.ice) {
     g.ice.update(simTime, g.ball);
-    if (g.ice.affect(g.player, 'a')) onPlayerFrozen(g.player);
-    if (g.pvp && g.ice.affect(g.boss, 'b')) onPlayerFrozen(g.boss);
+    for (const f of g.humans) if (g.ice.affect(f, f.slot)) onPlayerFrozen(f);
   }
 
   if (g.panes.length) updateGlass();
 
   // Keep-moving rule: human players only, never in the tutorial.
   if (state === 'playing' && !g.ball.held && !g.tutorial) {
-    campStep(g.player, 'a', dt);
-    if (g.pvp && state === 'playing') campStep(g.boss, 'b', dt);
+    for (const f of g.humans) {
+      if (state !== 'playing') break;
+      campStep(f, f.slot, dt);
+    }
   }
 }
 
@@ -219,7 +221,7 @@ function onCamped(f, slot) {
     pvpPoint(f, 'camp');
     return;
   }
-  loseShield('camp');
+  loseShield('camp', f);
 }
 
 function campFx(f) {
@@ -301,7 +303,7 @@ function shatterFx(pane, x, y, nx, ny) {
 
 function onPlayerFrozen(f) {
   freezeFx(f);
-  netEvent({ e: 'freeze', s: f === game.player ? 'a' : 'b' });
+  netEvent({ e: 'freeze', s: f.slot });
 }
 
 function freezeFx(f) {
@@ -334,7 +336,7 @@ function moveBall(dt) {
   const stopped = advanceBall(
     b,
     g.walls,
-    [g.player, g.boss],
+    g.fighters,
     dt,
     SURFACE_VELOCITY_FACTOR,
     {
@@ -351,11 +353,8 @@ function moveBall(dt) {
           onPvpHit(f, h);
           return true;
         }
-        if (f.kind === 'boss') {
-          onBossHit(h);
-          return true;
-        }
-        onPlayerHit(h);
+        if (f.kind === 'boss') return onBossHit(h);
+        onPlayerHit(f, h);
         return false;
       },
     },
@@ -426,16 +425,17 @@ function onPaddleHit(f, h, before) {
   paddleFx(f, h.cx, h.cy, h.nx, h.ny, strength, delta > 100);
   g.ball.lastHitBy = f.kind;
   g.ball.lastPaddle = f.kind;
+  g.ball.lastTeam = f.team;
   if (!isBoss) g.paddleHits++;
   if (g.tutorial && !isBoss) tutorialPaddle(before, after);
   // The ice trail follows the boss's blocks; in PvP, either player's.
   let iced = 0;
   if (g.ice && (isBoss || g.pvp)) {
-    g.ice.start(simTime, isBoss ? 'b' : 'a');
+    g.ice.start(simTime, f.slot);
     audio.sfxIce();
     iced = 1;
   }
-  netEvent({ e: 'paddle', s: isBoss ? 'b' : 'a', x: h.cx, y: h.cy, nx: h.nx, ny: h.ny, st: strength, d: delta > 100 ? 1 : 0, ice: iced });
+  netEvent({ e: 'paddle', s: f.slot, x: h.cx, y: h.cy, nx: h.nx, ny: h.ny, st: strength, d: delta > 100 ? 1 : 0, ice: iced });
   guideFrame = 0;
 }
 
@@ -452,7 +452,7 @@ function paddleFx(f, x, y, nx, ny, strength, big) {
 /** The ball touched the body of the fighter who last hit it, and the rules say that is safe: bounce, no loss. */
 function ownBallBounce(f, h) {
   bodyBounceFx(f, h.cx, h.cy, h.nx, h.ny);
-  netEvent({ e: 'body', s: f === game.player ? 'a' : 'b', x: h.cx, y: h.cy, nx: h.nx, ny: h.ny });
+  netEvent({ e: 'body', s: f.slot, x: h.cx, y: h.cy, nx: h.nx, ny: h.ny });
 }
 
 function bodyBounceFx(f, x, y, nx, ny) {
@@ -462,33 +462,39 @@ function bodyBounceFx(f, x, y, nx, ny) {
   audio.sfxPaddle(0.25, true);
 }
 
+/** A body hit on the boss. Returns true (stop the ball) when the level is won; in co-op the boss can take more than one. */
 function onBossHit(h) {
   const g = game;
+  g.bossHits--;
+  hitFx(g.boss, h.cx, h.cy, h.nx, h.ny);
+  netEvent({ e: 'hit', s: 'b', x: h.cx, y: h.cy, nx: h.nx, ny: h.ny });
+  if (g.bossHits > 0) {
+    reserve('boss', 'b');
+    return true;
+  }
   state = 'cleared';
   g.ball.held = true;
   g.boss.hitFlash = 5;
-  g.fx.burst(h.cx, h.cy, h.nx, h.ny, 90, g.def.palette.obstacle, 500, Math.PI, 1.2);
-  g.fx.burst(h.cx, h.cy, h.nx, h.ny, 40, '#ffffff', 300, Math.PI, 0.8);
-  g.fx.ring(g.boss.x, g.boss.y, '#ffffff', 420, 0.9);
-  g.fx.ring(g.boss.x, g.boss.y, g.def.palette.obstacle, 260, 0.6);
-  g.fx.addShake(22);
-  g.fx.flash = 1;
-  audio.sfxBossHit();
   audio.stopTrack(2.5);
   endTimer = 1.6;
+  return true;
 }
 
-function onPlayerHit(h) {
-  const g = game;
-  const p = g.player;
+function onPlayerHit(p, h) {
   if (p.invuln > 0) return;
   p.invuln = PLAYER.invulnTime;
+  playerHitFx(p, h.cx, h.cy, h.nx, h.ny);
+  netEvent({ e: 'shield', s: p.slot, x: h.cx, y: h.cy, nx: h.nx, ny: h.ny });
+  loseShield('hit', p);
+}
+
+function playerHitFx(p, x, y, nx, ny) {
+  const g = game;
   p.hitFlash = 0.3;
-  g.fx.burst(h.cx, h.cy, h.nx, h.ny, 30, '#ff4d6d', 320, 1.6, 0.6);
+  g.fx.burst(x, y, nx, ny, 30, '#ff4d6d', 320, 1.6, 0.6);
   g.fx.ring(p.x, p.y, '#ff4d6d', 140, 0.5);
   g.fx.addShake(12);
   audio.sfxPlayerHit();
-  loseShield('hit');
 }
 
 /**
@@ -496,7 +502,7 @@ function onPlayerHit(h) {
  * re-serves behind a fresh countdown; with none, the level is lost (and with
  * it the campaign, whose pool this is).
  */
-function loseShield(reason) {
+function loseShield(reason, who = game.player) {
   const g = game;
   if (g.lives !== Infinity) g.lives--;
   g.shieldsLost++;
@@ -507,12 +513,19 @@ function loseShield(reason) {
   }
   if (g.lives <= 0) {
     g.lossReason = reason;
+    g.lastLoss = { reason, slot: who.slot, at: g.time };
     state = 'failed';
     g.ball.held = true;
     audio.stopTrack(1.5);
     endTimer = 1.2;
     return;
   }
+  reserve(reason, who.slot);
+}
+
+/** Hold the ball at its serve point and run a fresh countdown; `reason` and `slot` feed the HUD notice. */
+function reserve(reason, slot) {
+  const g = game;
   const def = g.def;
   g.ball.held = true;
   g.ball.x = def.ball.x;
@@ -522,7 +535,7 @@ function loseShield(reason) {
   g.ball.trail.length = 0;
   g.history.reset();
   g.guidePath = null;
-  g.lastLoss = { reason, at: simTime };
+  g.lastLoss = { reason, slot, at: g.time };
   countdown = COUNTDOWN_SECONDS;
   countdownTick = COUNTDOWN_SECONDS + 1;
   state = 'countdown';
@@ -583,7 +596,7 @@ function frame(now) {
         game.guidePath = predictPath(game.ball.x, game.ball.y, game.ball.vx, game.ball.vy, guideWalls, 1, 900, game.ball.r);
       }
     }
-    if ((state === 'cleared' || state === 'failed') && !endShown) {
+    if (!guest && (state === 'cleared' || state === 'failed') && !endShown) {
       endTimer -= dt;
       if (endTimer <= 0) {
         endShown = true;
@@ -999,8 +1012,9 @@ function updateHud() {
     setText('hud-lives-label', 'SHIELDS');
     setText('hud-boss-label', 'BOSS');
     setText('hud-lives', g.lives === Infinity ? '∞' : '◆'.repeat(Math.max(0, g.lives)) + '◇'.repeat(Math.max(0, g.maxLives - g.lives)));
+    if (g.coop) setText('hud-boss', `${g.def.bossName.toUpperCase()} ${'◆'.repeat(Math.max(0, g.bossHits))}${'◇'.repeat(Math.max(0, g.maxBossHits - g.bossHits))}`);
   }
-  const tags = [campaign ? 'CAMPAIGN' : '', g.difficulty ? g.difficulty.name.toUpperCase() : '', g.rules.ownBallLoss ? '' : 'SAFE OWN BALL'].filter(Boolean);
+  const tags = [g.coop ? `CO-OP · ${net.names.host.toUpperCase()} & ${net.names.guest.toUpperCase()}` : '', campaign || (g.coop && net.coopCampaign) ? 'CAMPAIGN' : '', g.difficulty ? g.difficulty.name.toUpperCase() : '', g.rules.ownBallLoss ? '' : 'SAFE OWN BALL'].filter(Boolean);
   setText('hud-rule', tags.map((t) => `· ${t}`).join(' '));
   const s = g.ball.held && state !== 'cleared' ? 0 : g.ball.speed;
   setText('hud-speed', `${Math.round(s)} px/s`);
@@ -1013,8 +1027,12 @@ function updateHud() {
   const campLeft = PLAYER.campSeconds - me.campTimer;
   const camping = state === 'playing' && !g.tutorial && me.campTimer > 0 && campLeft <= PLAYER.campWarn;
   let status = frozen ? `FROZEN ${me.frozen.toFixed(1)}` : camping ? `MOVE · ${Math.max(0, campLeft).toFixed(1)}` : '';
-  const lost = g.lastLoss && state === 'countdown' && simTime - g.lastLoss.at < 4 ? g.lastLoss : null;
-  if (lost) status = `${lost.reason === 'camp' ? 'STOOD STILL' : 'HIT'} · ${g.lives === Infinity ? 'UNLIMITED SHIELDS' : `${g.lives} SHIELD${g.lives === 1 ? '' : 'S'} LEFT`}`;
+  const lost = g.lastLoss && state === 'countdown' && g.time - g.lastLoss.at < 4 ? g.lastLoss : null;
+  if (lost && lost.slot === 'b') status = `BOSS HIT · ${g.bossHits} MORE TO GO`;
+  else if (lost) {
+    const who = g.coop ? `${(fighterBySlot(lost.slot) || me).name.replace(/ \(you\)$/, '').toUpperCase()} ` : '';
+    status = `${who}${lost.reason === 'camp' ? 'STOOD STILL' : 'HIT'} · ${g.lives === Infinity ? 'UNLIMITED SHIELDS' : `${g.lives} SHIELD${g.lives === 1 ? '' : 'S'} LEFT`}`;
+  }
   if (g.pvp && state === 'roundEnd' && net.winner) status = `POINT · ${net.names[net.winner]}${net.reason === 'camp' ? ' · STOOD STILL' : ''}`.toUpperCase();
   setText('hud-status', status);
   $('hud-status').style.color = g.pvp && state === 'roundEnd' && net.winner ? net.colors[net.winner] : camping ? '#ff4d6d' : '';
@@ -1399,6 +1417,8 @@ const net = {
   colors: { host: '', guest: '' }, // fixed for the whole match, whatever side each player is on
   rules: null,
   reason: null, // why the last round ended: 'hit' | 'camp'
+  coop: false, // two humans against the boss (host owns the campaign and the rules)
+  coopCampaign: false, // guest-side: the host is running a campaign
   client: null,
   mode: null, // null | 'host' | 'guest'
   localSlot: 'a',
@@ -1423,6 +1443,8 @@ function netReset() {
   }
   net.client = null;
   net.mode = null;
+  net.coop = false;
+  net.coopCampaign = false;
   net.remoteIntent = null;
   net.events = [];
   net.round = 0;
@@ -1440,7 +1462,14 @@ function netEvent(ev) {
 function localFighter() {
   const g = game;
   if (!g) return null;
-  return g.pvp && net.localSlot === 'b' ? g.boss : g.player;
+  if (g.pvp || g.coop) return fighterBySlot(net.localSlot) || g.player;
+  return g.player;
+}
+
+function fighterBySlot(slot) {
+  const g = game;
+  if (!g) return null;
+  return (g.fighters || [g.player, g.boss]).find((f) => f.slot === slot) || null;
 }
 
 /** Which player ('host' | 'guest') owns a slot this round. Sides swap each round. */
@@ -1515,6 +1544,7 @@ async function connectClient() {
     if (net.mode) showNetNotice('Connection lost', 'The link to the other player dropped.');
   });
   client.on('setup', onSetup);
+  client.on('result', onCoopResult);
   client.on('s', (msg) => {
     if (net.mode !== 'guest') return;
     if (msg.ev) for (const ev of msg.ev) playEvent(ev);
@@ -1545,14 +1575,36 @@ async function hostRoom() {
     client.on('peer', (msg) => {
       net.names.guest = msg.name;
       const options = LEVELS.map((l, i) => `<option value="${i}">${l.id}. ${l.title}</option>`).join('');
+      const saved = loadCampaign();
+      const diff = difficultySetting();
       lobbyStatus(`
         <div class="mp-code">${client.code}</div>
         <p><b>${msg.name}</b> joined.</p>
-        <div class="row"><label class="mp-field">Arena <select id="mp-level">${options}</select></label><button id="mp-start" class="primary">Start match</button></div>
+        <div class="row"><label class="mp-field">Mode <select id="mp-mode"><option value="versus">Versus · first to ${WIN_SCORE}</option><option value="coop">Co-op · together against the boss</option></select></label></div>
+        <div class="row" id="mp-versus-opts"><label class="mp-field">Arena <select id="mp-level">${options}</select></label></div>
+        <div class="row" id="mp-coop-opts" hidden>
+          <label class="mp-field">Play <select id="mp-coop-play"><option value="level">One level</option><option value="campaign">New campaign</option>${saved ? `<option value="resume">Continue campaign · Level ${LEVELS[saved.levelIndex].id}</option>` : ''}</select></label>
+          <label class="mp-field">Level <select id="mp-coop-level">${options}</select></label>
+        </div>
+        <p class="small muted" id="mp-coop-note" hidden>Co-op shares one pool of shields (${diff.name}: ${diff.blurb}, set on the title screen) and the boss takes ${COOP.bossHits} hits.</p>
+        <div class="row"><button id="mp-start" class="primary">Start match</button></div>
         <div class="row">${ownBallToggleHtml()}</div>
       `);
       bindOwnBallToggle();
-      $('mp-start').onclick = () => startNetMatch(Number($('mp-level').value));
+      const syncMode = () => {
+        const coop = $('mp-mode').value === 'coop';
+        $('mp-versus-opts').hidden = coop;
+        $('mp-coop-opts').hidden = !coop;
+        $('mp-coop-note').hidden = !coop;
+        $('mp-coop-level').parentElement.hidden = coop && $('mp-coop-play').value !== 'level';
+      };
+      $('mp-mode').onchange = syncMode;
+      $('mp-coop-play').onchange = syncMode;
+      $('mp-start').onclick = () => {
+        if ($('mp-mode').value !== 'coop') return startNetMatch(Number($('mp-level').value));
+        const play = $('mp-coop-play').value;
+        startCoop({ campaign: play !== 'level', resume: play === 'resume', levelIdx: Number($('mp-coop-level').value) });
+      };
     });
     client.create(name);
   } catch (err) {
@@ -1602,6 +1654,19 @@ function startNetRound() {
 /** Guest: the host announced a round. */
 function onSetup(msg) {
   net.mode = 'guest';
+  if (msg.coop) {
+    net.coop = true;
+    net.coopCampaign = !!msg.campaign;
+    net.localSlot = 'c';
+    net.levelIndex = msg.level;
+    net.names = msg.names;
+    net.rules = { ownBallLoss: !msg.rules || msg.rules.ownBallLoss !== false };
+    net.pending = null;
+    net.ballBase = null;
+    campaign = null; // the host owns the campaign; this side mirrors it
+    beginCoopLevel(difficultyById(msg.difficulty) || difficultySetting(), msg.shields);
+    return;
+  }
   net.levelIndex = msg.level;
   net.round = msg.round;
   net.scores = msg.scores;
@@ -1647,6 +1712,94 @@ function beginNetRound() {
   if (!sameTrack) audio.playTrack(TRACKS[def.track]);
 }
 
+// ---- co-op: two humans, one shield pool, the host's campaign
+
+/** Host: start co-op from the lobby, on one level or on a (new or saved) campaign. */
+function startCoop(opts) {
+  net.mode = 'host';
+  net.coop = true;
+  net.localSlot = 'a';
+  net.rules = { ownBallLoss: ownBallLoss() };
+  net.round = 0;
+  if (opts.campaign) {
+    const saved = opts.resume ? loadCampaign() : null;
+    const diff = saved ? difficultyById(saved.difficulty) : difficultySetting();
+    campaign = saved ? { ...saved } : { difficulty: diff.id, shields: diff.shields, levelIndex: 0, time: 0, lost: 0 };
+    saveCampaign();
+    coopStartLevel(campaign.levelIndex);
+  } else {
+    campaign = null;
+    coopStartLevel(opts.levelIdx);
+  }
+}
+
+/** Host: build a co-op level and tell the guest to build the same one. */
+function coopStartLevel(index) {
+  net.levelIndex = index;
+  net.remoteIntent = null;
+  net.events = [];
+  const diff = campaign ? difficultyById(campaign.difficulty) : difficultySetting();
+  const shields = campaign ? campaign.shields : diff.shields;
+  net.client.send({ t: 'setup', coop: true, level: index, names: net.names, rules: net.rules, difficulty: diff.id, campaign: !!campaign, shields: shields === Infinity ? 'inf' : shields });
+  beginCoopLevel(diff, shields === Infinity ? 'inf' : shields);
+}
+
+/** Both sides: build the co-op arena (host human a, ally c, boss b) and start the countdown. */
+function beginCoopLevel(diff, shields) {
+  const def = LEVELS[net.levelIndex];
+  const sameTrack = game && game.def === def && audio.track;
+  levelIndex = net.levelIndex;
+  resetFrameWatch();
+  game = buildGame(def, false, net.rules, true);
+  game.difficulty = diff;
+  game.maxLives = diff.shields;
+  game.lives = shields === 'inf' ? Infinity : Number(shields);
+  game.player.name = net.names.host + (net.localSlot === 'a' ? ' (you)' : '');
+  game.ally.name = net.names.guest + (net.localSlot === 'c' ? ' (you)' : '');
+  net.colors = { host: def.palette.wall, guest: COOP.allyColor };
+  game.player.color = net.colors.host;
+  game.ally.color = net.colors.guest;
+  game.local = localFighter();
+  renderer.setLevel(def);
+  renderer.resize();
+  simTime = 0;
+  acc = 0;
+  countdown = COUNTDOWN_SECONDS;
+  countdownTick = COUNTDOWN_SECONDS + 1;
+  endTimer = 0;
+  endShown = false;
+  state = 'countdown';
+  input.clearPresses();
+  hideOverlay();
+  setInGame(true);
+  $('hud').hidden = false;
+  $('countdown').hidden = true;
+  $('hud-level').textContent = `LEVEL ${def.id} · ${def.title.toUpperCase()}`;
+  $('hud-boss').textContent = def.bossName.toUpperCase();
+  $('hud-track').textContent = TRACKS[def.track].title;
+  if (!sameTrack) audio.playTrack(TRACKS[def.track]);
+}
+
+/** Host: mirror an end-of-level screen to the guest as plain text. */
+function coopResult(kind, eyebrow, title, text, note = '') {
+  if (net.mode === 'host' && net.coop && net.client) net.client.send({ t: 'result', kind, eyebrow, title, text, note });
+}
+
+/** Guest: the host reached an end-of-level screen; show it and wait for the host's choice. */
+function onCoopResult(msg) {
+  if (net.mode !== 'guest' || !net.coop) return;
+  setInGame(false);
+  const esc = (t) => String(t || '').replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+  showOverlay(`
+    <div class="eyebrow">${esc(msg.eyebrow)}</div>
+    <h1>${esc(msg.title)}</h1>
+    <p class="muted">${esc(msg.text)}</p>
+    ${msg.note ? `<p class="small muted record-note">${esc(msg.note)}</p>` : ''}
+    <div class="row"><span class="small muted">Waiting for ${esc(net.names.host)} to choose what is next…</span><button id="btn-menu">Main menu</button></div>
+  `);
+  $('btn-menu').onclick = leaveMatch;
+}
+
 /** Host: a body was hit in PvP; the other player scores. */
 function onPvpHit(f, h) {
   const hitSlot = f === game.player ? 'a' : 'b';
@@ -1684,6 +1837,11 @@ function hitFx(f, x, y, nx, ny) {
 function hostSend() {
   net.frame++;
   const meta = { st: state, cd: countdown, sc: net.scores, rd: net.round, w: net.winner, rs: net.reason };
+  if (net.coop) {
+    meta.lv = game.lives === Infinity ? 'inf' : game.lives;
+    meta.bh = game.bossHits;
+    meta.ll = game.lastLoss ? [game.lastLoss.reason, game.lastLoss.slot, game.lastLoss.at] : null;
+  }
   net.client.send(buildSnapshot(game, meta, net.events, net.frame % 4 === 0));
   net.events = [];
   pingMaybe();
@@ -1722,6 +1880,11 @@ function guestApply(now) {
     net.round = s.rd;
     net.winner = s.w;
     net.reason = s.rs || null;
+    if (net.coop) {
+      if (s.lv !== undefined) g.lives = s.lv === 'inf' ? Infinity : s.lv;
+      if (s.bh !== undefined) g.bossHits = s.bh;
+      g.lastLoss = s.ll ? { reason: s.ll[0], slot: s.ll[1], at: s.ll[2] } : null;
+    }
     countdown = s.cd;
     state = s.st;
     if (state === 'countdown') {
@@ -1751,7 +1914,7 @@ function playEvent(ev) {
       wallFx(ev.x, ev.y, ev.nx, ev.ny, ev.n, ev.c);
       break;
     case 'paddle': {
-      const f = ev.s === 'a' ? g.player : g.boss;
+      const f = fighterBySlot(ev.s) || g.boss;
       paddleFx(f, ev.x, ev.y, ev.nx, ev.ny, ev.st, !!ev.d);
       if (ev.ice) audio.sfxIce();
       break;
@@ -1770,7 +1933,7 @@ function playEvent(ev) {
       }
       break;
     case 'freeze':
-      freezeFx(ev.s === 'a' ? g.player : g.boss);
+      freezeFx(fighterBySlot(ev.s) || g.player);
       break;
     case 'whack':
       audio.sfxWhack();
@@ -1779,13 +1942,16 @@ function playEvent(ev) {
       audio.sfxCount(!!ev.f);
       break;
     case 'hit':
-      hitFx(ev.s === 'a' ? g.player : g.boss, ev.x, ev.y, ev.nx, ev.ny);
+      hitFx(fighterBySlot(ev.s) || g.boss, ev.x, ev.y, ev.nx, ev.ny);
+      break;
+    case 'shield':
+      playerHitFx(fighterBySlot(ev.s) || g.player, ev.x, ev.y, ev.nx, ev.ny);
       break;
     case 'body':
-      bodyBounceFx(ev.s === 'a' ? g.player : g.boss, ev.x, ev.y, ev.nx, ev.ny);
+      bodyBounceFx(fighterBySlot(ev.s) || g.player, ev.x, ev.y, ev.nx, ev.ny);
       break;
     case 'camp':
-      campFx(ev.s === 'a' ? g.player : g.boss);
+      campFx(fighterBySlot(ev.s) || g.player);
       break;
     default:
       break;
@@ -2011,6 +2177,7 @@ async function startCampaign(saved = null) {
   const diff = saved ? difficultyById(saved.difficulty) : difficultySetting();
   campaign = saved ? { ...saved } : { difficulty: diff.id, shields: diff.shields, levelIndex: 0, time: 0, lost: 0 };
   saveCampaign();
+  if (net.mode === 'host' && net.coop) return coopStartLevel(campaign.levelIndex);
   const go = () => startLevel(campaign.levelIndex);
   if (!tutorialDone()) startTutorial(false, go);
   else go();
@@ -2039,6 +2206,7 @@ function showCampaignCleared(def, next, nextIdx, last) {
     clearCampaign();
     const done = { ...campaign };
     campaign = null;
+    coopResult('campaign-complete', `CAMPAIGN COMPLETE · ${diff.name.toUpperCase()}`, 'The arcade is yours', `${def.stopped || `${def.bossName} is down.`} Total time ${formatTime(done.time)}, shields lost ${done.lost}.`);
     showOverlay(`
       <div class="eyebrow">CAMPAIGN COMPLETE · ${diff.name.toUpperCase()}</div>
       <h1>The arcade is yours</h1>
@@ -2057,6 +2225,7 @@ function showCampaignCleared(def, next, nextIdx, last) {
   }
   campaign.levelIndex = nextIdx;
   saveCampaign();
+  coopResult('campaign-cleared', `LEVEL ${def.id} CLEARED · ${def.bossName.toUpperCase()} ${LORE.status.stopped}`, def.title, `${def.stopped || `${def.bossName} is down.`} Shields: ${shields}.`);
   showOverlay(`
     <div class="eyebrow">LEVEL ${def.id} CLEARED · ${def.bossName.toUpperCase()} ${LORE.status.stopped}</div>
     <h1>${def.title}</h1>
@@ -2078,6 +2247,7 @@ function showCampaignOver(def) {
   const reached = { ...campaign, time: campaign.time + game.time };
   clearCampaign();
   campaign = null;
+  coopResult('campaign-over', 'CAMPAIGN OVER · NO SHIELDS LEFT', `${def.bossName} holds ${def.title}`, `You reached level ${def.id} on ${diff.name} in ${formatTime(reached.time)}.`, LORE.failed(def.title));
   showOverlay(`
     <div class="eyebrow">CAMPAIGN OVER · NO SHIELDS LEFT</div>
     <h1>${def.bossName} holds ${def.title}</h1>
@@ -2097,6 +2267,7 @@ function showCleared() {
   const nextIdx = LEVELS.findIndex((l) => l.id === def.id + 1);
   const last = !next;
   if (campaign) return showCampaignCleared(def, next, nextIdx, last);
+  coopResult('cleared', last ? 'EVERY LEVEL CLEARED' : `LEVEL ${def.id} CLEARED · ${def.bossName.toUpperCase()} ${LORE.status.stopped}`, last ? 'The arcade is yours' : def.title, def.stopped || `${def.bossName} is down.`);
   showOverlay(`
     <div class="eyebrow">${last ? 'EVERY LEVEL CLEARED' : `LEVEL ${def.id} CLEARED · ${def.bossName.toUpperCase()} ${LORE.status.stopped}`}</div>
     <h1>${last ? 'The arcade is yours' : def.title}</h1>
@@ -2121,6 +2292,7 @@ function showFailed() {
   setInGame(false);
   const def = game.def;
   if (campaign) return showCampaignOver(def);
+  coopResult('failed', game.lossReason === 'camp' ? 'STOOD STILL' : 'SHIELD DOWN', `${def.bossName} holds ${def.title}`, `That was the last shield. You lasted ${formatTime(game.time)}.`, LORE.failed(def.title));
   showOverlay(`
     <div class="eyebrow">${game.lossReason === 'camp' ? 'STOOD STILL' : 'SHIELD DOWN'}</div>
     <h1>${def.bossName} holds ${def.title}</h1>

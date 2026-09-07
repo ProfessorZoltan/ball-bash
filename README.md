@@ -78,6 +78,20 @@ score, names and point notices are tinted to match. Boss-only abilities are
 off in multiplayer; ice trails lay for either player's blocks and only freeze
 the other player (its core is tinted in the colour of whoever laid it).
 
+**Co-op.** In the lobby the host can pick **Co-op** instead of Versus: both
+humans play on the same side against the AI boss, on one level or on the
+host's campaign (new, or continued from the host's save). The two of you share
+one pool of shields at the host's difficulty setting; a body hit or a
+stand-still by either of you costs one, and the ball re-serves. Because two
+shields cover far more lanes than one, the boss takes two body hits in co-op
+(pips next to its name in the HUD; `COOP.bossHits` in `src/config.js`). The
+own-ball rule treats the team as one body: with it off, a ball your partner
+hit last just bounces off you. The host wears the arena's wall colour, the
+ally a fixed green, and the ally spawns near the host at a spot chosen to be
+clear of walls, obstacles and movers (`findAllySpawn`, or a level's `ally`
+override). End-of-level screens and the campaign's continue, restart and
+summary choices belong to the host; the guest sees the same screen and waits.
+
 How it works: the server is also a tiny WebSocket relay (`/ws`, no
 dependencies). The host's browser runs the physics exactly as in single
 player, with the second character driven by the guest's inputs instead of the

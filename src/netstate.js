@@ -42,7 +42,7 @@ export function buildSnapshot(g, meta, events = [], includeIce = true) {
     ...meta,
     time: r1(g.time || 0),
     ball: [r1(b.x), r1(b.y), r1(b.vx), r1(b.vy), b.held ? 1 : 0],
-    f: [fighterState(g.player), fighterState(g.boss)],
+    f: g.fighters.map(fighterState),
     mv: g.movers.map(moverState),
   };
   if (g.panes.length) s.pn = g.panes.map((p) => (p.broken ? r1(p.regrowAt) : -1));
@@ -59,8 +59,7 @@ export function applySnapshot(g, s) {
   b.vx = s.ball[2];
   b.vy = s.ball[3];
   b.held = !!s.ball[4];
-  applyFighter(g.player, s.f[0]);
-  applyFighter(g.boss, s.f[1]);
+  for (let i = 0; i < g.fighters.length && i < s.f.length; i++) applyFighter(g.fighters[i], s.f[i]);
   for (let i = 0; i < s.mv.length && i < g.movers.length; i++) applyMover(g.movers[i], s.mv[i]);
   let glassChanged = false;
   if (s.pn) {

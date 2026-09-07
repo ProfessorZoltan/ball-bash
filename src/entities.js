@@ -13,6 +13,7 @@ export class Ball {
     this.ry = 0;
     this.lastHitBy = null; // 'player' | 'boss' | 'wall' | 'mover'
     this.lastPaddle = null; // kind of the last fighter whose shield hit it
+    this.lastTeam = null; // team of that fighter (the own-ball rule works per team)
   }
 
   get speed() {
@@ -46,6 +47,7 @@ export class Ball {
     this.trail.length = 0;
     this.lastHitBy = null;
     this.lastPaddle = null;
+    this.lastTeam = null;
     this.rx = x;
     this.ry = y;
   }
@@ -87,6 +89,8 @@ export class Fighter {
         moveAccel: 40, // x moveSpeed per second: how fast velocity follows input
         turnAccel: 60, // x turnSpeed per second: how fast spin follows input
         color: '#3ee6ff',
+        slot: 'a', // network / event identity: 'a' host human, 'b' boss or rival, 'c' co-op ally
+        team: 'us', // body hits only count from a ball the other team touched last
         name: 'Fighter',
         kind: 'player',
       },
@@ -241,6 +245,8 @@ export class Boss extends Fighter {
     super({
       kind: 'boss',
       color: '#ff7a3d',
+      slot: 'b',
+      team: 'boss',
       reaction: 0.35, // seconds of perception delay + replanning period
       aggression: 0.25, // probability of a whack when the ball arrives
       aim: 0.5, // 0 = just block, 1 = angle the paddle to return the ball at the player

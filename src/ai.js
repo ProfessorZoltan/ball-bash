@@ -192,6 +192,7 @@ export function predictReturn(seen, now, player, segs, ballR, { swing = true, er
  * from that point toward where the ball comes from.
  */
 function chooseReturnAngle(boss, tx, ty, incoming, player, walls, eta, ballR, movers = []) {
+  const humans = Array.isArray(player) ? player : [player];
   const inx = Math.cos(incoming);
   const iny = Math.sin(incoming);
   // Contact happens at the paddle, out in front of the body.
@@ -244,15 +245,17 @@ function chooseReturnAngle(boss, tx, ty, incoming, player, walls, eta, ballR, mo
       }
     }
 
-    // Target: how close the path passes to the player (any leg).
+    // Target: how close the path passes to a human (any leg, whichever human is nearest).
     let dp = Infinity;
     let dpFirst = Infinity;
     for (let i = 0; i < path.length; i++) {
       const s = path[i];
-      const c = closestPointOnSegment(player.x, player.y, s.ax, s.ay, s.bx, s.by);
-      const dd = Math.hypot(c.x - player.x, c.y - player.y);
-      if (dd < dp) dp = dd;
-      if (i === 0) dpFirst = dd;
+      for (const h of humans) {
+        const c = closestPointOnSegment(h.x, h.y, s.ax, s.ay, s.bx, s.by);
+        const dd = Math.hypot(c.x - h.x, c.y - h.y);
+        if (dd < dp) dp = dd;
+        if (i === 0 && dd < dpFirst) dpFirst = dd;
+      }
     }
     score -= dp * (0.35 + 0.9 * boss.aim);
     if (dpFirst < 90) score += 120; // clean, direct lane
@@ -288,8 +291,28 @@ export function moverSegmentsAt(movers, x, y, vx, vy, delay = 0) {
   return segs;
 }
 
-function plan(boss, seen, player, walls, now, ballR, movers) {
+/** Of several humans, the one the ball is heading for (or, failing that, the nearest to it). */
+function pickTarget(humans, seen) {
+  let best = null;
+  let bestScore = -Infinity;
+  const sp = Math.hypot(seen.vx, seen.vy) || 1;
+  for (const h of humans) {
+    const dx = h.x - seen.x;
+    const dy = h.y - seen.y;
+    const d = Math.hypot(dx, dy) || 1;
+    const toward = (dx * seen.vx + dy * seen.vy) / (d * sp); // -1..1
+    const score = toward * 1000 - d * 0.5;
+    if (score > bestScore) {
+      bestScore = score;
+      best = h;
+    }
+  }
+  return best;
+}
+
+function plan(boss, seen, humans, walls, now, ballR, movers) {
   const ai = boss.ai;
+  const player = pickTarget(humans, seen) || humans[0];
   const speed = Math.sqrt(seen.vx * seen.vx + seen.vy * seen.vy);
   // Idle facing: the ball, unless it is on the opponent's side of the arena
   // and heading their way, in which case the next shot comes from them.
@@ -324,7 +347,18 @@ function plan(boss, seen, player, walls, now, ballR, movers) {
     // read is what to plan for.
     const ant = boss.anticipation;
     const diag = {};
-    const ret = ant && ant.commit > 0 ? predictReturn(seen, now, player, segsIn, ballR, ant, diag) : null;
+    // Read every human shield the ball could meet; the earliest contact is the return that happens.
+    let ret = null;
+    if (ant && ant.commit > 0) {
+      for (const h of humans) {
+        const d = {};
+        const r = predictReturn(seen, now, h, segsIn, ballR, ant, d);
+        if (r && (!ret || r.t < ret.t)) {
+          ret = r;
+          diag.reason = d.reason;
+        } else if (!ret) diag.reason = d.reason;
+      }
+    }
     ai.readReason = diag.reason || 'off';
     if (ret && threat) {
       const contactDist = (ret.t - (seen.t ?? now)) * speed;
@@ -340,7 +374,7 @@ function plan(boss, seen, player, walls, now, ballR, movers) {
       const eta = Math.max(0, seenAt + threat.along / speed - now);
       ai.arrival = now + eta;
       const segsOut = movers.length ? walls.concat(moverSegmentsAt(movers, tx, ty, 0, 0, eta)) : walls;
-      faceAngle = chooseReturnAngle(boss, tx, ty, incoming, player, segsOut, eta, ballR, movers);
+      faceAngle = chooseReturnAngle(boss, tx, ty, incoming, humans, segsOut, eta, ballR, movers);
       // Decide how to receive it: whack (add speed), absorb (pull the shield
       // back to bleed speed off a hot ball), or just block.
       if (eta < 0.28 && Math.random() < boss.aggression) ai.lunge = true;
@@ -365,7 +399,7 @@ function plan(boss, seen, player, walls, now, ballR, movers) {
           ty = anchor.y + (guess.y - anchor.y) * ant.commit;
           const incoming = Math.atan2(-guess.seg.dy, -guess.seg.dx);
           const segsOut = movers.length ? walls.concat(moverSegmentsAt(movers, tx, ty, 0, 0, eta)) : walls;
-          faceAngle = ant.commit >= 0.5 ? chooseReturnAngle(boss, tx, ty, incoming, player, segsOut, eta, ballR, movers) : incoming;
+          faceAngle = ant.commit >= 0.5 ? chooseReturnAngle(boss, tx, ty, incoming, humans, segsOut, eta, ballR, movers) : incoming;
           ai.anticipating = true;
           ai.antRet = ret; // the read, kept so tests and sims can score it against the real return
         }
@@ -396,6 +430,7 @@ function plan(boss, seen, player, walls, now, ballR, movers) {
  * Produce a movement intent for the boss this physics step.
  */
 export function bossIntent(boss, history, player, walls, dt, now, movers = []) {
+  const humans = Array.isArray(player) ? player : [player];
   const ai = boss.ai;
   ai.timer -= dt;
   const seen = history.sample(now - boss.reaction) || history.latest();
@@ -410,7 +445,7 @@ export function bossIntent(boss, history, player, walls, dt, now, movers = []) {
   }
   if (replan) {
     ai.timer = boss.reaction;
-    if (seen) plan(boss, seen, player, walls, now, history.ballRadius, movers);
+    if (seen) plan(boss, seen, humans, walls, now, history.ballRadius, movers);
   }
 
   let mx = ai.tx - boss.x;

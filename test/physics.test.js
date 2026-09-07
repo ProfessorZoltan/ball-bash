@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { reflect, circleVsCapsule, polygonEdges, pointInPolygon, predictPath, raycastSegments } from '../src/physics.js';
+import { reflect, circleVsCapsule, polygonEdges, pointInPolygon, predictPath, raycastSegments, closestPointOnSegment } from '../src/physics.js';
 import { Ball, Fighter, Boss, Spinner, Piston, Orbiter, Pulser, createMover } from '../src/entities.js';
 import { IceTrail } from '../src/ice.js';
 import { advanceBall, separateFightersFromBall } from '../src/sim.js';
@@ -243,31 +243,60 @@ for (const def of LEVELS) {
   });
 }
 
-test('own-ball rule: a body hit only counts when the other shield touched the ball last', async () => {
+test('own-ball rule: a body hit only counts when the other team touched the ball last', async () => {
   const { bodyHitCounts, DEFAULT_RULES, createGameState } = await import('../src/gamestate.js');
   const ball = new Ball(BALL.radius);
-  const me = { kind: 'player' };
-  const boss = { kind: 'boss' };
+  const me = { team: 'us' };
+  const mate = { team: 'us' };
+  const boss = { team: 'boss' };
   // Default rules: every body hit counts.
-  ball.lastPaddle = 'player';
+  ball.lastTeam = 'us';
   assert.equal(bodyHitCounts(ball, me, DEFAULT_RULES), true);
   assert.equal(bodyHitCounts(ball, me), true);
-  // Rule off: the ball I last hit bounces off me, still kills the other side.
+  // Rule off: a ball my team last hit bounces off me and my co-op partner, still kills the boss.
   const off = { ownBallLoss: false };
   assert.equal(bodyHitCounts(ball, me, off), false);
+  assert.equal(bodyHitCounts(ball, mate, off), false);
   assert.equal(bodyHitCounts(ball, boss, off), true);
-  ball.lastPaddle = 'boss';
+  ball.lastTeam = 'boss';
   assert.equal(bodyHitCounts(ball, me, off), true);
   assert.equal(bodyHitCounts(ball, boss, off), false);
   // A fresh serve belongs to nobody: both can lose to it.
   ball.launch(0, 0, 0, 300);
-  assert.equal(ball.lastPaddle, null);
+  assert.equal(ball.lastTeam, null);
   assert.equal(bodyHitCounts(ball, me, off), true);
   assert.equal(bodyHitCounts(ball, boss, off), true);
   // The rule rides along with the game state and merges over the defaults.
   const g = createGameState(LEVELS[0], { rules: off });
   assert.equal(g.rules.ownBallLoss, false);
   assert.equal(createGameState(LEVELS[0]).rules.ownBallLoss, true);
+  // Teams: single player and co-op put the humans together; versus splits them.
+  assert.deepEqual(g.fighters.map((f) => [f.slot, f.team]), [['a', 'us'], ['b', 'boss']]);
+  const pvp = createGameState(LEVELS[0], { pvp: true });
+  assert.deepEqual(pvp.fighters.map((f) => [f.slot, f.team]), [['a', 'a'], ['b', 'b']]);
+  const coop = createGameState(LEVELS[0], { coop: true });
+  assert.deepEqual(coop.fighters.map((f) => [f.slot, f.team]), [['a', 'us'], ['c', 'us'], ['b', 'boss']]);
+  assert.equal(coop.humans.length, 2);
+});
+
+test('co-op ally spawns are inside every arena and clear of walls, obstacles and movers', async () => {
+  const { findAllySpawn, createGameState } = await import('../src/gamestate.js');
+  const { PLAYER } = await import('../src/config.js');
+  for (const def of LEVELS) {
+    const movers = (def.movers || []).map(createMover);
+    const s = findAllySpawn(def, movers);
+    assert.ok(pointInPolygon(s.x, s.y, def.boundary), `${def.title}: ally spawn inside the room`);
+    for (const o of def.obstacles) assert.ok(!pointInPolygon(s.x, s.y, obstaclePoly(o)), `${def.title}: ally spawn not inside an obstacle`);
+    const segs = polygonEdges(def.boundary).concat(...def.obstacles.map((o) => polygonEdges(obstaclePoly(o))));
+    for (const sg of segs) {
+      const c = closestPointOnSegment(s.x, s.y, sg.ax, sg.ay, sg.bx, sg.by);
+      assert.ok(Math.hypot(c.x - s.x, c.y - s.y) >= PLAYER.radius + 10, `${def.title}: ally spawn clear of walls`);
+    }
+    const dPlayer = Math.hypot(s.x - def.player.x, s.y - def.player.y);
+    assert.ok(dPlayer >= 2 * PLAYER.radius, `${def.title}: ally does not overlap the host`);
+    const g = createGameState(def, { coop: true });
+    assert.equal(g.ally.x, s.x);
+  }
 });
 
 test('keep-moving rule: standing still for the limit loses, a body diameter of net movement resets, turning and freezing do not count', async () => {

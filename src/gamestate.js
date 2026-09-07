@@ -2,9 +2,9 @@
 // multiplayer guest mirror and the tests.
 import { Ball, Fighter, Boss, createMover } from './entities.js';
 import { IceTrail } from './ice.js';
-import { polygonEdges } from './physics.js';
+import { polygonEdges, pointInPolygon, closestPointOnSegment } from './physics.js';
 import { obstaclePoly } from './levels.js';
-import { BALL, PLAYER } from './config.js';
+import { BALL, PLAYER, COOP } from './config.js';
 
 function playerStats(def, spawn) {
   return {
@@ -38,7 +38,32 @@ export const DEFAULT_RULES = Object.freeze({ ownBallLoss: true });
  */
 export function bodyHitCounts(ball, fighter, rules = DEFAULT_RULES) {
   if (!rules || rules.ownBallLoss !== false) return true;
-  return ball.lastPaddle !== fighter.kind;
+  return ball.lastTeam !== fighter.team;
+}
+
+/**
+ * Where the co-op ally spawns: near the host's spawn, inside the room, clear
+ * of walls, obstacles and movers. Levels may set `ally: { x, y }` to override.
+ */
+export function findAllySpawn(def, movers = []) {
+  if (def.ally) return { ...def.player, ...def.ally };
+  const p = def.player;
+  const r = PLAYER.radius + 14;
+  const walls = polygonEdges(def.boundary).concat(...def.obstacles.map((o) => polygonEdges(obstaclePoly(o))));
+  const clear = (x, y) => {
+    if (!pointInPolygon(x, y, def.boundary)) return false;
+    for (const o of def.obstacles) if (pointInPolygon(x, y, obstaclePoly(o))) return false;
+    for (const s of walls) {
+      const c = closestPointOnSegment(x, y, s.ax, s.ay, s.bx, s.by);
+      if (Math.hypot(c.x - x, c.y - y) < r) return false;
+    }
+    for (const m of movers) if (Math.hypot(m.x - x, m.y - y) < (m.reach || 0) + r + 10) return false;
+    if (Math.hypot(def.boss.x - x, def.boss.y - y) < 260) return false;
+    return true;
+  };
+  const offsets = [[0, 130], [0, -130], [0, 190], [0, -190], [-90, 100], [-90, -100], [90, 100], [90, -100], [-130, 0], [130, 0], [0, 250], [0, -250]];
+  for (const [dx, dy] of offsets) if (clear(p.x + dx, p.y + dy)) return { ...p, x: p.x + dx, y: p.y + dy };
+  return { ...p, x: p.x, y: p.y + 60 }; // last resort: the physics pushes the two apart
 }
 
 /**
@@ -57,7 +82,7 @@ export function tickCamp(f, dt, { distance = PLAYER.campDistance, seconds = PLAY
   return f.campTimer >= seconds;
 }
 
-export function createGameState(def, { pvp = false, rules = DEFAULT_RULES } = {}) {
+export function createGameState(def, { pvp = false, coop = false, rules = DEFAULT_RULES } = {}) {
   const staticWalls = polygonEdges(def.boundary, 'wall');
   const panes = [];
   for (const o of def.obstacles) {
@@ -69,18 +94,21 @@ export function createGameState(def, { pvp = false, rules = DEFAULT_RULES } = {}
       staticWalls.push(...polygonEdges(obstaclePoly(o), 'obstacle'));
     }
   }
-  const player = new Fighter({ ...playerStats(def, def.player), name: 'You', kind: 'player', color: def.palette.wall });
+  const player = new Fighter({ ...playerStats(def, def.player), name: 'You', kind: 'player', slot: 'a', team: pvp ? 'a' : 'us', color: def.palette.wall });
   const boss = pvp
-    ? new Fighter({ ...playerStats(def, def.boss), name: 'Rival', kind: 'boss', color: def.palette.obstacle })
-    : new Boss({ ...def.boss, name: def.bossName, color: def.palette.obstacle });
+    ? new Fighter({ ...playerStats(def, def.boss), name: 'Rival', kind: 'boss', slot: 'b', team: 'b', color: def.palette.obstacle })
+    : new Boss({ ...def.boss, name: def.bossName, color: def.palette.obstacle, slot: 'b', team: 'boss' });
   const movers = (def.movers || []).map(createMover);
+  const ally = coop ? new Fighter({ ...playerStats(def, findAllySpawn(def, movers)), name: 'Ally', kind: 'player', slot: 'c', team: 'us', color: COOP.allyColor }) : null;
+  const fighters = ally ? [player, ally, boss] : [player, boss];
+  const humans = pvp ? [player, boss] : ally ? [player, ally] : [player];
   const ice = def.ice ? new IceTrail(def.ice) : null;
   const ball = new Ball(BALL.radius);
   ball.x = def.ball.x;
   ball.y = def.ball.y;
   ball.held = true;
   const staticPolys = def.obstacles.filter((o) => !o.glass).map(obstaclePoly);
-  const g = { def, staticWalls, staticPolys, panes, walls: [], solidPolys: [], player, boss, movers, ice, ball, pvp, rules: { ...DEFAULT_RULES, ...rules } };
+  const g = { def, staticWalls, staticPolys, panes, walls: [], solidPolys: [], player, ally, boss, fighters, humans, movers, ice, ball, pvp, coop, rules: { ...DEFAULT_RULES, ...rules } };
   rebuildWalls(g);
   return g;
 }
