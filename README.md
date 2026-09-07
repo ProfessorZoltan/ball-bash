@@ -170,11 +170,14 @@ static Vercel deployment cannot relay, so the button is disabled there.
 | Thrust the shield forward ("whack") | **W** or **Space** |
 | Pull the shield in (soft return, slows the ball) | **S** |
 | Pause / mute / restart | **P** / **M** / **R** |
+| Controller (Xbox or any standard gamepad) | **left stick** points the shield where it aims, **right stick** moves, **A** thrusts, **X** pulls the shield in, **Start** pauses, **A** also confirms on menus |
 
 On touch devices, touch anywhere on the arena and drag: the first touch becomes
 a floating joystick and the drag direction steers, so your finger never has to
 cover the character. Rotate, pull and whack buttons appear while a level is
-running. **F** or the ⛶ button toggles fullscreen where the browser allows it;
+running. A controller works as soon as the browser sees it (press any button
+after connecting; browsers reveal gamepads only after a button press).
+**F** or the ⛶ button toggles fullscreen where the browser allows it;
 iPhones have no fullscreen API for web pages, so use Share → Add to Home Screen,
 which launches the game chrome-free thanks to `manifest.webmanifest`.
 
