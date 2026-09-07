@@ -1,0 +1,78 @@
+{
+  "name": "deflector-desktop",
+  "version": "0.3.0-alpha",
+  "private": true,
+  "description": "Deflector for Windows: the game in its own window, with the LAN server built in.",
+  "author": "ProfessorZoltan",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "build": "electron-builder --win --publish never"
+  },
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "electron": "44.2.0",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "io.github.professorzoltan.deflector",
+    "productName": "Deflector",
+    "copyright": "ProfessorZoltan",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js"
+    ],
+    "extraResources": [
+      {
+        "from": "..",
+        "to": "game",
+        "filter": [
+          "index.html",
+          "style.css",
+          "manifest.webmanifest",
+          "package.json",
+          "server.js",
+          "src/**/*",
+          "icons/**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "Deflector",
+      "artifactName": "Deflector-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "Deflector-Portable-${version}.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "icon": "build/icon.png",
+      "category": "Game",
+      "artifactName": "Deflector-${version}.${ext}"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "icon": "build/icon.png",
+      "category": "public.app-category.games",
+      "artifactName": "Deflector-${version}.${ext}"
+    },
+    "publish": null
+  }
+}

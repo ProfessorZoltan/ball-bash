@@ -4,13 +4,23 @@
 import { DEFAULT_RELAY } from './config.js';
 
 const RELAY_KEY = 'deflector.relay';
+const PROBE_TIMEOUT = 4000; // ms to wait for a relay's /health
+
+// Set by available() when the configured relay did not answer but the page's
+// own server did (the desktop app, or npm start): play goes through that
+// server until the relay setting is changed again.
+let originFallback = false;
 
 /**
  * The configured relay, or null for the page's own server. Order: the
  * ?relay= query parameter, the address saved in this browser, DEFAULT_RELAY.
- * Returns { ws, http, label } with the WebSocket and HTTP base URLs.
+ * Returns { ws, http, label } with the WebSocket and HTTP base URLs. An
+ * address without a scheme is secure (wss) unless it is a LAN-style host: an
+ * IP address, localhost, or a bare machine name, as when a friend hosts from
+ * the desktop app and shares "192.168.1.20:27411".
  */
 export function relayConfig() {
+  if (originFallback) return null;
   let raw = '';
   try {
     raw = new URLSearchParams(location.search).get('relay') || localStorage.getItem(RELAY_KEY) || DEFAULT_RELAY || '';
@@ -22,19 +32,33 @@ export function relayConfig() {
   if (/^(local|lan|origin)$/i.test(raw)) return null; // the page's own server, even when a default relay is configured
   const m = raw.match(/^(?:(wss?|https?):\/\/)?([^/\s]+)/i);
   if (!m) return null;
-  const proto = (m[1] || 'wss').toLowerCase();
-  const secure = proto === 'wss' || proto === 'https';
   const host = m[2];
+  const lanHost = /^(\d{1,3}(\.\d{1,3}){3}|\[[0-9a-f:]+\]|[^.:]+)(:\d+)?$/i.test(host);
+  const proto = (m[1] || (lanHost ? 'ws' : 'wss')).toLowerCase();
+  const secure = proto === 'wss' || proto === 'https';
   return { ws: `${secure ? 'wss' : 'ws'}://${host}/ws`, http: `${secure ? 'https' : 'http'}://${host}`, label: host };
 }
 
 /** Save (or with an empty string, clear) the relay address for this browser. */
 export function saveRelay(address) {
+  originFallback = false;
   try {
     if (String(address || '').trim()) localStorage.setItem(RELAY_KEY, String(address).trim());
     else localStorage.removeItem(RELAY_KEY);
   } catch (_) {
     // storage unavailable; the choice lasts for this page load only
+  }
+}
+
+/** GET a JSON status URL; null when it does not answer in time. */
+async function probe(url) {
+  try {
+    const signal = typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(PROBE_TIMEOUT) : undefined;
+    const res = await fetch(url, { cache: 'no-store', signal });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (_) {
+    return null;
   }
 }
 
@@ -57,15 +81,17 @@ export class NetClient {
    * { online, relay, addresses, port, rooms } or null.
    */
   static async available() {
+    originFallback = false;
     const relay = relayConfig();
-    try {
-      const res = await fetch(relay ? `${relay.http}/health` : '/lan', { cache: 'no-store' });
-      if (!res.ok) return null;
-      const info = await res.json();
-      return { ...info, online: !!relay, relay };
-    } catch (_) {
-      return null;
-    }
+    const info = await probe(relay ? `${relay.http}/health` : '/lan');
+    if (info) return { ...info, online: !!relay, relay };
+    if (!relay) return null;
+    // The relay is out of reach (offline, or a stale address): fall back to
+    // the page's own server when there is one, so LAN play still works.
+    const local = await probe('/lan');
+    if (!local) return null;
+    originFallback = true;
+    return { ...local, online: false, relay: null, unreachable: relay.label };
   }
 
   on(type, fn) {

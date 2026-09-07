@@ -36,6 +36,58 @@ It is a static site, so Vercel (or Netlify, GitHub Pages) needs no build step:
 import the repo, keep the framework preset on **Other**, leave the build command
 empty, and serve the repository root. `server.js` is only for local use.
 
+## Windows download (desktop app)
+
+The **Releases** page on GitHub carries a Windows build of each tagged version:
+`Deflector-Setup-<version>.exe` installs it (Start menu shortcut, uninstaller),
+`Deflector-Portable-<version>.exe` runs from anywhere with no install. It is the
+same game in its own window, with two things a browser cannot give it:
+
+- **LAN hosting built in.** The app starts the game's own server (`server.js`)
+  on port 27411 when it opens, so hosting a same-Wi-Fi match needs no terminal:
+  the lobby's share link (`http://192.168.x.x:27411/?relay=local&room=CODE`)
+  works in a friend's browser, and a friend with the app can type the address
+  (`192.168.x.x:27411`) into the lobby's **Relay** box instead. Windows asks
+  once whether to let Deflector accept connections; say yes for private
+  networks. Online play still goes through the relay by default; if the relay
+  is out of reach (no internet), the app falls back to its own server on its
+  own.
+- **No browser chrome.** F11 or Alt+Enter toggles fullscreen (the F key and
+  the Fullscreen button still work), and the window keeps a controller and
+  audio working without a click first.
+
+Settings, campaign progress and the tutorial flag are saved by the app
+(`%APPDATA%\deflector-desktop`), separately from any browser.
+
+The builds are not code-signed, so SmartScreen shows "Windows protected your
+PC" the first time: click **More info**, then **Run anyway**. Signing needs a
+paid certificate; it is the one thing a Steam or Microsoft Store release would
+add here.
+
+**Cutting a release.** Bump `GAME_VERSION` in `src/config.js` and the version
+in `desktop/package.json`, commit, then push a tag; the
+[Windows release workflow](.github/workflows/release-windows.yml) builds both
+`.exe` files on a Windows runner and attaches them to a GitHub Release (a tag
+with a `-` in it, like an alpha, is marked pre-release):
+
+```bash
+git tag v0.3.0-alpha
+git push origin v0.3.0-alpha
+```
+
+**Run workflow** on the Actions tab builds without publishing; the files are in
+the run's artifacts. To build on your own PC instead:
+
+```bash
+cd desktop
+npm install          # Electron and electron-builder (about 300 MB)
+npm start            # run the app from this checkout
+npm run build        # installer + portable .exe in desktop/dist/
+```
+
+`electron-builder --mac` or `--linux` from the same folder produce a `.dmg` or
+an AppImage; the workflow only builds Windows.
+
 ## Campaign and difficulty
 
 **Campaign** plays the ten levels in order on one shield pool. Every body hit
@@ -60,7 +112,8 @@ to the tagline is `GAME_VERSION` in the same file; the game is in alpha.
 
 ## Multiplayer (same Wi-Fi)
 
-Two friends, one room code, no accounts. One player runs the local server:
+Two friends, one room code, no accounts. One player runs the local server
+(the [Windows app](#windows-download-desktop-app) does this by itself):
 
 ```bash
 npm start
@@ -454,6 +507,8 @@ src/audio/tracks.js        per-level track definitions
 test/physics.test.js       node --test suite
 server.js                  zero-dependency static server + LAN relay
 relay/                     the same relay as a Cloudflare Worker for online play
+desktop/                   Electron wrapper for the Windows build (bundles server.js)
+.github/workflows/         relay deploy and Windows release automation
 ```
 
 ## Mobile roadmap

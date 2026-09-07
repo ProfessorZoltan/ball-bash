@@ -1,0 +1,74 @@
+# Builds the Windows desktop version (desktop/) and attaches it to a GitHub
+# Release whenever a version tag is pushed:
+#
+#   git tag v0.3.0-alpha
+#   git push origin v0.3.0-alpha
+#
+# The tag sets the app version; a tag with a "-" in it (alpha, beta, rc) is
+# published as a pre-release. "Run workflow" on the Actions tab builds the
+# installer without publishing (download it from the run's artifacts).
+name: Windows release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Test the game
+        run: npm test
+
+      - name: Version from the tag
+        id: ver
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            v="${GITHUB_REF#refs/tags/v}"
+          else
+            v="$(node -p "require('./desktop/package.json').version")-build${GITHUB_RUN_NUMBER}"
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          game=$(node -p "require('fs').readFileSync('src/config.js','utf8').match(/GAME_VERSION = '([^']+)'/)[1]")
+          if [[ "$v" != "$game" ]]; then
+            echo "::warning::Building $v but src/config.js says GAME_VERSION = '$game'"
+          fi
+          cd desktop && npm version --no-git-tag-version --allow-same-version "$v"
+
+      - name: Install
+        run: npm ci
+        working-directory: desktop
+
+      - name: Build installer and portable exe
+        run: npm run build
+        working-directory: desktop
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Deflector-windows-${{ steps.ver.outputs.version }}
+          path: desktop/dist/*.exe
+          if-no-files-found: error
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Deflector ${{ steps.ver.outputs.version }}
+          prerelease: ${{ contains(steps.ver.outputs.version, '-') }}
+          generate_release_notes: true
+          files: |
+            desktop/dist/*.exe
+            desktop/dist/*.blockmap

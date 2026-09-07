@@ -4,3 +4,5 @@ node_modules/
 node_modules/
 relay/node_modules/
 relay/.wrangler/
+desktop/node_modules/
+desktop/dist/

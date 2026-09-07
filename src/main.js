@@ -975,6 +975,7 @@ function setInGame(on) {
 }
 
 const IS_IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const IS_DESKTOP = /\bElectron\//.test(navigator.userAgent); // the desktop app (desktop/), which brings its own LAN server
 const STANDALONE = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
 
 function canFullscreen() {
@@ -1536,18 +1537,21 @@ function rememberName(name) {
 }
 
 async function openLobby(prefillCode = '') {
-  await audio.init();
+  // Opened from a share link there has been no click yet, and browsers hold
+  // audio until one: start it, but do not wait (the lobby's buttons retry).
+  await Promise.race([audio.init(), new Promise((r) => setTimeout(r, 250))]);
   state = 'title';
   setInGame(false);
   stopMarkAnimation();
   $('hud').hidden = true;
   const online = lanInfo && lanInfo.online;
-  const urls = lanInfo && !online ? lanInfo.addresses.map((a) => `http://${a}:${lanInfo.port}/`) : [];
+  // ?relay=local makes a friend's copy use this server even when it has an online relay configured
+  const urls = lanInfo && !online ? lanInfo.addresses.map((a) => `http://${a}:${lanInfo.port}/?relay=local`) : [];
   const relay = relayConfig();
   showOverlay(`
     <div class="eyebrow">${online ? 'MULTIPLAYER · ONLINE' : 'MULTIPLAYER · SAME WI-FI'}</div>
     <h1>Two friends, one room code</h1>
-    <p class="small muted">${online ? `Both players open this page anywhere; the relay at <b>${relay.label}</b> connects you.` : `Both players open this page on the same network${urls.length ? `: <b>${urls.join('</b> or <b>')}</b>` : ''}.`} One hosts and gets a code, the other joins with it. Versus is first to ${WIN_SCORE} points with sides swapping every round; co-op is both of you against the boss.</p>
+    <p class="small muted">${online ? `Both players open this page anywhere; the relay at <b>${relay.label}</b> connects you.` : `Both players open this page on the same network${urls.length ? `: <b>${urls.join('</b> or <b>')}</b>` : ''}.${urls.length ? ` A friend with the desktop app can instead enter <b>${lanInfo.addresses[0]}:${lanInfo.port}</b> under Relay below.` : ''}`} One hosts and gets a code, the other joins with it. Versus is first to ${WIN_SCORE} points with sides swapping every round; co-op is both of you against the boss.</p>
     <div class="row"><label class="mp-field">Your name <input id="mp-name" maxlength="16" value="${savedName().replace(/"/g, '')}" placeholder="Player" /></label></div>
     <div class="row">
       <button id="mp-host" class="primary">Host a match</button>
@@ -1557,10 +1561,11 @@ async function openLobby(prefillCode = '') {
     </div>
     <div id="mp-status" class="mp-status"></div>
     <details class="mp-adv"><summary>Relay</summary>
-      <p class="small muted">For play over the internet, paste the address of a deployed relay (see the README); it is remembered in this browser. Enter <b>local</b> to use the server that serves this page instead (LAN play with <code>npm start</code>), or leave it empty for the game's default.</p>
+      <p class="small muted">For play over the internet, paste the address of a deployed relay (see the README); it is remembered in this browser. Enter <b>local</b> to use the server that serves this page instead (${IS_DESKTOP ? 'the app\'s built-in LAN server' : `LAN play with <code>npm start</code>`}), a friend's LAN address such as <b>192.168.1.20:27411</b> when they host from the desktop app, or leave it empty for the game's default.</p>
       <div class="row"><label class="mp-field">Relay <input id="mp-relay" maxlength="120" value="${relay ? relay.label.replace(/"/g, '') : ''}" placeholder="deflector-relay.example.workers.dev" style="width:20em" /></label><button id="mp-relay-set">Use</button></div>
     </details>
   `);
+  if (lanInfo && lanInfo.unreachable) lobbyStatus(`<span class="small">The relay at <b>${lanInfo.unreachable}</b> did not answer, so this is same-network play through ${IS_DESKTOP ? 'the app\'s built-in server' : 'this page\'s server'}.</span>`);
   if (online && (lanInfo.v || 1) < RELAY_PROTOCOL) lobbyStatus(`<span class="mp-error">This relay is out of date (protocol ${lanInfo.v || 1}, the game needs ${RELAY_PROTOCOL}). Redeploy it: see "Online multiplayer" in the README.</span>`);
   $('btn-menu').onclick = goToMenu;
   $('mp-relay-set').onclick = async () => {
@@ -1623,7 +1628,7 @@ async function hostRoom() {
     const client = await connectClient();
     client.on('created', (msg) => {
       net.names.host = name;
-      const urls = lanInfo && lanInfo.online ? [`${location.origin}${location.pathname}?room=${msg.code}`] : lanInfo ? lanInfo.addresses.map((a) => `http://${a}:${lanInfo.port}/?room=${msg.code}`) : [];
+      const urls = lanInfo && lanInfo.online ? [`${location.origin}${location.pathname}?room=${msg.code}`] : lanInfo ? lanInfo.addresses.map((a) => `http://${a}:${lanInfo.port}/?relay=local&room=${msg.code}`) : [];
       lobbyStatus(`
         <div class="mp-code">${msg.code}</div>
         <p class="small">Share the code${urls.length ? `, or this link: <b>${urls.join('</b> / <b>')}</b>` : ''}.</p>
@@ -2265,7 +2270,7 @@ function showTitle() {
       </div>
     </div>
     <div class="row menu">${campaignButtonsHtml()}<button id="btn-start">Level ${def.id} only</button><button id="btn-tutorial">Tutorial</button><button id="btn-jukebox">Soundtrack</button><button id="btn-multi" title="${lanInfo && lanInfo.online ? 'Play online through the relay' : lanInfo ? 'Play on this Wi-Fi network' : 'Set a relay in the lobby, or run npm start on one PC and open its LAN address on both'}">${lanInfo && lanInfo.online ? 'Online match' : lanInfo ? 'LAN match' : 'Multiplayer'}</button>${fullscreenHint()}</div>
-    ${lanInfo ? '' : '<p class="small muted">Multiplayer needs a relay: paste one in the lobby for online play, or run <code>npm start</code> on one PC and open its LAN address on both.</p>'}
+    ${lanInfo ? '' : IS_DESKTOP ? '<p class="small muted">Multiplayer is unavailable: neither the relay nor the app\'s own server answered.</p>' : '<p class="small muted">Multiplayer needs a relay: paste one in the lobby for online play, or run <code>npm start</code> on one PC and open its LAN address on both.</p>'}
   `);
   $('btn-start').onclick = begin;
   bindCampaignButtons();
