@@ -556,11 +556,13 @@ function frame(now) {
     if (guest) guestApply(now);
     acc += dt;
     const simulate = !guest && (state === 'countdown' || state === 'playing');
+    const predict = guest && (state === 'countdown' || state === 'playing');
     while (acc >= PHYSICS_DT) {
       if (simulate) step(PHYSICS_DT);
+      else if (predict) guestStep(PHYSICS_DT);
       acc -= PHYSICS_DT;
     }
-    if (simulate) alpha = acc / PHYSICS_DT;
+    if (simulate || predict) alpha = acc / PHYSICS_DT;
     game.fx.update(dt);
     if (state === 'countdown' && !guest) {
       countdown -= dt;
@@ -630,14 +632,27 @@ function drawWorld(nowSec, alpha) {
   const g = game;
   if (!g || !(alpha > 0 && alpha < 1)) {
     if (g && state === 'playing') g.ball.pushTrail(BALL.trailLength);
-    renderer.draw(g, state, nowSec, input.joystick);
+    const me = net.mode === 'guest' && (net.smooth.x || net.smooth.y) ? localFighter() : null;
+    if (me) {
+      me.x += net.smooth.x;
+      me.y += net.smooth.y;
+    }
+    try {
+      renderer.draw(g, state, nowSec, input.joystick);
+    } finally {
+      if (me) {
+        me.x -= net.smooth.x;
+        me.y -= net.smooth.y;
+      }
+    }
     return;
   }
   const b = g.ball;
-  const fs = [g.player, g.boss];
+  const fs = g.fighters;
   const bx = b.x;
   const by = b.y;
   const saved = fs.map((f) => [f.x, f.y, f.angle, f.paddleOffset]);
+  const smoothed = net.mode === 'guest' && (net.smooth.x || net.smooth.y) ? localFighter() : null;
   if (!b.held) {
     b.x = b.rx + (bx - b.rx) * alpha;
     b.y = b.ry + (by - b.ry) * alpha;
@@ -647,6 +662,10 @@ function drawWorld(nowSec, alpha) {
     f.y = f.ry + (f.y - f.ry) * alpha;
     f.angle = f.rAngle + wrapAngle(f.angle - f.rAngle) * alpha;
     f.paddleOffset = f.rPaddle + (f.paddleOffset - f.rPaddle) * alpha;
+  }
+  if (smoothed) {
+    smoothed.x += net.smooth.x;
+    smoothed.y += net.smooth.y;
   }
   try {
     if (state === 'playing') b.pushTrail(BALL.trailLength);
@@ -1419,6 +1438,15 @@ const net = {
   reason: null, // why the last round ended: 'hit' | 'camp'
   coop: false, // two humans against the boss (host owns the campaign and the rules)
   coopCampaign: false, // guest-side: the host is running a campaign
+  // Guest-side prediction of its own character: every input carries a
+  // sequence number, the host acknowledges the latest it acted on in each
+  // snapshot, and the guest replays the inputs after that on top of the
+  // host's state. `smooth` is the leftover visual offset after a correction,
+  // eased out so corrections do not pop.
+  seq: 0,
+  remoteSeq: 0,
+  inputs: [], // guest: [{ seq, dt, intent }] not yet acknowledged by the host
+  smooth: { x: 0, y: 0 },
   client: null,
   mode: null, // null | 'host' | 'guest'
   localSlot: 'a',
@@ -1446,6 +1474,10 @@ function netReset() {
   net.coop = false;
   net.coopCampaign = false;
   net.remoteIntent = null;
+  net.seq = 0;
+  net.remoteSeq = 0;
+  net.inputs = [];
+  net.smooth = { x: 0, y: 0 };
   net.events = [];
   net.round = 0;
   net.scores = { host: 0, guest: 0 };
@@ -1565,7 +1597,9 @@ async function connectClient() {
     net.snapAt = performance.now();
   });
   client.on('i', (msg) => {
-    if (net.mode === 'host') net.remoteIntent = { mx: msg.mx, my: msg.my, turn: msg.turn, lunge: !!msg.lunge, retract: !!msg.retract };
+    if (net.mode !== 'host') return;
+    net.remoteIntent = { mx: msg.mx, my: msg.my, turn: msg.turn, lunge: !!msg.lunge, retract: !!msg.retract };
+    if (typeof msg.seq === 'number') net.remoteSeq = msg.seq;
   });
   await client.connect();
   return client;
@@ -1849,7 +1883,7 @@ function hitFx(f, x, y, nx, ny) {
 /** Host: send the state of this frame to the guest. */
 function hostSend() {
   net.frame++;
-  const meta = { st: state, cd: countdown, sc: net.scores, rd: net.round, w: net.winner, rs: net.reason };
+  const meta = { st: state, cd: countdown, sc: net.scores, rd: net.round, w: net.winner, rs: net.reason, ak: net.remoteSeq };
   if (net.coop) {
     meta.lv = game.lives === Infinity ? 'inf' : game.lives;
     meta.bh = game.bossHits;
@@ -1865,7 +1899,8 @@ function guestSend() {
   const f = localFighter();
   if (!f) return;
   const it = input.intent(f);
-  net.client.send({ t: 'i', mx: +it.mx.toFixed(3), my: +it.my.toFixed(3), turn: it.turn, lunge: it.lunge ? 1 : 0, retract: it.retract ? 1 : 0 });
+  net.seq++;
+  net.client.send({ t: 'i', seq: net.seq, mx: +it.mx.toFixed(3), my: +it.my.toFixed(3), turn: it.turn, lunge: it.lunge ? 1 : 0, retract: it.retract ? 1 : 0 });
   pingMaybe();
 }
 
@@ -1886,7 +1921,11 @@ function guestApply(now) {
     const wasState = state;
     const me = localFighter();
     const leftBefore = PLAYER.campSeconds - me.campTimer;
+    const predX = me.x;
+    const predY = me.y;
     applySnapshot(g, s);
+    for (const f of g.fighters) if (f !== me) f.markRender();
+    guestReconcile(s.ak, predX, predY);
     if (state === 'playing') campTick(leftBefore, PLAYER.campSeconds - me.campTimer);
     net.ballBase = { x: g.ball.x, y: g.ball.y, vx: g.ball.vx, vy: g.ball.vy };
     net.scores = s.sc;
@@ -1916,6 +1955,60 @@ function guestApply(now) {
     game.ball.x = net.ballBase.x + net.ballBase.vx * lag;
     game.ball.y = net.ballBase.y + net.ballBase.vy * lag;
   }
+  game.ball.markRender();
+}
+
+/** Guest: one physics step of its own character from its own input, remembered for reconciliation. */
+function guestStep(dt) {
+  const g = game;
+  const me = localFighter();
+  if (!me) return;
+  let intent = input.intent(me);
+  if (state === 'countdown') intent = { ...intent, mx: 0, my: 0, lunge: false };
+  me.markRender();
+  guestAdvance(me, dt, intent);
+  net.inputs.push({ seq: net.seq, dt, intent });
+  if (net.inputs.length > 480) net.inputs.splice(0, net.inputs.length - 480); // two seconds is plenty
+  // Ease out the leftover from the last correction.
+  const k = Math.exp(-dt / 0.08);
+  net.smooth.x *= k;
+  net.smooth.y *= k;
+  if (Math.abs(net.smooth.x) < 0.05) net.smooth.x = 0;
+  if (Math.abs(net.smooth.y) < 0.05) net.smooth.y = 0;
+}
+
+/** The part of a physics step that concerns one fighter and the static world. */
+function guestAdvance(f, dt, intent) {
+  const g = game;
+  f.update(dt, intent);
+  resolveCircleVsSegments(f, g.walls);
+  pushOutOfMovers(f);
+  f.finalizeStep(dt);
+}
+
+/**
+ * Guest: the snapshot just put this character where the host has it, which
+ * is where it was `ack` inputs ago. Replay the inputs the host has not yet
+ * acted on so the character stays where the player expects it, and turn the
+ * difference from the previous prediction into a visual offset that eases out.
+ */
+function guestReconcile(ack, predX, predY) {
+  const me = localFighter();
+  if (!me || typeof ack !== 'number') return;
+  net.inputs = net.inputs.filter((p) => p.seq > ack);
+  const frozenNow = me.frozen;
+  for (const p of net.inputs) guestAdvance(me, p.dt, p.intent);
+  me.frozen = frozenNow; // the host's word on freezes stands
+  const ex = predX - me.x;
+  const ey = predY - me.y;
+  if (Math.hypot(ex, ey) < 40) {
+    net.smooth.x += ex;
+    net.smooth.y += ey;
+  } else {
+    net.smooth.x = 0; // a big correction (a hit, a teleport) just snaps
+    net.smooth.y = 0;
+  }
+  me.markRender();
 }
 
 /** Guest: reproduce a host-side effect locally. */
