@@ -270,22 +270,22 @@ test('own-ball rule: a body hit only counts when the other shield touched the ba
   assert.equal(createGameState(LEVELS[0]).rules.ownBallLoss, true);
 });
 
-test('keep-moving rule: standing still for 5 s loses, a body diameter of net movement resets, turning and freezing do not count', async () => {
+test('keep-moving rule: standing still for the limit loses, a body diameter of net movement resets, turning and freezing do not count', async () => {
   const { tickCamp } = await import('../src/gamestate.js');
   const { PLAYER } = await import('../src/config.js');
   const f = new Fighter({ x: 300, y: 450, angle: 0, kind: 'player' });
   f.resetCamp();
   // Turning in place and jittering below a diameter do not reset the clock.
   let out = false;
-  for (let i = 0; i < 240 * 4.9 && !out; i++) {
+  for (let i = 0; i < 240 * (PLAYER.campSeconds - 0.1) && !out; i++) {
     f.angle += 0.01;
     f.x = 300 + (i % 2 ? 20 : -20);
     out = tickCamp(f, 1 / 240);
   }
   assert.equal(out, false);
-  assert.ok(f.campTimer > 4.8);
+  assert.ok(f.campTimer > PLAYER.campSeconds - 0.2);
   for (let i = 0; i < 240 * 0.2 && !out; i++) out = tickCamp(f, 1 / 240);
-  assert.equal(out, true, 'the clock runs out at 5 s');
+  assert.equal(out, true, `the clock runs out at ${PLAYER.campSeconds} s`);
   // A full diameter of net movement resets the clock.
   f.x = 300;
   f.resetCamp();
@@ -298,4 +298,12 @@ test('keep-moving rule: standing still for 5 s loses, a body diameter of net mov
   f.frozen = 2;
   for (let i = 0; i < 240 * 6; i++) assert.equal(tickCamp(f, 1 / 240), false);
   assert.equal(f.campTimer, 0);
+});
+
+test('difficulties: shield pools are easy unlimited, normal 5, hard 3, punishing 1', async () => {
+  const { DIFFICULTIES, DEFAULT_DIFFICULTY, PLAYER } = await import('../src/config.js');
+  const by = Object.fromEntries(DIFFICULTIES.map((d) => [d.id, d.shields]));
+  assert.deepEqual(by, { easy: Infinity, normal: 5, hard: 3, punishing: 1 });
+  assert.ok(DIFFICULTIES.some((d) => d.id === DEFAULT_DIFFICULTY));
+  assert.equal(PLAYER.campSeconds, 8);
 });

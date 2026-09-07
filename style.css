@@ -173,6 +173,17 @@ html, body {
   55% { opacity: 0.55; }
   100% { opacity: 1; }
 }
+.version {
+  display: inline-block;
+  margin-left: 12px;
+  padding: 2px 9px;
+  border: 1px solid rgba(255, 179, 71, 0.5);
+  border-radius: 999px;
+  color: var(--orange);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  vertical-align: middle;
+}
 .tagline {
   margin: 0 0 12px;
   color: var(--muted);
@@ -232,6 +243,7 @@ html, body {
   letter-spacing: 0.1em;
 }
 .intro { margin: 8px 0 0; font-size: 14px; color: rgba(232, 244, 255, 0.85); }
+.columns.three { grid-template-columns: 1fr 1.15fr 1fr; }
 .columns {
   display: grid;
   grid-template-columns: 1.1fr 1fr;
@@ -292,7 +304,7 @@ button[disabled] { opacity: 0.45; cursor: default; }
 .stats td:last-child { font-family: var(--display); text-align: left; }
 
 @media (max-width: 720px) {
-  .columns, .top { grid-template-columns: 1fr; }
+  .columns, .columns.three, .top { grid-template-columns: 1fr; }
   .panel { padding: 20px 18px; }
   #hud { grid-template-columns: 1fr 1fr; }
   .hud-center { display: none; }
@@ -353,13 +365,13 @@ button[disabled] { opacity: 0.45; cursor: default; }
 
 /* Multiplayer lobby ------------------------------------------------------ */
 .mp-field { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; }
-.opt { display: flex; align-items: flex-start; gap: 10px; font-size: 14px; line-height: 1.5; cursor: pointer; text-align: left; }
-.opt input { margin-top: 5px; accent-color: var(--cyan); width: 16px; height: 16px; flex: none; cursor: pointer; }
+.opt { display: flex; align-items: center; gap: 10px; font-size: 14px; line-height: 1.4; cursor: pointer; text-align: left; margin: 0 0 8px; }
+.opt input { accent-color: var(--cyan); width: 16px; height: 16px; flex: none; cursor: pointer; margin: 0; }
+.opt b { flex: none; }
 .opt b { color: #fff; }
 .mp-field select, .opt select { color-scheme: dark; }
 .mp-field option, .opt option { background: #0a1020; color: var(--text); }
-.opt select { padding: 4px 8px; font-size: 12px; margin: 0 4px; }
-.opt + .opt { margin-top: 6px; }
+
 .mp-field input, .mp-field select, .opt select {
   font-family: var(--display);
   font-size: 14px;
@@ -411,11 +423,16 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(-
   .tutor-text { font-size: 12px; }
 }
 
+.opt select { padding: 4px 8px; font-size: 12px; letter-spacing: 0.05em; min-width: 0; }
+.row.menu { gap: 8px; }
+.row.menu button { padding: 10px 14px; letter-spacing: 0.06em; }
+
 /* Title screen: heading spacing inside the top grid, and a tighter fit on short (laptop) viewports.
    These sit at the end of the file so they win over the base .panel h3 / .roster rules above. */
 .top h3 { margin-top: 0; }
 .top .roster + h3 { margin-top: 10px; }
-@media (max-height: 760px) and (min-width: 721px) {
+/* Laptop heights: tighter spacing and no dossier line (it is in the Record). */
+@media (max-height: 820px) and (min-width: 721px) {
   .panel { padding: 18px 28px; }
   .panel h1.mark { font-size: clamp(26px, 4.4vw, 48px); }
   .tagline { margin-bottom: 8px; }
@@ -428,4 +445,10 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(-
   .bulletin p { line-height: 1.45; }
   .level-card { padding: 10px 16px; }
   .level-card .intro, .level-card .record { margin-top: 6px; }
+  .level-card .record { display: none; }
+  .columns.three .controls { font-size: 13px; }
+}
+/* Short viewports: the bulletin keeps its heading and the record link only. */
+@media (max-height: 760px) and (min-width: 721px) {
+  .bulletin > p:not(.you) { display: none; }
 }

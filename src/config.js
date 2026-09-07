@@ -6,6 +6,7 @@
 export const GAME_MARK = '[<R/D>EF(L)/V]ECTOR';
 export const GAME_NAME = 'Deflector';
 export const GAME_TAGLINE = 'Reflect. Deflect. Defect.';
+export const GAME_VERSION = '0.1.0-alpha'; // shown on the title screen; bump on each release
 
 // Glyph indices of GAME_MARK lit for each reading; ECTOR is always lit.
 export const MARK_READINGS = [
@@ -40,13 +41,23 @@ export const PLAYER = {
   lungeExtend: 26, // px the paddle thrusts outward on a whack
   lungeSpeed: 260, // px/s of paddle travel during a whack
   retractPull: 16, // px the paddle pulls in while holding S
-  lives: 1, // one body hit ends the level
   // Keep-moving rule (human players only): cover a full body diameter within
   // campSeconds or lose; the HUD and a ring warn for the last campWarn seconds.
   campDistance: 44, // px, 2 x radius
-  campSeconds: 5,
+  campSeconds: 8,
   campWarn: 2,
   invulnTime: 1.0, // seconds of immunity after being hit (only matters if lives > 1)
 };
 
 export const COUNTDOWN_SECONDS = 3;
+
+// Difficulty is a shield pool: every body hit (or standing still) costs one
+// shield and the ball re-serves; with none left the level, or the whole
+// campaign, is lost. In a campaign the pool persists from level to level.
+export const DIFFICULTIES = [
+  { id: 'easy', name: 'Easy', shields: Infinity, blurb: 'unlimited shields' },
+  { id: 'normal', name: 'Normal', shields: 5, blurb: '5 shields' },
+  { id: 'hard', name: 'Hard', shields: 3, blurb: '3 shields' },
+  { id: 'punishing', name: 'Punishing', shields: 1, blurb: '1 shield' },
+];
+export const DEFAULT_DIFFICULTY = 'normal';

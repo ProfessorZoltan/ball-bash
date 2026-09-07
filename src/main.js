@@ -1,6 +1,6 @@
 // Game bootstrap: state machine, fixed-step physics loop, collision dispatch,
 // HUD/overlay wiring. Everything heavy lives in the modules it imports.
-import { GAME_MARK, GAME_NAME, GAME_TAGLINE, MARK_READINGS, PHYSICS_DT, BALL, PLAYER, SURFACE_VELOCITY_FACTOR, COUNTDOWN_SECONDS } from './config.js';
+import { GAME_MARK, GAME_NAME, GAME_TAGLINE, GAME_VERSION, MARK_READINGS, PHYSICS_DT, BALL, PLAYER, SURFACE_VELOCITY_FACTOR, COUNTDOWN_SECONDS, DIFFICULTIES, DEFAULT_DIFFICULTY } from './config.js';
 import { BallHistory, bossIntent, moverSegmentsAt } from './ai.js';
 import { LEVELS, ROSTER, TUTORIAL_LEVEL } from './levels.js';
 import { LORE } from './lore.js';
@@ -43,7 +43,11 @@ function buildGame(def, pvp = false, rules = { ownBallLoss: ownBallLoss() }) {
     ...g,
     fx: new Effects(),
     history: new BallHistory(),
-    lives: PLAYER.lives,
+    lives: Infinity, // shields left (set from the difficulty or the campaign in startLevel)
+    maxLives: Infinity,
+    difficulty: null,
+    shieldsLost: 0,
+    lastLoss: null, // { reason, at } while the ball re-serves after a lost shield
     time: 0,
     topSpeed: 0,
     paddleHits: 0,
@@ -59,6 +63,10 @@ function startLevel(index) {
   $('tutor').hidden = true;
   resetFrameWatch();
   game = buildGame(def);
+  const diff = campaign ? difficultyById(campaign.difficulty) : difficultySetting();
+  game.difficulty = diff;
+  game.maxLives = diff.shields;
+  game.lives = campaign ? campaign.shields : diff.shields;
   renderer.setLevel(def);
   renderer.resize();
   simTime = 0;
@@ -211,12 +219,7 @@ function onCamped(f, slot) {
     pvpPoint(f, 'camp');
     return;
   }
-  g.lossReason = 'camp';
-  g.lives = 0;
-  state = 'failed';
-  g.ball.held = true;
-  audio.stopTrack(1.5);
-  endTimer = 1.2;
+  loseShield('camp');
 }
 
 function campFx(f) {
@@ -479,20 +482,50 @@ function onPlayerHit(h) {
   const g = game;
   const p = g.player;
   if (p.invuln > 0) return;
-  g.lives--;
   p.invuln = PLAYER.invulnTime;
   p.hitFlash = 0.3;
   g.fx.burst(h.cx, h.cy, h.nx, h.ny, 30, '#ff4d6d', 320, 1.6, 0.6);
   g.fx.ring(p.x, p.y, '#ff4d6d', 140, 0.5);
   g.fx.addShake(12);
   audio.sfxPlayerHit();
+  loseShield('hit');
+}
+
+/**
+ * A body hit or standing still costs one shield. With shields left the ball
+ * re-serves behind a fresh countdown; with none, the level is lost (and with
+ * it the campaign, whose pool this is).
+ */
+function loseShield(reason) {
+  const g = game;
+  if (g.lives !== Infinity) g.lives--;
+  g.shieldsLost++;
+  if (campaign) {
+    campaign.shields = g.lives;
+    campaign.lost++;
+    saveCampaign();
+  }
   if (g.lives <= 0) {
-    g.lossReason = 'hit';
+    g.lossReason = reason;
     state = 'failed';
     g.ball.held = true;
     audio.stopTrack(1.5);
     endTimer = 1.2;
+    return;
   }
+  const def = g.def;
+  g.ball.held = true;
+  g.ball.x = def.ball.x;
+  g.ball.y = def.ball.y;
+  g.ball.vx = 0;
+  g.ball.vy = 0;
+  g.ball.trail.length = 0;
+  g.history.reset();
+  g.guidePath = null;
+  g.lastLoss = { reason, at: simTime };
+  countdown = COUNTDOWN_SECONDS;
+  countdownTick = COUNTDOWN_SECONDS + 1;
+  state = 'countdown';
 }
 
 // ----------------------------------------------------------------- frames
@@ -892,6 +925,7 @@ function goToMenu() {
   if (audio.ctx && audio.ctx.state === 'suspended') audio.ctx.resume();
   audio.stopTrack(0.6);
   netReset();
+  campaign = null;
   $('tutor').hidden = true;
   game = null;
   showTitle();
@@ -926,7 +960,7 @@ async function toggleFullscreen() {
 }
 
 function fullscreenHint() {
-  if (canFullscreen()) return '<button id="btn-full">Fullscreen [F]</button>';
+  if (canFullscreen()) return '<button id="btn-full" title="Toggle fullscreen (F)">Fullscreen</button>';
   if (IS_IOS && !STANDALONE) return '<p class="small muted">For full screen on iPhone: Share → Add to Home Screen, then open it from there.</p>';
   return '';
 }
@@ -962,11 +996,12 @@ function updateHud() {
     setHtml('hud-boss', `${tint('host', net.names.host.toUpperCase())} <span class="label">VS</span> ${tint('guest', net.names.guest.toUpperCase())} · FIRST TO ${WIN_SCORE}`);
     setText('hud-level', `ROUND ${net.round} · ${g.def.title.toUpperCase()}`);
   } else {
-    setText('hud-lives-label', 'SHIELD');
+    setText('hud-lives-label', 'SHIELDS');
     setText('hud-boss-label', 'BOSS');
-    setText('hud-lives', '◆'.repeat(Math.max(0, g.lives)) + '◇'.repeat(Math.max(0, PLAYER.lives - g.lives)));
+    setText('hud-lives', g.lives === Infinity ? '∞' : '◆'.repeat(Math.max(0, g.lives)) + '◇'.repeat(Math.max(0, g.maxLives - g.lives)));
   }
-  setText('hud-rule', g.rules.ownBallLoss ? '' : '· SAFE OWN BALL');
+  const tags = [campaign ? 'CAMPAIGN' : '', g.difficulty ? g.difficulty.name.toUpperCase() : '', g.rules.ownBallLoss ? '' : 'SAFE OWN BALL'].filter(Boolean);
+  setText('hud-rule', tags.map((t) => `· ${t}`).join(' '));
   const s = g.ball.held && state !== 'cleared' ? 0 : g.ball.speed;
   setText('hud-speed', `${Math.round(s)} px/s`);
   $('hud-speed-bar').style.transform = `scaleX(${speedNorm(s).toFixed(3)})`;
@@ -978,10 +1013,12 @@ function updateHud() {
   const campLeft = PLAYER.campSeconds - me.campTimer;
   const camping = state === 'playing' && !g.tutorial && me.campTimer > 0 && campLeft <= PLAYER.campWarn;
   let status = frozen ? `FROZEN ${me.frozen.toFixed(1)}` : camping ? `MOVE · ${Math.max(0, campLeft).toFixed(1)}` : '';
+  const lost = g.lastLoss && state === 'countdown' && simTime - g.lastLoss.at < 4 ? g.lastLoss : null;
+  if (lost) status = `${lost.reason === 'camp' ? 'STOOD STILL' : 'HIT'} · ${g.lives === Infinity ? 'UNLIMITED SHIELDS' : `${g.lives} SHIELD${g.lives === 1 ? '' : 'S'} LEFT`}`;
   if (g.pvp && state === 'roundEnd' && net.winner) status = `POINT · ${net.names[net.winner]}${net.reason === 'camp' ? ' · STOOD STILL' : ''}`.toUpperCase();
   setText('hud-status', status);
   $('hud-status').style.color = g.pvp && state === 'roundEnd' && net.winner ? net.colors[net.winner] : camping ? '#ff4d6d' : '';
-  $('hud-status').classList.toggle('on', frozen || camping || state === 'roundEnd');
+  $('hud-status').classList.toggle('on', frozen || camping || !!lost || state === 'roundEnd');
 }
 
 function formatTime(t) {
@@ -1063,6 +1100,40 @@ function showRecord() {
 // --------------------------------------------------------------- settings
 
 const OWN_BALL_KEY = 'deflector.ownBallLoss';
+const DIFFICULTY_KEY = 'deflector.difficulty';
+
+function difficultyById(id) {
+  return DIFFICULTIES.find((d) => d.id === id) || null;
+}
+
+/** The chosen difficulty for new campaigns and single levels (default Normal). */
+function difficultySetting() {
+  try {
+    return difficultyById(localStorage.getItem(DIFFICULTY_KEY)) || difficultyById(DEFAULT_DIFFICULTY);
+  } catch (_) {
+    return difficultyById(DEFAULT_DIFFICULTY);
+  }
+}
+
+function setDifficultySetting(id) {
+  try {
+    localStorage.setItem(DIFFICULTY_KEY, id);
+  } catch (_) {
+    // storage unavailable; the choice lasts for this page load only
+  }
+}
+
+function difficultySelectHtml() {
+  const cur = difficultySetting().id;
+  const opts = DIFFICULTIES.map((d) => `<option value="${d.id}" ${d.id === cur ? 'selected' : ''}>${d.name} · ${d.blurb}</option>`).join('');
+  return `<div class="opt" title="A body hit or standing still costs a shield and the ball re-serves. In a campaign the shields last for all ten levels."><b>Difficulty</b><select id="opt-difficulty" class="sel">${opts}</select></div>`;
+}
+
+function bindDifficultySelect() {
+  const el = $('opt-difficulty');
+  if (el) el.onchange = () => setDifficultySetting(el.value);
+}
+
 const QUALITY_KEY = 'deflector.quality'; // 'auto' | 'high' | 'low'
 let autoLow = false; // Auto quality has stepped down to low this session
 
@@ -1097,7 +1168,7 @@ function applyQuality() {
 function qualitySelectHtml() {
   const q = qualitySetting();
   const opt = (v, label) => `<option value="${v}" ${q === v ? 'selected' : ''}>${label}</option>`;
-  return `<div class="opt"><span><b>Quality</b> <select id="opt-quality" class="sel">${opt('auto', 'Auto')}${opt('high', 'High')}${opt('low', 'Low')}</select><span class="small muted"> · Auto steps down to Low if frames keep stuttering. Low halves the pixel density and turns off the glow.</span></span></div>`;
+  return `<div class="opt" title="Auto steps down to Low if frames keep stuttering. Low halves the pixel density and turns off the glow."><b>Quality</b><select id="opt-quality" class="sel">${opt('auto', 'Auto')}${opt('high', 'High')}${opt('low', 'Low')}</select></div>`;
 }
 
 function bindQualitySelect() {
@@ -1123,7 +1194,7 @@ function setOwnBallLoss(on) {
 }
 
 function ownBallToggleHtml() {
-  return `<label class="opt"><input type="checkbox" id="opt-ownball" ${ownBallLoss() ? 'checked' : ''} /> <span><b>Lose to a ball you last hit</b><span class="small muted"> · off: it just bounces off you. Bosses play by the same rule.</span></span></label>`;
+  return `<label class="opt" title="Off: a ball your own shield touched last just bounces off you. Bosses play by the same rule."><input type="checkbox" id="opt-ownball" ${ownBallLoss() ? 'checked' : ''} /><b>Lose to a ball you last hit</b></label>`;
 }
 
 function bindOwnBallToggle() {
@@ -1175,16 +1246,16 @@ const TUTORIAL_STEPS = [
   },
   {
     title: 'You are ready',
-    text: 'One hit on a boss\'s body wins the level. One hit on you loses it. Watch the boss\'s shield, use the walls, and whack when it matters.',
+    text: 'One hit on a boss\'s body wins the level. One hit on you costs a shield, and how many you get is the difficulty. Watch the boss\'s shield, use the walls, and whack when it matters.',
   },
 ];
 
-function startTutorial(fromButton) {
+function startTutorial(fromButton, next = null) {
   const def = TUTORIAL_LEVEL;
   $('tutor').hidden = false;
   resetFrameWatch();
   game = buildGame(def);
-  game.tutorial = { step: 0, fromButton, moved: 0, turned: 0, blocks: 0, bestDelta: 0, sinceTouch: 0, drone: false, lastX: def.player.x, lastY: def.player.y, lastAngle: def.player.angle };
+  game.tutorial = { step: 0, fromButton, next, moved: 0, turned: 0, blocks: 0, bestDelta: 0, sinceTouch: 0, drone: false, lastX: def.player.x, lastY: def.player.y, lastAngle: def.player.angle };
   game.boss.name = 'Training drone';
   renderer.setLevel(def);
   renderer.resize();
@@ -1309,11 +1380,13 @@ function tutorialBody(f, h) {
 }
 
 function finishTutorial(skipped) {
-  const fromButton = game && game.tutorial && game.tutorial.fromButton;
+  const t = game && game.tutorial;
+  const fromButton = t && t.fromButton;
+  const next = (t && t.next) || (() => startLevel(0));
   markTutorialDone();
   $('tutor').hidden = true;
   if (fromButton) goToMenu();
-  else startLevel(0);
+  else next();
   if (skipped && !fromButton) audio.sfxCount(false);
 }
 
@@ -1817,7 +1890,7 @@ function showTitle() {
   }).join('');
   showOverlay(`
     <h1 class="title mark" aria-label="${GAME_NAME}">${markHtml()}</h1>
-    <p class="tagline">${GAME_TAGLINE}</p>
+    <p class="tagline">${GAME_TAGLINE}<span class="version" title="Version">v${GAME_VERSION}</span></p>
     <div class="top">
       <div>
         <div class="bulletin">
@@ -1836,31 +1909,36 @@ function showTitle() {
       <div>
         <h3>Levels</h3>
         <ol class="roster">${roster}</ol>
-        <h3>Rules</h3>
-        ${ownBallToggleHtml()}
-        ${qualitySelectHtml()}
       </div>
     </div>
-    <div class="columns">
+    <div class="columns three">
       <div>
         <h3>Controls</h3>
         <ul class="controls">
-          <li><b>Arrow keys</b>, <b>hold mouse</b> or <b>touch and drag</b> — move</li>
-          <li><b>A / D</b> — rotate (swing the shield to whack)</li>
-          <li><b>W</b> or <b>Space</b> — thrust the shield forward</li>
-          <li><b>S</b> — pull the shield in (soften the return)</li>
+          <li><b>Arrows</b>, <b>mouse</b> or <b>drag</b> — move</li>
+          <li><b>A / D</b> — rotate (swing to whack)</li>
+          <li><b>W</b> or <b>Space</b> — thrust the shield</li>
+          <li><b>S</b> — pull the shield in (soft return)</li>
           <li><b>P</b> pause · <b>M</b> mute · <b>R</b> restart</li>
         </ul>
       </div>
       <div>
         <h3>How to win</h3>
-        <p class="small">The ball only counts when it hits a <b>body</b>. The boss's shield blocks its front, so bank shots off the walls and angled deflectors to strike from the side or behind. One hit on you and the level is lost. <b>Keep moving</b>: stay within a body length of one spot for five seconds and you lose too. A moving or spinning shield adds its speed to the ball; retreating removes it.</p>
+        <p class="small">The ball only counts when it hits a <b>body</b>. The boss's shield blocks its front: bank shots off walls and deflectors to hit its side or back. A hit on you costs a shield (the difficulty sets how many), and so does <b>standing still</b> within a body length for eight seconds. A moving shield adds its speed to the ball; retreating removes it.</p>
+      </div>
+      <div>
+        <h3>Rules</h3>
+        ${difficultySelectHtml()}
+        ${ownBallToggleHtml()}
+        ${qualitySelectHtml()}
       </div>
     </div>
-    <div class="row"><button id="btn-start" class="primary">Start · Sound on</button><button id="btn-tutorial">Tutorial</button><button id="btn-jukebox">Soundtrack</button><button id="btn-multi" ${lanInfo ? '' : 'disabled title="Run npm start on one PC and open its LAN address on both"'}>Multiplayer · LAN</button>${fullscreenHint()}</div>
+    <div class="row menu">${campaignButtonsHtml()}<button id="btn-start">Level ${def.id} only</button><button id="btn-tutorial">Tutorial</button><button id="btn-jukebox">Soundtrack</button><button id="btn-multi" ${lanInfo ? '' : 'disabled title="Run npm start on one PC and open its LAN address on both"'}>LAN match</button>${fullscreenHint()}</div>
     ${lanInfo ? '' : '<p class="small muted">Multiplayer needs the LAN server: run <code>npm start</code> on one PC and open its address on both.</p>'}
   `);
   $('btn-start').onclick = begin;
+  bindCampaignButtons();
+  bindDifficultySelect();
   bindQualitySelect();
   $('btn-record').onclick = (e) => {
     e.preventDefault();
@@ -1887,8 +1965,128 @@ function showTitle() {
 
 async function begin() {
   await audio.init();
-  if (!tutorialDone() && levelIndex === 0) startTutorial(false);
+  campaign = null;
+  if (!tutorialDone() && levelIndex === 0) startTutorial(false, () => startLevel(levelIndex));
   else startLevel(levelIndex);
+}
+
+// ---------------------------------------------------------------- campaign
+
+// Campaign: the levels in order, on one shield pool. Progress is saved in the
+// browser after every level and every lost shield, so it can be continued
+// from the title screen.
+const CAMPAIGN_KEY = 'deflector.campaign';
+let campaign = null; // { difficulty, shields, levelIndex, time, lost } while a campaign is being played
+
+function loadCampaign() {
+  try {
+    const c = JSON.parse(localStorage.getItem(CAMPAIGN_KEY) || 'null');
+    if (!c || !difficultyById(c.difficulty) || !LEVELS[c.levelIndex]) return null;
+    return { ...c, shields: c.shields === 'inf' ? Infinity : Number(c.shields) };
+  } catch (_) {
+    return null;
+  }
+}
+
+function saveCampaign() {
+  if (!campaign) return;
+  try {
+    localStorage.setItem(CAMPAIGN_KEY, JSON.stringify({ ...campaign, shields: campaign.shields === Infinity ? 'inf' : campaign.shields }));
+  } catch (_) {
+    // storage unavailable; the campaign lasts for this page load only
+  }
+}
+
+function clearCampaign() {
+  try {
+    localStorage.removeItem(CAMPAIGN_KEY);
+  } catch (_) {
+    // nothing to clear
+  }
+}
+
+/** Start (or, given a saved state, resume) a campaign; the tutorial runs first for a first-time player. */
+async function startCampaign(saved = null) {
+  await audio.init();
+  const diff = saved ? difficultyById(saved.difficulty) : difficultySetting();
+  campaign = saved ? { ...saved } : { difficulty: diff.id, shields: diff.shields, levelIndex: 0, time: 0, lost: 0 };
+  saveCampaign();
+  const go = () => startLevel(campaign.levelIndex);
+  if (!tutorialDone()) startTutorial(false, go);
+  else go();
+}
+
+function campaignButtonsHtml() {
+  const saved = loadCampaign();
+  if (saved) {
+    const lvl = LEVELS[saved.levelIndex];
+    return `<button id="btn-continue" class="primary" title="Continue the saved campaign">Continue · Level ${lvl.id}</button><button id="btn-campaign">New campaign</button>`;
+  }
+  return '<button id="btn-campaign" class="primary">Campaign</button>';
+}
+
+function bindCampaignButtons() {
+  const cont = $('btn-continue');
+  if (cont) cont.onclick = () => startCampaign(loadCampaign());
+  $('btn-campaign').onclick = () => startCampaign();
+}
+
+function showCampaignCleared(def, next, nextIdx, last) {
+  campaign.time += game.time;
+  const diff = difficultyById(campaign.difficulty);
+  const shields = campaign.shields === Infinity ? 'unlimited' : `${campaign.shields} of ${diff.shields}`;
+  if (last || nextIdx < 0) {
+    clearCampaign();
+    const done = { ...campaign };
+    campaign = null;
+    showOverlay(`
+      <div class="eyebrow">CAMPAIGN COMPLETE · ${diff.name.toUpperCase()}</div>
+      <h1>The arcade is yours</h1>
+      <p class="muted">${def.stopped || `${def.bossName} is down.`}</p>
+      <table class="stats">
+        <tr><td>Difficulty</td><td>${diff.name}</td></tr>
+        <tr><td>Total time</td><td>${formatTime(done.time)}</td></tr>
+        <tr><td>Shields lost</td><td>${done.lost}</td></tr>
+        <tr><td>Shields left</td><td>${shields}</td></tr>
+      </table>
+      <div class="row"><button id="btn-campaign" class="primary">New campaign</button><button id="btn-menu">Main menu</button></div>
+    `);
+    $('btn-campaign').onclick = () => startCampaign();
+    $('btn-menu').onclick = goToMenu;
+    return;
+  }
+  campaign.levelIndex = nextIdx;
+  saveCampaign();
+  showOverlay(`
+    <div class="eyebrow">LEVEL ${def.id} CLEARED · ${def.bossName.toUpperCase()} ${LORE.status.stopped}</div>
+    <h1>${def.title}</h1>
+    <p class="muted">${def.stopped || `${def.bossName} is down.`}</p>
+    <table class="stats">
+      <tr><td>Time</td><td>${formatTime(game.time)}</td></tr>
+      <tr><td>Top ball speed</td><td>${Math.round(game.topSpeed)} px/s</td></tr>
+      <tr><td>Shields</td><td>${shields}</td></tr>
+    </table>
+    <div class="row"><button id="btn-next" class="primary">Continue · Level ${next.id} · ${next.title}</button><button id="btn-menu">Main menu</button></div>
+    <p class="small muted">Your campaign is saved; Main menu keeps it for later.</p>
+  `);
+  $('btn-next').onclick = () => startLevel(nextIdx);
+  $('btn-menu').onclick = goToMenu;
+}
+
+function showCampaignOver(def) {
+  const diff = difficultyById(campaign.difficulty);
+  const reached = { ...campaign, time: campaign.time + game.time };
+  clearCampaign();
+  campaign = null;
+  showOverlay(`
+    <div class="eyebrow">CAMPAIGN OVER · NO SHIELDS LEFT</div>
+    <h1>${def.bossName} holds ${def.title}</h1>
+    <p class="muted">${game.lossReason === 'camp' ? `You stayed within a body length of one spot for ${PLAYER.campSeconds} seconds, and that cost the last shield.` : `That was the last of your ${diff.shields === Infinity ? '' : diff.shields + ' '}shields.`} You reached level ${def.id} on ${diff.name} in ${formatTime(reached.time)}.</p>
+    <p class="small muted record-note">${LORE.failed(def.title)}</p>
+    <div class="row"><button id="btn-campaign" class="primary">Restart campaign</button><button id="btn-menu">Main menu</button></div>
+  `);
+  $('btn-campaign').onclick = () => startCampaign();
+  $('btn-menu').onclick = goToMenu;
 }
 
 function showCleared() {
@@ -1898,6 +2096,7 @@ function showCleared() {
   const next = ROSTER.find((r) => r.id === def.id + 1);
   const nextIdx = LEVELS.findIndex((l) => l.id === def.id + 1);
   const last = !next;
+  if (campaign) return showCampaignCleared(def, next, nextIdx, last);
   showOverlay(`
     <div class="eyebrow">${last ? 'EVERY LEVEL CLEARED' : `LEVEL ${def.id} CLEARED · ${def.bossName.toUpperCase()} ${LORE.status.stopped}`}</div>
     <h1>${last ? 'The arcade is yours' : def.title}</h1>
@@ -1921,10 +2120,11 @@ function showCleared() {
 function showFailed() {
   setInGame(false);
   const def = game.def;
+  if (campaign) return showCampaignOver(def);
   showOverlay(`
     <div class="eyebrow">${game.lossReason === 'camp' ? 'STOOD STILL' : 'SHIELD DOWN'}</div>
     <h1>${def.bossName} holds ${def.title}</h1>
-    <p class="muted">${game.lossReason === 'camp' ? `You stayed within a body length of one spot for ${PLAYER.campSeconds} seconds. The grid does not allow hiding.` : 'One hit is all it takes.'} You lasted ${formatTime(game.time)}.</p>
+    <p class="muted">${game.lossReason === 'camp' ? `You stayed within a body length of one spot for ${PLAYER.campSeconds} seconds. The grid does not allow hiding.` : game.maxLives === 1 ? 'One hit is all it takes.' : `That was your last of ${game.maxLives} shields.`} You lasted ${formatTime(game.time)}.</p>
     <p class="small muted record-note">${LORE.failed(def.title)}</p>
     <div class="row"><button id="btn-retry" class="primary">Retry</button><button id="btn-menu">Main menu</button></div>
   `);

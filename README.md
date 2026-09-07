@@ -36,6 +36,28 @@ It is a static site, so Vercel (or Netlify, GitHub Pages) needs no build step:
 import the repo, keep the framework preset on **Other**, leave the build command
 empty, and serve the repository root. `server.js` is only for local use.
 
+## Campaign and difficulty
+
+**Campaign** plays the ten levels in order on one shield pool. Every body hit
+or stand-still costs a shield; when the pool is empty the campaign is over.
+Progress (level reached, shields left, time, shields lost) is saved in the
+browser after every level and every lost shield, so the title screen offers
+**Continue campaign · Level n** until it is finished or lost. **Play level n**
+plays the selected level on its own with a fresh pool.
+
+The difficulty select on the title screen sets the pool for both modes and is
+locked in when a campaign starts:
+
+| Difficulty | Shields |
+| --- | --- |
+| Easy | unlimited |
+| Normal (default) | 5 |
+| Hard | 3 |
+| Punishing | 1 |
+
+The table lives in `DIFFICULTIES` in `src/config.js`. The version shown next
+to the tagline is `GAME_VERSION` in the same file; the game is in alpha.
+
 ## Multiplayer (same Wi-Fi)
 
 Two friends, one room code, no accounts. One player runs the local server:
@@ -98,10 +120,11 @@ which launches the game chrome-free thanks to `manifest.webmanifest`.
   and never tunnels through a wall. Physics runs at a fixed 240 Hz.
 * Every arena is a closed polygon; `test/physics.test.js` fires the ball at the
   maximum speed for two simulated minutes and asserts it never leaves the room.
-* One hit on your body loses the level, just as one hit on the boss's body
-  wins it. (`PLAYER.lives` in `src/config.js` if you ever want more.)
+* One hit on the boss's body wins the level. A hit on your body costs a
+  shield and the ball re-serves behind a fresh countdown; with no shields
+  left the level is lost. How many shields you get is the difficulty.
 * **Keep moving.** A human player who stays within a body diameter (44 px)
-  of one spot for 5 seconds loses: the level in single player, the round in
+  of one spot for 8 seconds loses a shield in single player and the round in
   multiplayer. It is net displacement, so turning in place or jittering does
   not count, and time spent frozen on ice does not count against you. The
   HUD shows a red MOVE countdown and a ring closes in on your character for
