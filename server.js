@@ -3,6 +3,7 @@
 //
 //   GET /            the game
 //   GET /lan         JSON: this machine's LAN addresses and the port
+//   GET /health      the same (what the game polls for an online relay)
 //   WS  /ws          room relay: create / join a room, then every other
 //                    message is forwarded verbatim to the other player
 import http from 'node:http';
@@ -35,9 +36,9 @@ function lanAddresses() {
 
 const server = http.createServer((req, res) => {
   const url = decodeURIComponent(req.url.split('?')[0]);
-  if (url === '/lan') {
-    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' });
-    res.end(JSON.stringify({ addresses: lanAddresses(), port, rooms: rooms.size }));
+  if (url === '/lan' || url === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify({ ok: true, addresses: lanAddresses(), port, rooms: rooms.size }));
     return;
   }
   let file = path.normalize(path.join(root, url === '/' ? 'index.html' : url));

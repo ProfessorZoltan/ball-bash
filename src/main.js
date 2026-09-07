@@ -5,7 +5,7 @@ import { BallHistory, bossIntent, moverSegmentsAt } from './ai.js';
 import { LEVELS, ROSTER, TUTORIAL_LEVEL } from './levels.js';
 import { LORE } from './lore.js';
 import { createGameState, rebuildWalls as rebuildWallsState, bodyHitCounts, tickCamp } from './gamestate.js';
-import { NetClient } from './net.js';
+import { NetClient, relayConfig, saveRelay } from './net.js';
 import { buildSnapshot, applySnapshot } from './netstate.js';
 import { Input } from './input.js';
 import { Renderer } from './render.js';
@@ -1500,11 +1500,13 @@ async function openLobby(prefillCode = '') {
   setInGame(false);
   stopMarkAnimation();
   $('hud').hidden = true;
-  const urls = lanInfo ? lanInfo.addresses.map((a) => `http://${a}:${lanInfo.port}/`) : [];
+  const online = lanInfo && lanInfo.online;
+  const urls = lanInfo && !online ? lanInfo.addresses.map((a) => `http://${a}:${lanInfo.port}/`) : [];
+  const relay = relayConfig();
   showOverlay(`
-    <div class="eyebrow">MULTIPLAYER · SAME WI-FI</div>
+    <div class="eyebrow">${online ? 'MULTIPLAYER · ONLINE' : 'MULTIPLAYER · SAME WI-FI'}</div>
     <h1>Two friends, one room code</h1>
-    <p class="small muted">Both players open this page on the same network${urls.length ? `: <b>${urls.join('</b> or <b>')}</b>` : ''}. One hosts and gets a code, the other joins with it. First to ${WIN_SCORE} points; sides swap every round.</p>
+    <p class="small muted">${online ? `Both players open this page anywhere; the relay at <b>${relay.label}</b> connects you.` : `Both players open this page on the same network${urls.length ? `: <b>${urls.join('</b> or <b>')}</b>` : ''}.`} One hosts and gets a code, the other joins with it. Versus is first to ${WIN_SCORE} points with sides swapping every round; co-op is both of you against the boss.</p>
     <div class="row"><label class="mp-field">Your name <input id="mp-name" maxlength="16" value="${savedName().replace(/"/g, '')}" placeholder="Player" /></label></div>
     <div class="row">
       <button id="mp-host" class="primary">Host a match</button>
@@ -1513,8 +1515,19 @@ async function openLobby(prefillCode = '') {
       <button id="btn-menu">Main menu</button>
     </div>
     <div id="mp-status" class="mp-status"></div>
+    <details class="mp-adv"><summary>Relay</summary>
+      <p class="small muted">Leave empty to use the server that serves this page (LAN play). For play over the internet, paste the address of a deployed relay (see the README) and it is remembered in this browser.</p>
+      <div class="row"><label class="mp-field">Relay <input id="mp-relay" maxlength="120" value="${relay ? relay.label.replace(/"/g, '') : ''}" placeholder="deflector-relay.example.workers.dev" style="width:20em" /></label><button id="mp-relay-set">Use</button></div>
+    </details>
   `);
   $('btn-menu').onclick = goToMenu;
+  $('mp-relay-set').onclick = async () => {
+    saveRelay($('mp-relay').value);
+    netReset();
+    lanInfo = await NetClient.available();
+    await openLobby();
+    lobbyStatus(lanInfo ? `<span class="small">Relay: ${lanInfo.online ? `<b>${relayConfig().label}</b> · ${lanInfo.rooms} room${lanInfo.rooms === 1 ? '' : 's'} open` : 'this page\'s LAN server'}</span>` : '<span class="mp-error">That relay did not answer. Check the address (it needs /health to respond).</span>');
+  };
   $('mp-host').onclick = () => hostRoom();
   $('mp-join').onclick = () => joinRoom($('mp-code').value);
   $('mp-code').onkeydown = (e) => {
@@ -1565,7 +1578,7 @@ async function hostRoom() {
     const client = await connectClient();
     client.on('created', (msg) => {
       net.names.host = name;
-      const urls = lanInfo ? lanInfo.addresses.map((a) => `http://${a}:${lanInfo.port}/?room=${msg.code}`) : [];
+      const urls = lanInfo && lanInfo.online ? [`${location.origin}${location.pathname}?room=${msg.code}`] : lanInfo ? lanInfo.addresses.map((a) => `http://${a}:${lanInfo.port}/?room=${msg.code}`) : [];
       lobbyStatus(`
         <div class="mp-code">${msg.code}</div>
         <p class="small">Share the code${urls.length ? `, or this link: <b>${urls.join('</b> / <b>')}</b>` : ''}.</p>
@@ -2099,8 +2112,8 @@ function showTitle() {
         ${qualitySelectHtml()}
       </div>
     </div>
-    <div class="row menu">${campaignButtonsHtml()}<button id="btn-start">Level ${def.id} only</button><button id="btn-tutorial">Tutorial</button><button id="btn-jukebox">Soundtrack</button><button id="btn-multi" ${lanInfo ? '' : 'disabled title="Run npm start on one PC and open its LAN address on both"'}>LAN match</button>${fullscreenHint()}</div>
-    ${lanInfo ? '' : '<p class="small muted">Multiplayer needs the LAN server: run <code>npm start</code> on one PC and open its address on both.</p>'}
+    <div class="row menu">${campaignButtonsHtml()}<button id="btn-start">Level ${def.id} only</button><button id="btn-tutorial">Tutorial</button><button id="btn-jukebox">Soundtrack</button><button id="btn-multi" title="${lanInfo && lanInfo.online ? 'Play online through the relay' : lanInfo ? 'Play on this Wi-Fi network' : 'Set a relay in the lobby, or run npm start on one PC and open its LAN address on both'}">${lanInfo && lanInfo.online ? 'Online match' : lanInfo ? 'LAN match' : 'Multiplayer'}</button>${fullscreenHint()}</div>
+    ${lanInfo ? '' : '<p class="small muted">Multiplayer needs a relay: paste one in the lobby for online play, or run <code>npm start</code> on one PC and open its LAN address on both.</p>'}
   `);
   $('btn-start').onclick = begin;
   bindCampaignButtons();
@@ -2322,7 +2335,7 @@ NetClient.available().then((info) => {
   lanInfo = info;
   if (state === 'title') showTitle();
   const code = new URLSearchParams(location.search).get('room');
-  if (info && code) openLobby(code.toUpperCase());
+  if (code) openLobby(code.toUpperCase());
 });
 
 // Expose for debugging / automated smoke tests.

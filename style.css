@@ -365,6 +365,9 @@ button[disabled] { opacity: 0.45; cursor: default; }
 
 /* Multiplayer lobby ------------------------------------------------------ */
 .mp-field { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; }
+.mp-adv { margin-top: 14px; text-align: left; }
+.mp-adv summary { cursor: pointer; font-family: var(--display); font-size: 11px; letter-spacing: 0.25em; color: var(--muted); }
+.mp-adv summary:hover { color: var(--cyan); }
 .opt { display: flex; align-items: center; gap: 10px; font-size: 14px; line-height: 1.4; cursor: pointer; text-align: left; margin: 0 0 8px; }
 .opt input { accent-color: var(--cyan); width: 16px; height: 16px; flex: none; cursor: pointer; margin: 0; }
 .opt b { flex: none; }

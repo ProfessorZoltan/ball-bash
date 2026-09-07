@@ -92,6 +92,42 @@ clear of walls, obstacles and movers (`findAllySpawn`, or a level's `ally`
 override). End-of-level screens and the campaign's continue, restart and
 summary choices belong to the host; the guest sees the same screen and waits.
 
+## Online multiplayer (different networks)
+
+The LAN server only works on one Wi-Fi network, because the guest has to reach
+the host's private address. For play over the internet the game needs a relay
+that both browsers can reach, and `relay/` is that relay as a Cloudflare
+Worker with one Durable Object. It speaks exactly the LAN relay's protocol, it
+is free at a couple of friends' scale, it never sleeps, and Cloudflare's edge
+keeps it close to both players.
+
+Deploy it once (needs a free Cloudflare account and Node):
+
+```bash
+cd relay
+npm install          # wrangler, Cloudflare's deploy tool
+npx wrangler login   # opens the browser once
+npx wrangler deploy  # prints https://deflector-relay.<your-subdomain>.workers.dev
+```
+
+Then either put that address in `DEFAULT_RELAY` in `src/config.js` and
+redeploy the site, so every player gets online play from the title screen, or
+have players paste it under **Relay** in the lobby (remembered in their
+browser), or open the game with `?relay=<address>`. The title button reads
+**Online match** when a relay is configured and answers on `/health`. Room
+codes and share links work as on LAN; the share link is the game's own URL
+with `?room=CODE`.
+
+Cost: the relay counts WebSocket messages at a 20:1 discount and idles for
+free. A match sends about 120 messages a second, which is a few hours of play
+a day inside the free plan's daily allowance. Test the Worker locally with
+`npm run dev` in `relay/` and `?relay=ws://127.0.0.1:8787` on the game.
+
+Latency: the host runs the simulation, so the guest feels the round trip on
+its own character. Its own character is predicted locally and reconciled with
+the host's state as snapshots arrive, so movement responds immediately; what
+lags is the ball and the other players, by about half a round trip.
+
 How it works: the server is also a tiny WebSocket relay (`/ws`, no
 dependencies). The host's browser runs the physics exactly as in single
 player, with the second character driven by the guest's inputs instead of the
@@ -388,7 +424,8 @@ src/fx.js                  particles, rings, screen shake
 src/audio/engine.js        Web Audio synths, sequencer, tempo-follow, SFX
 src/audio/tracks.js        per-level track definitions
 test/physics.test.js       node --test suite
-server.js                  zero-dependency static server
+server.js                  zero-dependency static server + LAN relay
+relay/                     the same relay as a Cloudflare Worker for online play
 ```
 
 ## Mobile roadmap

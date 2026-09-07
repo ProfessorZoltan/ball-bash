@@ -1,0 +1,14 @@
+# Cloudflare Workers config for the Deflector online relay.
+# Deploy with: npx wrangler deploy   (first time: npx wrangler login)
+name = "deflector-relay"
+main = "worker.js"
+compatibility_date = "2025-06-01"
+
+[[durable_objects.bindings]]
+name = "RELAY"
+class_name = "RelayRoom"
+
+# SQLite-backed Durable Objects are the kind available on the free plan.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RelayRoom"]

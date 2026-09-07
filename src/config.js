@@ -8,6 +8,14 @@ export const GAME_NAME = 'Deflector';
 export const GAME_TAGLINE = 'Reflect. Deflect. Defect.';
 export const GAME_VERSION = '0.2.0-alpha'; // shown on the title screen; bump on each release
 
+// Online multiplayer relay. Leave empty to use the LAN server that served
+// the page (npm start). After deploying relay/ to Cloudflare, put its address
+// here, e.g. 'wss://deflector-relay.<your-subdomain>.workers.dev', and the
+// static site (Vercel) gets online play. Players can also paste a relay
+// address in the lobby, which is remembered in their browser, or open the
+// game with ?relay=<address>.
+export const DEFAULT_RELAY = '';
+
 // Glyph indices of GAME_MARK lit for each reading; ECTOR is always lit.
 export const MARK_READINGS = [
   { name: 'REFLECTOR', lit: [2, 6, 7, 9] },

@@ -1,5 +1,41 @@
-// Client side of the LAN relay: connect to the server that served the page,
-// create or join a room, then exchange messages with the other player.
+// Client side of the relay: connect to the online relay if one is configured,
+// otherwise to the LAN server that served the page; create or join a room,
+// then exchange messages with the other player.
+import { DEFAULT_RELAY } from './config.js';
+
+const RELAY_KEY = 'deflector.relay';
+
+/**
+ * The configured relay, or null for the page's own server. Order: the
+ * ?relay= query parameter, the address saved in this browser, DEFAULT_RELAY.
+ * Returns { ws, http, label } with the WebSocket and HTTP base URLs.
+ */
+export function relayConfig() {
+  let raw = '';
+  try {
+    raw = new URLSearchParams(location.search).get('relay') || localStorage.getItem(RELAY_KEY) || DEFAULT_RELAY || '';
+  } catch (_) {
+    raw = DEFAULT_RELAY || '';
+  }
+  raw = String(raw).trim();
+  if (!raw) return null;
+  const m = raw.match(/^(?:(wss?|https?):\/\/)?([^/\s]+)/i);
+  if (!m) return null;
+  const proto = (m[1] || 'wss').toLowerCase();
+  const secure = proto === 'wss' || proto === 'https';
+  const host = m[2];
+  return { ws: `${secure ? 'wss' : 'ws'}://${host}/ws`, http: `${secure ? 'https' : 'http'}://${host}`, label: host };
+}
+
+/** Save (or with an empty string, clear) the relay address for this browser. */
+export function saveRelay(address) {
+  try {
+    if (String(address || '').trim()) localStorage.setItem(RELAY_KEY, String(address).trim());
+    else localStorage.removeItem(RELAY_KEY);
+  } catch (_) {
+    // storage unavailable; the choice lasts for this page load only
+  }
+}
 
 export class NetClient {
   constructor() {
@@ -12,12 +48,18 @@ export class NetClient {
     this.rtt = 0;
   }
 
-  /** Is this page served by the LAN server (as opposed to static hosting)? */
+  /**
+   * Is a relay reachable? The configured online relay's /health, or else the
+   * LAN server's /lan (which a static host does not have). Resolves to
+   * { online, relay, addresses, port, rooms } or null.
+   */
   static async available() {
+    const relay = relayConfig();
     try {
-      const res = await fetch('/lan', { cache: 'no-store' });
+      const res = await fetch(relay ? `${relay.http}/health` : '/lan', { cache: 'no-store' });
       if (!res.ok) return null;
-      return await res.json();
+      const info = await res.json();
+      return { ...info, online: !!relay, relay };
     } catch (_) {
       return null;
     }
@@ -35,15 +77,16 @@ export class NetClient {
   connect() {
     if (this.connected) return Promise.resolve();
     return new Promise((resolve, reject) => {
+      const relay = relayConfig();
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-      const ws = new WebSocket(`${proto}://${location.host}/ws`);
+      const ws = new WebSocket(relay ? relay.ws : `${proto}://${location.host}/ws`);
       this.ws = ws;
       ws.onopen = () => {
         this.connected = true;
         resolve();
       };
       ws.onerror = () => {
-        if (!this.connected) reject(new Error('Could not reach the LAN server'));
+        if (!this.connected) reject(new Error(relayConfig() ? 'Could not reach the relay' : 'Could not reach the LAN server'));
       };
       ws.onclose = () => {
         this.connected = false;
