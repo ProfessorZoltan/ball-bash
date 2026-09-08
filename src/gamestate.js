@@ -109,6 +109,11 @@ export function versusSpawns(def, n) {
   return out;
 }
 
+/** Versus colours by seat: the host wears the wall colour, the first guest the obstacle colour, the second the arena's third. */
+export function versusColors(def) {
+  return [def.palette.wall, def.palette.obstacle, def.palette.third || COOP.allyColors[1]];
+}
+
 /** The spawn order for a round: seat k takes spawn (k + round - 1) mod n, so everyone starts everywhere in turn. */
 export function rotateSpawns(spawns, round) {
   const n = spawns.length;
@@ -145,9 +150,14 @@ export function createGameState(def, { pvp = false, coop = false, rules = DEFAUL
     // Every player for themselves: each human is its own team, seated at the
     // spawns in order (the host first). `boss` stays an alias for the second
     // seat so shared code has something to point at.
+    // A seat may name its player (`id`) and colour, as when survivors of an
+    // elimination match are reseated; otherwise seats go to a, c, d in order.
     const seats = spawns || versusSpawns(def, pvpCount);
-    const colors = [def.palette.wall, def.palette.obstacle, def.palette.third || COOP.allyColors[1]];
-    const rivals = seats.slice(0, pvpCount).map((seat, i) => new Fighter({ ...playerStats(def, seat), name: i === 0 ? 'You' : `Rival ${i}`, kind: 'player', slot: VERSUS_IDS[i], team: VERSUS_IDS[i], color: colors[i] }));
+    const colors = versusColors(def);
+    const rivals = seats.slice(0, pvpCount).map((seat, i) => {
+      const id = seat.id || VERSUS_IDS[i];
+      return new Fighter({ ...playerStats(def, seat), name: i === 0 ? 'You' : `Rival ${i}`, kind: 'player', slot: id, team: id, color: seat.color || colors[VERSUS_IDS.indexOf(id)] || colors[i] });
+    });
     player = rivals[0];
     boss = rivals[1];
     fighters = rivals;

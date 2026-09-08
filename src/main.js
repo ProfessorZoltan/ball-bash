@@ -4,7 +4,7 @@ import { GAME_MARK, GAME_NAME, GAME_TAGLINE, GAME_VERSION, MARK_READINGS, PHYSIC
 import { BallHistory, bossIntent, moverSegmentsAt } from './ai.js';
 import { LEVELS, VERSUS_LEVELS, ROSTER, TUTORIAL_LEVEL } from './levels.js';
 import { LORE } from './lore.js';
-import { createGameState, rebuildWalls as rebuildWallsState, bodyHitCounts, tickCamp, versusSpawns, rotateSpawns } from './gamestate.js';
+import { createGameState, rebuildWalls as rebuildWallsState, bodyHitCounts, tickCamp, versusSpawns, rotateSpawns, versusColors, VERSUS_IDS } from './gamestate.js';
 import { NetClient, relayConfig, saveRelay } from './net.js';
 import { buildSnapshot, applySnapshot } from './netstate.js';
 import { Input } from './input.js';
@@ -130,7 +130,8 @@ function step(dt) {
   // or, in versus, the rival human, c = the co-op ally. Whichever slot is
   // yours gets your input; a remote human gets its latest intent; the boss
   // gets its brain.
-  const local = input.intent(localFighter());
+  const me = localFighter();
+  const local = me ? input.intent(me) : ZERO_INTENT; // an eliminated host still runs the match
   const intents = { a: ZERO_INTENT, b: ZERO_INTENT, c: ZERO_INTENT, d: ZERO_INTENT };
   if (g.pvp) {
     // Every player for themselves: the host is seat a, guests c and d.
@@ -250,7 +251,7 @@ function onCamped(f, slot) {
   campFx(f);
   netEvent({ e: 'camp', s: slot });
   if (g.pvp) {
-    pvpPoint(f, 'camp');
+    pvpLoss(f, 'camp');
     return;
   }
   loseShield('camp', f);
@@ -617,7 +618,7 @@ function frame(now) {
     if (state === 'roundEnd' && net.mode === 'host') {
       endTimer -= dt;
       if (endTimer <= 0) {
-        if (Object.values(net.scores).some((v) => v >= WIN_SCORE)) {
+        if (survivors().length <= 1) {
           state = 'matchEnd';
           showNetMatchEnd();
         } else startNetRound();
@@ -1060,10 +1061,10 @@ function updateHud() {
   const g = game;
   setText('hud-time', formatTime(g.time));
   if (g.pvp) {
-    setText('hud-lives-label', 'SCORE');
-    setHtml('hud-lives', net.players.map((p) => tint(p.id, net.scores[p.id] || 0)).join(' <span class="label">–</span> '));
+    setText('hud-lives-label', 'SHIELDS');
+    setHtml('hud-lives', net.players.map((p) => tint(p.id, shieldPips(p.id))).join(' <span class="label">·</span> '));
     setText('hud-boss-label', 'MATCH');
-    setHtml('hud-boss', `${net.players.map((p) => tint(p.id, esc(p.name).toUpperCase())).join(' <span class="label">VS</span> ')} · FIRST TO ${WIN_SCORE}`);
+    setHtml('hud-boss', `${net.players.map((p) => tint(p.id, esc(p.name).toUpperCase())).join(' <span class="label">VS</span> ')} · LAST ONE STANDING`);
     setText('hud-level', `ROUND ${net.round} · ${g.def.title.toUpperCase()}`);
   } else {
     setText('hud-lives-label', 'SHIELDS');
@@ -1080,22 +1081,26 @@ function updateHud() {
   const health = `${Math.round(fps)} FPS${g.drops ? ` · ${g.drops} DROPPED` : ''}${renderer.low ? ` · LOW Q${autoLow && qualitySetting() === 'auto' ? ' (AUTO)' : ''}` : ''}`;
   const padTag = input.pad.connected ? ' · 🎮' : '';
   setText('hud-fps', (net.mode ? `${health} · ${Math.round(net.client.rtt)} MS` : health) + padTag);
-  const me = localFighter();
-  const frozen = me.frozen > 0;
-  const campLeft = PLAYER.campSeconds - me.campTimer;
-  const camping = state === 'playing' && !g.tutorial && me.campTimer > 0 && campLeft <= PLAYER.campWarn;
-  let status = frozen ? `FROZEN ${me.frozen.toFixed(1)}` : camping ? `MOVE · ${Math.max(0, campLeft).toFixed(1)}` : '';
+  const me = localFighter(); // null while watching a versus match you were eliminated from
+  const frozen = !!me && me.frozen > 0;
+  const campLeft = me ? PLAYER.campSeconds - me.campTimer : Infinity;
+  const camping = !!me && state === 'playing' && !g.tutorial && me.campTimer > 0 && campLeft <= PLAYER.campWarn;
+  let status = frozen ? `FROZEN ${me.frozen.toFixed(1)}` : camping ? `MOVE · ${Math.max(0, campLeft).toFixed(1)}` : !me && g.pvp ? 'OUT · WATCHING' : '';
   const lost = g.lastLoss && state === 'countdown' && g.time - g.lastLoss.at < 4 ? g.lastLoss : null;
   if (lost && lost.slot === 'b') status = `BOSS HIT · ${g.bossHits} MORE TO GO`;
   else if (lost) {
-    const who = g.coop ? `${(fighterBySlot(lost.slot) || me).name.replace(/ \(you\)$/, '').toUpperCase()} ` : '';
+    const who = g.coop ? `${(fighterBySlot(lost.slot) || me || g.player).name.replace(/ \(you\)$/, '').toUpperCase()} ` : '';
     status = `${who}${lost.reason === 'camp' ? 'STOOD STILL' : lost.reason === 'touch' ? 'TOUCHED THE BOSS' : 'HIT'} · ${g.lives === Infinity ? 'UNLIMITED SHIELDS' : `${g.lives} SHIELD${g.lives === 1 ? '' : 'S'} LEFT`}`;
   }
-  const winners = g.pvp && state === 'roundEnd' && net.winner ? [].concat(net.winner) : [];
-  if (winners.length) status = `POINT · ${winners.map(playerName).join(' & ')}${net.reason === 'camp' ? ' · STOOD STILL' : net.reason === 'own' ? ' · OWN BALL' : ''}`.toUpperCase();
+  const last = g.pvp && state === 'roundEnd' && net.last ? net.last : null;
+  if (last) {
+    const how = last.reason === 'camp' ? 'STOOD STILL' : last.reason === 'own' ? 'OWN BALL' : `HIT BY ${playerName(last.by)}`;
+    const left = net.shields[last.id] || 0;
+    status = `${playerName(last.id)} ${how} · ${last.out ? 'ELIMINATED' : `${left} SHIELD${left === 1 ? '' : 'S'} LEFT`}`.toUpperCase();
+  }
   setText('hud-status', status);
-  $('hud-status').style.color = winners.length ? net.colors[winners[0]] : camping ? '#ff4d6d' : '';
-  $('hud-status').classList.toggle('on', frozen || camping || !!lost || state === 'roundEnd');
+  $('hud-status').style.color = last ? net.colors[last.id] : camping ? '#ff4d6d' : '';
+  $('hud-status').classList.toggle('on', frozen || camping || !!lost || state === 'roundEnd' || (!me && g.pvp));
 }
 
 function formatTime(t) {
@@ -1469,7 +1474,8 @@ function finishTutorial(skipped) {
 
 // ------------------------------------------------------------ multiplayer
 
-const WIN_SCORE = 3;
+const VERSUS_SHIELDS = [1, 2, 3, 5]; // choices in the lobby
+const DEFAULT_VERSUS_SHIELDS = 3;
 const ZERO_INTENT = { mx: 0, my: 0, turn: 0, lunge: false, retract: false };
 let lanInfo = null;
 const net = {
@@ -1495,7 +1501,10 @@ const net = {
   events: [],
   round: 0,
   players: [], // versus seats in order: [{ id, name }] (the host is 'a', guests keep their relay ids)
-  scores: {}, // versus: points per player id
+  shields: {}, // versus: shields left per player id; 0 means eliminated
+  maxShields: DEFAULT_VERSUS_SHIELDS,
+  out: {}, // versus: player id -> the round they were eliminated in
+  last: null, // versus: the latest loss, { id, reason: 'hit' | 'own' | 'camp', by, out }
   names: { host: 'Host', guest: 'Guest' },
   levelIndex: 0, // versus: index into VERSUS_ARENAS; co-op: index into LEVELS
   winner: null,
@@ -1524,8 +1533,9 @@ function netReset() {
   net.events = [];
   net.round = 0;
   net.players = [];
-  net.scores = {};
-  net.winner = null;
+  net.shields = {};
+  net.out = {};
+  net.last = null;
   net.pending = null;
   net.ballBase = null;
 }
@@ -1542,6 +1552,26 @@ function playerName(id) {
   return p ? p.name : id;
 }
 
+/** Versus players still holding shields, in seating order. */
+function survivors() {
+  return net.players.filter((p) => (net.shields[p.id] || 0) > 0);
+}
+
+function shieldPips(id) {
+  const left = net.shields[id] || 0;
+  if (left <= 0) return 'OUT';
+  return '◆'.repeat(left) + '◇'.repeat(Math.max(0, net.maxShields - left));
+}
+
+function versusShieldsSetting() {
+  try {
+    const v = Number(localStorage.getItem('deflector.versusShields'));
+    return VERSUS_SHIELDS.includes(v) ? v : DEFAULT_VERSUS_SHIELDS;
+  } catch (_) {
+    return DEFAULT_VERSUS_SHIELDS;
+  }
+}
+
 function esc(t) {
   return String(t).replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
 }
@@ -1554,7 +1584,8 @@ function netEvent(ev) {
 function localFighter() {
   const g = game;
   if (!g) return null;
-  if (g.pvp || g.coop) return fighterBySlot(net.localSlot) || g.player;
+  if (g.pvp) return fighterBySlot(net.localSlot); // null once eliminated: this device only watches
+  if (g.coop) return fighterBySlot(net.localSlot) || g.player;
   return g.player;
 }
 
@@ -1595,7 +1626,7 @@ async function openLobby(prefillCode = '') {
   showOverlay(`
     <div class="eyebrow">${online ? 'MULTIPLAYER · ONLINE' : 'MULTIPLAYER · SAME WI-FI'}</div>
     <h1>Up to three players, one room code</h1>
-    <p class="small muted">${online ? `Both players open this page anywhere; the relay at <b>${relay.label}</b> connects you.` : `Both players open this page on the same network${urls.length ? `: <b>${urls.join('</b> or <b>')}</b>` : ''}.${urls.length ? ` A friend with the desktop app can instead enter <b>${lanInfo.addresses[0]}:${lanInfo.port}</b> under Relay below.` : ''}`} One hosts and gets a code, the others join with it. Versus is every player for themselves on its own arenas, first to ${WIN_SCORE} points; co-op is all of you against the boss.</p>
+    <p class="small muted">${online ? `Both players open this page anywhere; the relay at <b>${relay.label}</b> connects you.` : `Both players open this page on the same network${urls.length ? `: <b>${urls.join('</b> or <b>')}</b>` : ''}.${urls.length ? ` A friend with the desktop app can instead enter <b>${lanInfo.addresses[0]}:${lanInfo.port}</b> under Relay below.` : ''}`} One hosts and gets a code, the others join with it. Versus is every player for themselves on its own arenas, last one standing; co-op is all of you against the boss.</p>
     <div class="row"><label class="mp-field">Your name <input id="mp-name" maxlength="16" value="${savedName().replace(/"/g, '')}" placeholder="Player" /></label></div>
     <div class="row">
       <button id="mp-host" class="primary">Host a match</button>
@@ -1717,9 +1748,9 @@ function renderHostLobby(client) {
       lobbyStatus(`
         <div class="mp-code">${client.code}</div>
         <p>${names} joined${net.roster.length < COOP.maxAllies ? ` · room for ${COOP.maxAllies - net.roster.length} more` : ' · the room is full'}.</p>
-        <div class="row"><label class="mp-field">Mode <select id="mp-mode"><option value="versus">Versus · ${people} players, first to ${WIN_SCORE}</option><option value="coop">Co-op · ${people} of you against the boss</option></select></label></div>
-        <div class="row" id="mp-versus-opts"><label class="mp-field">Arena <select id="mp-level">${arenaOptions}</select></label></div>
-        <p class="small muted" id="mp-versus-note">Every player for themselves${many ? ': a body hit scores for whoever sent the ball, and standing still or an own ball scores for everyone else' : ''}. Starting spots rotate every round.</p>
+        <div class="row"><label class="mp-field">Mode <select id="mp-mode"><option value="versus">Versus · ${people} players, last one standing</option><option value="coop">Co-op · ${people} of you against the boss</option></select></label></div>
+        <div class="row" id="mp-versus-opts"><label class="mp-field">Arena <select id="mp-level">${arenaOptions}</select></label><label class="mp-field">Shields each <select id="mp-shields">${VERSUS_SHIELDS.map((n) => `<option value="${n}" ${n === versusShieldsSetting() ? 'selected' : ''}>${n}</option>`).join('')}</select></label></div>
+        <p class="small muted" id="mp-versus-note">Every player for themselves. A body hit, an own ball or standing still costs that player a shield and resets everyone; with no shields left they are out. The last one standing wins.</p>
         <div class="row" id="mp-coop-opts" hidden>
           <label class="mp-field">Play <select id="mp-coop-play"><option value="level">One level</option><option value="campaign">New campaign</option>${saved ? `<option value="resume">Continue campaign · Level ${LEVELS[saved.levelIndex].id}</option>` : ''}</select></label>
           <label class="mp-field">Level <select id="mp-coop-level">${options}</select></label>
@@ -1742,7 +1773,15 @@ function renderHostLobby(client) {
       $('mp-coop-play').onchange = syncMode;
       syncMode();
       $('mp-start').onclick = () => {
-        if ($('mp-mode').value !== 'coop') return startNetMatch(Number($('mp-level').value));
+        if ($('mp-mode').value !== 'coop') {
+          const shields = Number($('mp-shields').value) || DEFAULT_VERSUS_SHIELDS;
+          try {
+            localStorage.setItem('deflector.versusShields', String(shields));
+          } catch (_) {
+            // storage unavailable: the choice lasts for this match
+          }
+          return startNetMatch(Number($('mp-level').value), shields);
+        }
         const play = $('mp-coop-play').value;
         startCoop({ campaign: play !== 'level', resume: play === 'resume', levelIdx: Number($('mp-coop-level').value) });
       };
@@ -1780,26 +1819,28 @@ async function joinRoom(code) {
 }
 
 /** Host: begin a versus match on the chosen arena with everyone in the room. */
-function startNetMatch(levelIdx) {
+function startNetMatch(levelIdx, shields = net.maxShields) {
   net.mode = 'host';
   if (net.roster[0]) net.names.guest = net.roster[0].name;
   net.levelIndex = levelIdx;
   net.rules = { ownBallLoss: ownBallLoss() };
   net.round = 0;
   net.players = [{ id: 'a', name: net.names.host }].concat(net.roster.map((r) => ({ id: r.id, name: r.name })));
-  net.scores = {};
-  for (const p of net.players) net.scores[p.id] = 0;
+  net.maxShields = shields;
+  net.shields = {};
+  net.out = {};
+  net.last = null;
+  for (const p of net.players) net.shields[p.id] = shields;
   startNetRound();
 }
 
 /** Host: begin the next round (starting spots rotate each round). */
 function startNetRound() {
   net.round++;
-  net.winner = null;
   net.localSlot = 'a';
   net.remoteIntents = {};
   net.events = [];
-  net.client.send({ t: 'setup', level: net.levelIndex, round: net.round, scores: net.scores, players: net.players, names: net.names, rules: net.rules });
+  net.client.send({ t: 'setup', level: net.levelIndex, round: net.round, shields: net.shields, max: net.maxShields, out: net.out, last: net.last, players: net.players, names: net.names, rules: net.rules });
   beginNetRound();
 }
 
@@ -1822,11 +1863,13 @@ function onSetup(msg) {
   }
   net.levelIndex = msg.level;
   net.round = msg.round;
-  net.scores = msg.scores || {};
   net.names = msg.names;
   net.players = Array.isArray(msg.players) && msg.players.length ? msg.players : [{ id: 'a', name: msg.names.host }, { id: 'c', name: msg.names.guest }];
+  net.maxShields = msg.max || DEFAULT_VERSUS_SHIELDS;
+  net.shields = msg.shields || Object.fromEntries(net.players.map((p) => [p.id, net.maxShields]));
+  net.out = msg.out || {};
+  net.last = msg.last || null;
   net.rules = { ownBallLoss: !msg.rules || msg.rules.ownBallLoss !== false };
-  net.winner = null;
   net.localSlot = net.client.id || 'c';
   net.pending = null;
   net.ballBase = null;
@@ -1841,15 +1884,16 @@ function beginNetRound() {
   if (campaignIdx >= 0) levelIndex = campaignIdx;
   resetFrameWatch();
   // Seats are fixed for the match (the host is a, guests c and d, each with
-  // one colour); where each seat starts rotates round by round.
-  const n = net.players.length;
-  game = buildGame(def, n, net.rules, false, rotateSpawns(versusSpawns(def, n), net.round));
+  // one colour); eliminated players leave the arena and the survivors take
+  // the spawn set for their number, rotating round by round.
+  const alive = survivors();
+  const n = alive.length;
+  const colors = versusColors(def);
   net.colors = {};
-  for (const f of game.fighters) {
-    const p = net.players.find((q) => q.id === f.slot);
-    f.name = (p ? p.name : f.name) + (net.localSlot === f.slot ? ' (you)' : '');
-    net.colors[f.slot] = f.color;
-  }
+  for (const p of net.players) net.colors[p.id] = colors[VERSUS_IDS.indexOf(p.id)] || colors[net.players.indexOf(p)];
+  const seats = rotateSpawns(versusSpawns(def, n), net.round).map((sp, i) => ({ ...sp, id: alive[i].id, color: net.colors[alive[i].id] }));
+  game = buildGame(def, n, net.rules, false, seats);
+  for (const f of game.fighters) f.name = playerName(f.slot) + (net.localSlot === f.slot ? ' (you)' : '');
   game.local = localFighter();
   renderer.setLevel(def);
   renderer.resize();
@@ -1959,25 +2003,25 @@ function onCoopResult(msg) {
   $('btn-menu').onclick = leaveMatch;
 }
 
-/** Host: a body was hit in versus; whoever sent the ball scores. */
+/** Host: a body was hit in versus; that player loses a shield. */
 function onPvpHit(f, h) {
   hitFx(f, h.cx, h.cy, h.nx, h.ny);
   netEvent({ e: 'hit', s: f.slot, x: h.cx, y: h.cy, nx: h.nx, ny: h.ny });
-  pvpPoint(f, game.ball.lastTeam && game.ball.lastTeam !== f.team ? 'hit' : 'own');
+  const by = game.ball.lastTeam && game.ball.lastTeam !== f.team ? game.ball.lastTeam : null;
+  pvpLoss(f, by ? 'hit' : 'own', by);
 }
 
 /**
- * Host: fighter `f` lost the round. A rival's ball scores for that rival;
- * anything else (standing still, an own ball) scores for every other player,
- * which with two players is the same thing.
+ * Host: fighter `f` lost the round (a rival's ball, an own ball, standing
+ * still): one shield gone, play stops and everyone is reseated. With no
+ * shields left the player is out; the match ends when one remains.
  */
-function pvpPoint(f, reason) {
+function pvpLoss(f, reason, by = null) {
   const g = game;
-  const others = net.players.map((p) => p.id).filter((id) => id !== f.slot);
-  const scorers = reason === 'hit' && others.includes(g.ball.lastTeam) ? [g.ball.lastTeam] : others;
-  for (const id of scorers) net.scores[id] = (net.scores[id] || 0) + 1;
-  net.winner = scorers;
-  net.reason = reason;
+  net.shields[f.slot] = Math.max(0, (net.shields[f.slot] || 0) - 1);
+  const out = net.shields[f.slot] === 0;
+  if (out) net.out[f.slot] = net.round;
+  net.last = { id: f.slot, reason, by, out };
   state = 'roundEnd';
   endTimer = 2.4;
   g.ball.held = true;
@@ -1998,7 +2042,7 @@ function hitFx(f, x, y, nx, ny) {
 /** Host: send the state of this frame to the guest. */
 function hostSend() {
   net.frame++;
-  const meta = { st: state, cd: countdown, sc: net.scores, rd: net.round, w: net.winner, rs: net.reason, ak: net.remoteSeqs };
+  const meta = { st: state, cd: countdown, sh: net.shields, ot: net.out, rd: net.round, ls: net.last, ak: net.remoteSeqs };
   if (net.coop) {
     meta.lv = game.lives === Infinity ? 'inf' : game.lives;
     meta.bh = game.bossHits;
@@ -2034,19 +2078,19 @@ function guestApply(now) {
     net.pending = null;
     const g = game;
     const wasState = state;
-    const me = localFighter();
-    const leftBefore = PLAYER.campSeconds - me.campTimer;
-    const predX = me.x;
-    const predY = me.y;
+    const me = localFighter(); // null while watching after an elimination
+    const leftBefore = me ? PLAYER.campSeconds - me.campTimer : 0;
+    const predX = me ? me.x : 0;
+    const predY = me ? me.y : 0;
     applySnapshot(g, s);
     for (const f of g.fighters) if (f !== me) f.markRender();
-    guestReconcile(s.ak && typeof s.ak === 'object' ? s.ak[net.client.id || 'c'] : s.ak, predX, predY);
-    if (state === 'playing') campTick(leftBefore, PLAYER.campSeconds - me.campTimer);
+    if (me) guestReconcile(s.ak && typeof s.ak === 'object' ? s.ak[net.client.id || 'c'] : s.ak, predX, predY);
+    if (me && state === 'playing') campTick(leftBefore, PLAYER.campSeconds - me.campTimer);
     net.ballBase = { x: g.ball.x, y: g.ball.y, vx: g.ball.vx, vy: g.ball.vy };
-    net.scores = s.sc;
+    if (s.sh) net.shields = s.sh;
+    if (s.ot) net.out = s.ot;
     net.round = s.rd;
-    net.winner = s.w;
-    net.reason = s.rs || null;
+    net.last = s.ls || null;
     if (net.coop) {
       if (s.lv !== undefined) g.lives = s.lv === 'inf' ? Infinity : s.lv;
       if (s.bh !== undefined) g.bossHits = s.bh;
@@ -2184,11 +2228,16 @@ function playEvent(ev) {
 
 function showNetMatchEnd() {
   setInGame(false);
-  const winner = net.players.map((p) => p.id).sort((x, y) => (net.scores[y] || 0) - (net.scores[x] || 0))[0];
+  // Last one standing first, then the others by how long they lasted.
+  const order = net.players.map((p) => p.id).sort((x, y) => (net.shields[y] || 0) - (net.shields[x] || 0) || (net.out[y] || 0) - (net.out[x] || 0));
+  const winner = order[0];
   const you = winner === net.localSlot;
+  const left = net.shields[winner] || 0;
+  const fallen = order.slice(1).map((id) => `${tint(id, esc(playerName(id)))} out in round ${net.out[id] || net.round}`).join(' · ');
   showOverlay(`
     <div class="eyebrow">${you ? 'VICTORY' : 'DEFEAT'}</div>
-    <h1>${tint(winner, esc(playerName(winner)))} wins ${net.players.map((p) => tint(p.id, net.scores[p.id] || 0)).join('–')}</h1>
+    <h1>${tint(winner, esc(playerName(winner)))} is the last one standing</h1>
+    <p class="muted">${left} shield${left === 1 ? '' : 's'} left${fallen ? ` · ${fallen}` : ''}</p>
     <p class="muted">${versusLevel(net.levelIndex).title} · ${net.round} rounds</p>
     <div class="row">
       ${net.mode === 'host' ? '<button id="btn-rematch" class="primary">Rematch</button>' : '<span class="small muted">Waiting for the host to start a rematch…</span>'}

@@ -122,9 +122,9 @@ npm start
 It prints the machine's LAN address (something like `http://192.168.1.20:8080`).
 Both players open that address on the same network. On the title screen,
 **Multiplayer · LAN** opens the lobby: one player hosts and gets a four-letter
-code (and a share link), the other joins with it. The host picks the arena and
-starts and chooses the rules. First to 3 points wins; one body hit ends a
-round; sides swap every round so the asymmetric arenas balance out. Each
+code (and a share link), the others join with it. The host picks the arena,
+the shields per player and the rules. One loss ends a round; with no shields
+left you are out, and the last one standing wins. Each
 player keeps one colour for the whole match whichever side they spawn on (the
 host wears the arena's wall colour, the guest its obstacle colour), and the
 score, names and point notices are tinted to match. Boss-only abilities are
@@ -161,14 +161,16 @@ there too, further down the list):
 | Trefoil | three overlapping circles grown into one room, three small pillars in the necks | same |
 | Sawtooth | a square whose walls are chewed into teeth, two diamonds inside | same |
 
-Rules with three players: a body hit scores for whoever sent the ball;
-standing still, or an own ball with the own-ball rule on, scores for every
-other player. With two players both come to the same thing as before. First
-to 3 wins. Seats are fixed for the match (the host wears the arena's wall
-colour, the first guest its obstacle colour, the third player the arena's
-`palette.third`), and where each seat starts rotates every round so everyone
-plays every position. Each arena lists a spawn set per player count under
-`spawns`; a fourth set is the only thing a four-player match will need.
+Rules: every player starts with the same number of shields (the host picks 1,
+2, 3 or 5 in the lobby; 3 is the default). A body hit, an own ball (with the
+own-ball rule on) or standing still costs that player one shield, play stops,
+and everyone is reseated for a fresh serve. A player with no shields left is
+out and watches the rest; the last one standing wins. Seats are fixed for the
+match (the host wears the arena's wall colour, the first guest its obstacle
+colour, the third player the arena's `palette.third`); the survivors take the
+spawn set for their number, and who starts where rotates every round. Each
+arena lists a spawn set per player count under `spawns`; a fourth set is the
+only thing a four-player match will need.
 
 The shape helpers (`truncatedTriangle`, `circleUnion`, `jaggedSquare` and the
 existing `ellipse`) live next to the arenas, and every arena is fired at in
