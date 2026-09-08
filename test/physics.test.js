@@ -4,7 +4,7 @@ import { reflect, circleVsCapsule, polygonEdges, pointInPolygon, predictPath, ra
 import { Ball, Fighter, Boss, Spinner, Piston, Orbiter, Pulser, createMover } from '../src/entities.js';
 import { IceTrail } from '../src/ice.js';
 import { advanceBall, separateFightersFromBall } from '../src/sim.js';
-import { LEVELS, obstaclePoly } from '../src/levels.js';
+import { LEVELS, VERSUS_LEVELS, obstaclePoly } from '../src/levels.js';
 import { BALL } from '../src/config.js';
 
 const speed = (b) => Math.hypot(b.vx, b.vy);
@@ -273,7 +273,7 @@ test('own-ball rule: a body hit only counts when the other team touched the ball
   // Teams: single player and co-op put the humans together; versus splits them.
   assert.deepEqual(g.fighters.map((f) => [f.slot, f.team]), [['a', 'us'], ['b', 'boss']]);
   const pvp = createGameState(LEVELS[0], { pvp: true });
-  assert.deepEqual(pvp.fighters.map((f) => [f.slot, f.team]), [['a', 'a'], ['b', 'b']]);
+  assert.deepEqual(pvp.fighters.map((f) => [f.slot, f.team]), [['a', 'a'], ['c', 'c']]);
   const coop = createGameState(LEVELS[0], { coop: true });
   assert.deepEqual(coop.fighters.map((f) => [f.slot, f.team]), [['a', 'us'], ['c', 'us'], ['b', 'boss']]);
   assert.equal(coop.humans.length, 2);
@@ -418,4 +418,70 @@ test('every boss turns faster than 3 rad/s and reacts within a third of a second
     assert.ok(def.boss.turnSpeed >= 3.2, `${def.title}: turnSpeed ${def.boss.turnSpeed}`);
     assert.ok(def.boss.reaction <= 0.31, `${def.title}: reaction ${def.boss.reaction}`);
   }
+});
+
+for (const def of VERSUS_LEVELS) {
+  test(`versus arena ${def.title} is sealed: the ball never leaves the room or enters an obstacle`, async () => {
+    const { versusSpawns } = await import('../src/gamestate.js');
+    const walls = polygonEdges(def.boundary);
+    for (const o of def.obstacles) walls.push(...polygonEdges(obstaclePoly(o)));
+    const fighters = versusSpawns(def, 3).map((sp) => new Fighter({ x: sp.x, y: sp.y, angle: sp.angle, r: 22, paddleWidth: 116, paddleBase: 36 }));
+    const ball = new Ball(BALL.radius);
+    const dt = 1 / 240;
+    let seed = 99 + def.boundary.length;
+    const rnd = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
+    let bounces = 0;
+    for (let run = 0; run < 6; run++) {
+      ball.launch(def.ball.x, def.ball.y, rnd() * Math.PI * 2, BALL.maxSpeed);
+      for (let i = 0; i < 240 * 20; i++) {
+        for (const f of fighters) {
+          f.update(dt, { mx: rnd() * 2 - 1, my: rnd() * 2 - 1, turn: rnd() * 2 - 1, lunge: rnd() < 0.02 });
+          f.finalizeStep(dt);
+        }
+        advanceBall(ball, walls, fighters, dt, 1, { onWall: () => bounces++, onBody: () => false }, [], def.obstacles.map(obstaclePoly));
+        separateFightersFromBall(ball, fighters);
+        ball.clampSpeed(BALL.minSpeed, BALL.maxSpeed);
+        assert.ok(pointInPolygon(ball.x, ball.y, def.boundary), `ball escaped ${def.title} at step ${i}: ${ball.x},${ball.y}`);
+        for (const o of def.obstacles) assert.ok(!pointInPolygon(ball.x, ball.y, obstaclePoly(o)), `ball inside an obstacle at step ${i}`);
+      }
+    }
+    assert.ok(bounces > 50, `only ${bounces} bounces`);
+  });
+}
+
+test('versus arenas: spawns for 2 and 3 players sit inside the room, clear of walls and each other, and rotate each round', async () => {
+  const { versusSpawns, rotateSpawns, createGameState } = await import('../src/gamestate.js');
+  const { PLAYER } = await import('../src/config.js');
+  for (const def of VERSUS_LEVELS) {
+    assert.ok(def.versus, `${def.title} is a versus arena`);
+    assert.ok(pointInPolygon(def.ball.x, def.ball.y, def.boundary), `${def.title}: the ball serves inside the room`);
+    for (const o of def.obstacles) assert.ok(!pointInPolygon(def.ball.x, def.ball.y, obstaclePoly(o)), `${def.title}: the ball serves clear of obstacles`);
+    const walls = polygonEdges(def.boundary).concat(...def.obstacles.map((o) => polygonEdges(obstaclePoly(o))));
+    for (const n of [2, 3]) {
+      const spawns = versusSpawns(def, n);
+      assert.equal(spawns.length, n);
+      spawns.forEach((sp, i) => {
+        assert.ok(pointInPolygon(sp.x, sp.y, def.boundary), `${def.title} spawn ${i} of ${n} is inside the room`);
+        for (const o of def.obstacles) assert.ok(!pointInPolygon(sp.x, sp.y, obstaclePoly(o)), `${def.title} spawn ${i} is clear of obstacles`);
+        for (const w of walls) {
+          const c = closestPointOnSegment(sp.x, sp.y, w.ax, w.ay, w.bx, w.by);
+          assert.ok(Math.hypot(c.x - sp.x, c.y - sp.y) >= PLAYER.radius + 10, `${def.title} spawn ${i} of ${n} is ${Math.hypot(c.x - sp.x, c.y - sp.y).toFixed(0)} px from a wall`);
+        }
+        for (let j = 0; j < i; j++) assert.ok(Math.hypot(spawns[j].x - sp.x, spawns[j].y - sp.y) > 200, `${def.title} spawns ${j} and ${i} are apart`);
+      });
+      const g = createGameState(def, { pvp: n });
+      assert.deepEqual(g.fighters.map((f) => f.slot), ['a', 'c', 'd'].slice(0, n));
+      assert.deepEqual(g.humans.map((f) => f.team), ['a', 'c', 'd'].slice(0, n));
+      assert.equal(g.players, n);
+      assert.equal(g.coop, false);
+      // Round 1 seats everyone at their own spawn; round 2 moves each seat one along; round n + 1 is round 1 again.
+      assert.deepEqual(rotateSpawns(spawns, 1), spawns);
+      assert.deepEqual(rotateSpawns(spawns, 2)[0], spawns[1]);
+      assert.deepEqual(rotateSpawns(spawns, n + 1), spawns);
+    }
+  }
+  // A campaign level seats a third player near the first, clear of the walls.
+  const three = versusSpawns(LEVELS[0], 3);
+  assert.equal(three.length, 3);
+  assert.ok(pointInPolygon(three[2].x, three[2].y, LEVELS[0].boundary));
 });

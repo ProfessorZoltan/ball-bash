@@ -83,12 +83,48 @@ export function tickCamp(f, dt, { distance = PLAYER.campDistance, seconds = PLAY
   return f.campTimer >= seconds;
 }
 
+/** Player ids in versus, in seating order: the host, then the guests by relay id. */
+export const VERSUS_IDS = ['a', 'c', 'd'];
+
 /**
+ * Where `n` versus players start in `def`. Versus arenas list spawns per player
+ * count; a campaign level uses its player and boss spawns and, for a third
+ * player, a clear spot near the first.
+ */
+export function versusSpawns(def, n) {
+  let list = def.spawns;
+  if (list && !Array.isArray(list)) list = list[n] || list[Math.max(...Object.keys(list).map(Number))];
+  if (list) return list.slice(0, n).map((s) => ({ x: s.x, y: s.y, angle: s.angle }));
+  const out = [
+    { x: def.player.x, y: def.player.y, angle: def.player.angle },
+    { x: def.boss.x, y: def.boss.y, angle: def.boss.angle },
+  ];
+  const movers = (def.movers || []).map(createMover);
+  const taken = [];
+  while (out.length < n) {
+    const s = findAllySpawn(def, movers, taken);
+    taken.push(s);
+    out.push({ x: s.x, y: s.y, angle: s.angle });
+  }
+  return out;
+}
+
+/** The spawn order for a round: seat k takes spawn (k + round - 1) mod n, so everyone starts everywhere in turn. */
+export function rotateSpawns(spawns, round) {
+  const n = spawns.length;
+  return spawns.map((_, k) => spawns[(k + round - 1 + n * 1000) % n]);
+}
+
+/**
+ * `pvp`: false, or the number of humans (true means two) playing every player
+ * for themselves; `spawns` overrides where they start (see versusSpawns).
  * `coop`: false, or the number of allies (true means one) playing beside the
  * host's human against the boss.
  */
-export function createGameState(def, { pvp = false, coop = false, rules = DEFAULT_RULES } = {}) {
+export function createGameState(def, { pvp = false, coop = false, rules = DEFAULT_RULES, spawns = null } = {}) {
   const allyCount = coop === true ? 1 : Math.max(0, Math.min(COOP.maxAllies, Number(coop) || 0));
+  const pvpCount = pvp === true ? 2 : Math.max(0, Math.min(VERSUS_IDS.length, Number(pvp) || 0));
+  pvp = pvpCount > 0;
   const staticWalls = polygonEdges(def.boundary, 'wall');
   const panes = [];
   for (const o of def.obstacles) {
@@ -100,28 +136,41 @@ export function createGameState(def, { pvp = false, coop = false, rules = DEFAUL
       staticWalls.push(...polygonEdges(obstaclePoly(o), 'obstacle'));
     }
   }
-  const player = new Fighter({ ...playerStats(def, def.player), name: 'You', kind: 'player', slot: 'a', team: pvp ? 'a' : 'us', color: def.palette.wall });
-  const boss = pvp
-    ? new Fighter({ ...playerStats(def, def.boss), name: 'Rival', kind: 'boss', slot: 'b', team: 'b', color: def.palette.obstacle })
-    : new Boss({ ...def.boss, name: def.bossName, color: def.palette.obstacle, slot: 'b', team: 'boss' });
   const movers = (def.movers || []).map(createMover);
+  let player;
+  let boss;
+  let fighters;
   const allies = [];
-  const taken = [];
-  for (let i = 0; i < allyCount; i++) {
-    const spawn = findAllySpawn(def, movers, taken);
-    taken.push(spawn);
-    allies.push(new Fighter({ ...playerStats(def, spawn), name: `Ally ${i + 1}`, kind: 'player', slot: 'cd'[i], team: 'us', color: COOP.allyColors[i] }));
+  if (pvp) {
+    // Every player for themselves: each human is its own team, seated at the
+    // spawns in order (the host first). `boss` stays an alias for the second
+    // seat so shared code has something to point at.
+    const seats = spawns || versusSpawns(def, pvpCount);
+    const colors = [def.palette.wall, def.palette.obstacle, def.palette.third || COOP.allyColors[1]];
+    const rivals = seats.slice(0, pvpCount).map((seat, i) => new Fighter({ ...playerStats(def, seat), name: i === 0 ? 'You' : `Rival ${i}`, kind: 'player', slot: VERSUS_IDS[i], team: VERSUS_IDS[i], color: colors[i] }));
+    player = rivals[0];
+    boss = rivals[1];
+    fighters = rivals;
+  } else {
+    player = new Fighter({ ...playerStats(def, def.player), name: 'You', kind: 'player', slot: 'a', team: 'us', color: def.palette.wall });
+    boss = new Boss({ ...def.boss, name: def.bossName, color: def.palette.obstacle, slot: 'b', team: 'boss' });
+    const taken = [];
+    for (let i = 0; i < allyCount; i++) {
+      const spawn = findAllySpawn(def, movers, taken);
+      taken.push(spawn);
+      allies.push(new Fighter({ ...playerStats(def, spawn), name: `Ally ${i + 1}`, kind: 'player', slot: 'cd'[i], team: 'us', color: COOP.allyColors[i] }));
+    }
+    fighters = [player, ...allies, boss];
   }
   const ally = allies[0] || null;
-  const fighters = [player, ...allies, boss];
-  const humans = pvp ? [player, boss] : [player, ...allies];
+  const humans = pvp ? fighters.slice() : [player, ...allies];
   const ice = def.ice ? new IceTrail(def.ice) : null;
   const ball = new Ball(BALL.radius);
   ball.x = def.ball.x;
   ball.y = def.ball.y;
   ball.held = true;
   const staticPolys = def.obstacles.filter((o) => !o.glass).map(obstaclePoly);
-  const g = { def, staticWalls, staticPolys, panes, walls: [], solidPolys: [], player, ally, allies, boss, fighters, humans, movers, ice, ball, pvp, coop: allyCount > 0, rules: { ...DEFAULT_RULES, ...rules } };
+  const g = { def, staticWalls, staticPolys, panes, walls: [], solidPolys: [], player, ally, allies, boss, fighters, humans, movers, ice, ball, pvp, players: pvpCount, coop: !pvp && allyCount > 0, rules: { ...DEFAULT_RULES, ...rules } };
   rebuildWalls(g);
   return g;
 }

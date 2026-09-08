@@ -112,7 +112,7 @@ to the tagline is `GAME_VERSION` in the same file; the game is in alpha.
 
 ## Multiplayer (same Wi-Fi)
 
-Two friends, one room code, no accounts. One player runs the local server
+Up to three players, one room code, no accounts. One player runs the local server
 (the [Windows app](#windows-download-desktop-app) does this by itself):
 
 ```bash
@@ -147,6 +147,32 @@ two-player mode, so the lobby only offers it while one friend is in the room.
 End-of-level screens and the campaign's continue, restart and summary choices
 belong to the host; the guests see the same screen and wait. If anyone drops
 out mid-match the match ends for everyone.
+
+## Versus arenas (every player for themselves)
+
+Versus has its own rooms, built for two or three humans rather than staged
+around a boss. The host picks one in the lobby (the campaign levels are still
+there too, further down the list):
+
+| Arena | Shape | Source |
+|---|---|---|
+| The Wedge | an equilateral triangle with its corners filed flat, an inverted wedge at the centre | `VERSUS_LEVELS` in `src/levels.js` |
+| The Ring | a circle with four small pillars on the diagonals | same |
+| Trefoil | three overlapping circles grown into one room, three small pillars in the necks | same |
+| Sawtooth | a square whose walls are chewed into teeth, two diamonds inside | same |
+
+Rules with three players: a body hit scores for whoever sent the ball;
+standing still, or an own ball with the own-ball rule on, scores for every
+other player. With two players both come to the same thing as before. First
+to 3 wins. Seats are fixed for the match (the host wears the arena's wall
+colour, the first guest its obstacle colour, the third player the arena's
+`palette.third`), and where each seat starts rotates every round so everyone
+plays every position. Each arena lists a spawn set per player count under
+`spawns`; a fourth set is the only thing a four-player match will need.
+
+The shape helpers (`truncatedTriangle`, `circleUnion`, `jaggedSquare` and the
+existing `ellipse`) live next to the arenas, and every arena is fired at in
+`test/physics.test.js` at the maximum ball speed to prove its walls hold.
 
 ## Online multiplayer (different networks)
 

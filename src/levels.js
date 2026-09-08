@@ -790,3 +790,209 @@ export const ROSTER = [
   { id: 9, title: 'Nullspace', boss: 'The Absence' },
   { id: 10, title: 'The Last Arcade', boss: 'The Architect' },
 ];
+
+// ------------------------------------------------------------ versus arenas
+//
+// Rooms for multiplayer versus only: every player for themselves, so they are
+// symmetric rather than staged around a boss. `spawns` lists a start point per
+// player, keyed by how many are playing (2 or 3 for now, 4 later); the match
+// rotates who starts where every round. `palette.third` colours the third
+// player (the host wears `wall`, the first guest `obstacle`).
+
+/** Equilateral triangle, apex up, with each corner cut `cut` px along both of its edges. */
+export function truncatedTriangle(cx, cy, R, cut) {
+  const verts = [-90, 30, 150].map((deg) => [cx + Math.cos((deg * Math.PI) / 180) * R, cy + Math.sin((deg * Math.PI) / 180) * R]);
+  const toward = (a, b) => {
+    const d = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    return [a[0] + ((b[0] - a[0]) / d) * cut, a[1] + ((b[1] - a[1]) / d) * cut];
+  };
+  const pts = [];
+  for (let i = 0; i < 3; i++) {
+    const a = verts[i];
+    pts.push(toward(a, verts[(i + 2) % 3]), toward(a, verts[(i + 1) % 3]));
+  }
+  return pts;
+}
+
+/** The two points where circles a and b cross (none when they do not). */
+function circleCrossings(a, b) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const d = Math.hypot(dx, dy);
+  if (d === 0 || d > a.r + b.r || d < Math.abs(a.r - b.r)) return [];
+  const l = (a.r * a.r - b.r * b.r + d * d) / (2 * d);
+  const h = Math.sqrt(Math.max(0, a.r * a.r - l * l));
+  const mx = a.x + (dx / d) * l;
+  const my = a.y + (dy / d) * l;
+  return [
+    [mx + (dy / d) * h, my - (dx / d) * h],
+    [mx - (dy / d) * h, my + (dx / d) * h],
+  ];
+}
+
+/**
+ * Outline of the union of overlapping circles [{ x, y, r }], as one polygon.
+ * Works when some point lies inside every circle (their common overlap), which
+ * makes the union star-shaped around it, so its rim sorts by angle.
+ */
+export function circleUnion(circles, n = 48) {
+  const cx = circles.reduce((s, c) => s + c.x, 0) / circles.length;
+  const cy = circles.reduce((s, c) => s + c.y, 0) / circles.length;
+  const inside = (x, y, skip) => circles.some((o, k) => !skip.includes(k) && Math.hypot(x - o.x, y - o.y) < o.r - 1e-6);
+  const pts = [];
+  circles.forEach((c, i) => {
+    for (let k = 0; k < n; k++) {
+      const a = (k / n) * Math.PI * 2;
+      const x = c.x + Math.cos(a) * c.r;
+      const y = c.y + Math.sin(a) * c.r;
+      if (!inside(x, y, [i])) pts.push([x, y]);
+    }
+    for (let j = i + 1; j < circles.length; j++) {
+      for (const p of circleCrossings(c, circles[j])) if (!inside(p[0], p[1], [i, j])) pts.push(p);
+    }
+  });
+  pts.sort((p, q) => Math.atan2(p[1] - cy, p[0] - cx) - Math.atan2(q[1] - cy, q[0] - cx));
+  return pts.filter((p, k) => k === 0 || Math.hypot(p[0] - pts[k - 1][0], p[1] - pts[k - 1][1]) > 1);
+}
+
+/** A square of half-size `half` whose edges are sawtooth: `teeth` per edge, biting `depth` px inward. */
+export function jaggedSquare(cx, cy, half, teeth = 8, depth = 28) {
+  const corners = [
+    [cx - half, cy - half],
+    [cx + half, cy - half],
+    [cx + half, cy + half],
+    [cx - half, cy + half],
+  ];
+  const pts = [];
+  for (let i = 0; i < 4; i++) {
+    const a = corners[i];
+    const b = corners[(i + 1) % 4];
+    const mx = (a[0] + b[0]) / 2;
+    const my = (a[1] + b[1]) / 2;
+    const il = Math.hypot(cx - mx, cy - my);
+    const ix = (cx - mx) / il;
+    const iy = (cy - my) / il;
+    for (let k = 0; k < teeth * 2; k++) {
+      const t = k / (teeth * 2);
+      const x = a[0] + (b[0] - a[0]) * t;
+      const y = a[1] + (b[1] - a[1]) * t;
+      pts.push(k % 2 ? [x + ix * depth, y + iy * depth] : [x, y]);
+    }
+  }
+  return pts;
+}
+
+/** A spawn point facing (tx, ty). */
+function facing(x, y, tx, ty) {
+  return { x, y, angle: Math.atan2(ty - y, tx - x) };
+}
+
+export const VERSUS_LEVELS = [
+  {
+    id: 'v1',
+    title: 'The Wedge',
+    versus: true,
+    intro: 'A three-cornered court with the points filed off. Every wall is someone else\'s bank shot.',
+    width: 1100,
+    height: 900,
+    track: 'switchyard',
+    palette: {
+      floor: '#0a0714',
+      grid: 'rgba(180, 120, 255, 0.10)',
+      wall: '#c3a6ff',
+      wallDark: '#2a1a4a',
+      obstacle: '#ffd166',
+      obstacleDark: '#3a2e10',
+      third: '#7dffc4',
+    },
+    boundary: truncatedTriangle(550, 520, 500, 110),
+    obstacles: [
+      // An inverted wedge at the centre: nothing crosses the court in a straight line.
+      [[550, 610], [485, 495], [615, 495]],
+    ],
+    spawns: {
+      2: [facing(310, 660, 550, 520), facing(790, 660, 550, 520)],
+      3: [facing(310, 660, 550, 520), facing(790, 660, 550, 520), facing(550, 200, 550, 520)],
+    },
+    ball: { x: 550, y: 400, speed: 440, angleDeg: -90 },
+  },
+  {
+    id: 'v2',
+    title: 'The Ring',
+    versus: true,
+    intro: 'A perfect circle. There are no corners to hide in and every rebound comes back around.',
+    width: 900,
+    height: 900,
+    track: 'nullspace',
+    palette: {
+      floor: '#04070f',
+      grid: 'rgba(80, 200, 255, 0.08)',
+      wall: '#7fe9ff',
+      wallDark: '#0d2340',
+      obstacle: '#ff8df0',
+      obstacleDark: '#3a1030',
+      third: '#b6ff7d',
+    },
+    boundary: ellipse(450, 450, 425, 425, 64),
+    // Four small pillars on the diagonals: the axes stay open for the serve.
+    obstacles: [ellipse(273, 273, 34, 34, 18), ellipse(627, 273, 34, 34, 18), ellipse(627, 627, 34, 34, 18), ellipse(273, 627, 34, 34, 18)],
+    spawns: {
+      2: [facing(150, 450, 450, 450), facing(750, 450, 450, 450)],
+      3: [facing(150, 450, 450, 450), facing(615, 164, 450, 450), facing(615, 736, 450, 450)],
+    },
+    ball: { x: 450, y: 450, speed: 440, angleDeg: 90 },
+  },
+  {
+    id: 'v3',
+    title: 'Trefoil',
+    versus: true,
+    intro: 'Three chambers grown into one another. The necks between them throw the ball where nobody aimed it.',
+    width: 1100,
+    height: 900,
+    track: 'coolant',
+    palette: {
+      floor: '#07100c',
+      grid: 'rgba(120, 255, 180, 0.08)',
+      wall: '#ffb347',
+      wallDark: '#3a2410',
+      obstacle: '#8dff9d',
+      obstacleDark: '#0f3a1a',
+      third: '#7fb2ff',
+    },
+    boundary: circleUnion(
+      [-90, 30, 150].map((deg) => ({ x: 550 + Math.cos((deg * Math.PI) / 180) * 180, y: 470 + Math.sin((deg * Math.PI) / 180) * 180, r: 285 })),
+      64,
+    ),
+    obstacles: [ellipse(550, 620, 34, 34, 18), ellipse(420, 395, 34, 34, 18), ellipse(680, 395, 34, 34, 18)],
+    spawns: {
+      2: [facing(264, 635, 550, 470), facing(836, 635, 550, 470)],
+      3: [facing(264, 635, 550, 470), facing(836, 635, 550, 470), facing(550, 140, 550, 470)],
+    },
+    ball: { x: 550, y: 470, speed: 440, angleDeg: -90 },
+  },
+  {
+    id: 'v4',
+    title: 'Sawtooth',
+    versus: true,
+    intro: 'A square room with its walls chewed into teeth. Nothing bounces the way it should.',
+    width: 900,
+    height: 900,
+    track: 'arcade',
+    palette: {
+      floor: '#100608',
+      grid: 'rgba(255, 120, 120, 0.09)',
+      wall: '#ff6b6b',
+      wallDark: '#3a1010',
+      obstacle: '#ffe066',
+      obstacleDark: '#3a3010',
+      third: '#7fe9ff',
+    },
+    boundary: jaggedSquare(450, 450, 400, 7, 26),
+    obstacles: [rect(450, 300, 56, 56, 45), rect(450, 600, 56, 56, 45)],
+    spawns: {
+      2: [facing(150, 450, 450, 450), facing(750, 450, 450, 450)],
+      3: [facing(200, 640, 450, 450), facing(700, 640, 450, 450), facing(450, 200, 450, 450)],
+    },
+    ball: { x: 450, y: 450, speed: 440, angleDeg: 90 },
+  },
+];
