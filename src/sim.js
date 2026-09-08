@@ -1,6 +1,6 @@
 // Ball advancement + collision dispatch. Pure (no DOM) so it can be tested
 // headlessly and reused by the boss's path prediction if needed.
-import { circleVsCapsule, circleVsCircle, reflect, ejectFromPolygon } from './physics.js';
+import { circleVsCapsule, circleVsCircle, capsuleVsCapsule, reflect, ejectFromPolygon, resolveCircleVsSegments } from './physics.js';
 
 /**
  * Move the ball by dt and resolve collisions against static walls and the
@@ -135,4 +135,96 @@ export function separateFightersFromBall(ball, fighters) {
       f.y -= hp.ny * hp.depth;
     }
   }
+}
+
+// ------------------------------------------------------ fighters vs the world
+
+const SKIN = 0.01; // px of clearance left after a push, so contact does not linger in rounding
+
+/** Every mover's segments, carrying the mover's thickness. */
+export function moverSegments(movers) {
+  const out = [];
+  for (const m of movers) for (const sg of m.segments()) out.push({ ...sg, thick: m.thick });
+  return out;
+}
+
+/** The deepest overlap between a fighter's shield and any of the segments, or null. */
+export function shieldOverlap(f, segs) {
+  const seg = f.paddleSegment();
+  let best = null;
+  for (const s of segs) {
+    const h = capsuleVsCapsule(seg.ax, seg.ay, seg.bx, seg.by, f.paddleThick, s.ax, s.ay, s.bx, s.by, s.thick || 0, f.x, f.y);
+    if (h && (!best || h.depth > best.depth)) best = h;
+  }
+  return best;
+}
+
+/**
+ * Keep a fighter's shield out of walls, glass and movers, so nobody hides
+ * behind a wall and strikes through it. Call after the body's own push-out,
+ * with prevX/prevY/prevAngle still holding where the step began. A turn that
+ * swings the shield into a wall stops at the wall; walking it into a wall
+ * pushes the whole fighter back out (and so slides along the wall); a squeeze
+ * neither can fix leaves the fighter where the step began. Returns true when
+ * anything had to change.
+ */
+export function resolveShieldVsWalls(f, walls, movers = []) {
+  const segs = movers.length ? walls.concat(moverSegments(movers)) : walls;
+  let h = shieldOverlap(f, segs);
+  if (!h) return false;
+  const newAngle = f.angle;
+  const turned = newAngle !== f.prevAngle;
+  if (turned) {
+    f.angle = f.prevAngle;
+    if (!shieldOverlap(f, segs)) {
+      f.omega = 0; // the turn alone did it: the shield rests against the wall
+      return true;
+    }
+    f.angle = newAngle;
+  }
+  for (let i = 0; i < 3 && h; i++) {
+    f.x += h.nx * (h.depth + SKIN);
+    f.y += h.ny * (h.depth + SKIN);
+    resolveCircleVsSegments(f, segs);
+    h = shieldOverlap(f, segs);
+  }
+  if (!h) return true;
+  if (turned) {
+    f.angle = f.prevAngle;
+    f.omega = 0;
+    if (!shieldOverlap(f, segs)) return true;
+  }
+  // Squeezed: a gap narrower than the shield, or a mover closing in.
+  f.x = f.prevX;
+  f.y = f.prevY;
+  h = shieldOverlap(f, segs);
+  if (h) {
+    f.x += h.nx * (h.depth + SKIN);
+    f.y += h.ny * (h.depth + SKIN);
+    resolveCircleVsSegments(f, segs);
+  }
+  return true;
+}
+
+/**
+ * Do two fighters touch, body or shield? Returns the contact point or null.
+ * Bodies are kept apart by the separation step, so a hair of slack counts a
+ * pressed-together pair as touching.
+ */
+export function fightersTouch(a, b, slack = 1) {
+  const dx = a.x - b.x;
+  const dy = a.y - b.y;
+  if (Math.hypot(dx, dy) < a.r + b.r + slack) {
+    const d = Math.hypot(dx, dy) || 1;
+    return { x: b.x + (dx / d) * b.r, y: b.y + (dy / d) * b.r, what: 'body' };
+  }
+  const sa = a.paddleSegment();
+  const sb = b.paddleSegment();
+  let h = circleVsCapsule(a.x, a.y, a.r + slack, sb.ax, sb.ay, sb.bx, sb.by, b.paddleThick);
+  if (h) return { x: h.cx, y: h.cy, what: 'shield' };
+  h = circleVsCapsule(b.x, b.y, b.r + slack, sa.ax, sa.ay, sa.bx, sa.by, a.paddleThick);
+  if (h) return { x: h.cx, y: h.cy, what: 'shield' };
+  h = capsuleVsCapsule(sa.ax, sa.ay, sa.bx, sa.by, a.paddleThick + slack, sb.ax, sb.ay, sb.bx, sb.by, b.paddleThick, a.x, a.y);
+  if (h) return { x: h.cx, y: h.cy, what: 'shields' };
+  return null;
 }

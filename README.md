@@ -261,6 +261,18 @@ which launches the game chrome-free thanks to `manifest.webmanifest`.
   HUD shows a red MOVE countdown and a ring closes in on your character for
   the last 2 seconds. AI bosses are exempt. Tunables are `campDistance`,
   `campSeconds` and `campWarn` under `PLAYER` in `src/config.js`.
+* **No contact with the boss.** A human player whose body or shield touches
+  the boss's body or shield loses a shield, exactly like a body hit: no
+  waiting at the boss's side for the ball to arrive and banking it in at the
+  last moment. The re-serve gives a grace period that covers the countdown,
+  so you can step away once play resumes. The tutorial drone and, in versus,
+  the other human are exempt.
+* **Shields stop at walls.** A player's shield is solid against walls,
+  obstacles, intact glass and movers: turning it into a wall stops the turn,
+  walking it into a wall pushes you back along the wall's normal (so you
+  slide), and a gap narrower than the shield has to be passed sideways. So
+  there is no hiding behind a wall and striking the ball through it. Bosses
+  are placed by the level and keep their old freedom.
 * **Lose to a ball you last hit** is a rule you can switch off on the title
   screen (and in the multiplayer lobby, where the host's choice applies to
   both). Off, a ball bounces harmlessly off the body of whoever's shield

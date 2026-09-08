@@ -374,3 +374,82 @@ test('anticipation: the boss reads the return off the player\'s shield, includin
   player.angle = Math.PI;
   assert.equal(predictReturn(seen, 0, player, walls, BALL.radius, { swing: false }), null);
 });
+
+test('capsule vs capsule: separated, touching and crossing pairs', async () => {
+  const { capsuleVsCapsule, segmentVsSegment } = await import('../src/physics.js');
+  // Parallel, 20 apart, radii 6 + 3: no touch.
+  assert.equal(capsuleVsCapsule(0, 0, 100, 0, 6, 0, 20, 100, 20, 3), null);
+  // 8 apart: overlap of 1, normal pointing from the second toward the first (up, -y).
+  let h = capsuleVsCapsule(0, 0, 100, 0, 6, 0, 8, 100, 8, 3);
+  assert.ok(h && Math.abs(h.depth - 1) < 1e-9 && h.ny < -0.99, JSON.stringify(h));
+  // Crossing: a vertical wall through the middle of a horizontal shield whose
+  // body sits at x = -60. The push must carry the far tip (x = 100) clear too.
+  const c = segmentVsSegment(0, 0, 100, 0, 50, -50, 50, 50);
+  assert.equal(c.d, 0);
+  assert.equal(c.crossing, true);
+  h = capsuleVsCapsule(0, 0, 100, 0, 6, 50, -50, 50, 50, 0, -60, 0);
+  assert.ok(h.nx < -0.99, 'normal faces the body side');
+  assert.ok(Math.abs(h.depth - (50 + 6)) < 1e-9, `depth ${h.depth}`);
+});
+
+test('shield vs walls: a turn into a wall stops at it, walking into it slides, the shield never crosses', async () => {
+  const { resolveShieldVsWalls, shieldOverlap } = await import('../src/sim.js');
+  const walls = polygonEdges([[0, 0], [600, 0], [600, 400], [0, 400]], 'wall').map((w) => ({ ...w, thick: 4 }));
+  const f = new Fighter({ x: 80, y: 200, angle: 0, kind: 'player' }); // facing +x, shield 36 px ahead
+  // Turn to face the left wall (angle pi) from 70 px away: the 116-wide shield
+  // would poke through x = 0. The turn is refused; the position stays.
+  f.angle = Math.PI;
+  f.x = 30;
+  f.prevX = 30;
+  f.prevY = 200;
+  f.prevAngle = 0;
+  assert.ok(shieldOverlap(f, walls), 'facing the wall from 30 px, the shield is in it');
+  assert.equal(resolveShieldVsWalls(f, walls), true);
+  assert.equal(f.angle, 0, 'the turn was refused');
+  assert.equal(f.x, 30);
+  assert.equal(shieldOverlap(f, walls), null);
+  // Walk the shield into the top wall while moving diagonally: the fighter is
+  // pushed out along the wall's normal and keeps its x movement (a slide).
+  const g = new Fighter({ x: 300, y: 80, angle: -Math.PI / 2, kind: 'player' }); // facing up
+  g.prevX = 290;
+  g.prevY = 82;
+  g.prevAngle = g.angle;
+  g.x = 300;
+  g.y = 30; // shield centre would be at y = -6: through the wall
+  assert.equal(resolveShieldVsWalls(g, walls), true);
+  assert.equal(g.x, 300, 'sideways movement is kept');
+  assert.ok(g.y > 30, 'pushed back down');
+  assert.equal(shieldOverlap(g, walls), null);
+  assert.equal(g.angle, -Math.PI / 2, 'no turn happened, none is undone');
+  // Clear of everything: nothing changes.
+  const k = new Fighter({ x: 300, y: 200, angle: 1, kind: 'player' });
+  assert.equal(resolveShieldVsWalls(k, walls), false);
+});
+
+test('fighters touch: bodies, a body on a shield, and shield on shield', async () => {
+  const { fightersTouch } = await import('../src/sim.js');
+  const a = new Fighter({ x: 100, y: 100, angle: 0, kind: 'player' });
+  const b = new Boss({ x: 400, y: 100, angle: Math.PI });
+  assert.equal(fightersTouch(a, b), null, 'far apart');
+  // Facing each other, shields 36 px in front of each body: touching when the
+  // bodies are 2 x 36 + 2 x 6 apart or closer.
+  b.x = 100 + 72 + 12 - 1;
+  assert.equal(fightersTouch(a, b)?.what, 'shields');
+  b.x = 100 + 72 + 12 + 3;
+  assert.equal(fightersTouch(a, b), null);
+  // The player's body against the boss's shield (player faces away).
+  a.angle = Math.PI;
+  b.x = 100 + 22 + 36 + 6 - 1;
+  assert.equal(fightersTouch(a, b)?.what, 'shield');
+  // Bodies pressed together.
+  b.angle = 0;
+  b.x = 100 + 44;
+  assert.equal(fightersTouch(a, b)?.what, 'body');
+});
+
+test('every boss turns faster than 3 rad/s and reacts within a third of a second', () => {
+  for (const def of LEVELS) {
+    assert.ok(def.boss.turnSpeed >= 3.2, `${def.title}: turnSpeed ${def.boss.turnSpeed}`);
+    assert.ok(def.boss.reaction <= 0.31, `${def.title}: reaction ${def.boss.reaction}`);
+  }
+});

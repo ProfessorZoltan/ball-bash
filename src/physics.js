@@ -51,6 +51,88 @@ export function circleVsCapsule(cx, cy, cr, ax, ay, bx, by, thick, hintVx = 0, h
   return { nx, ny, depth: r - d, cx: c.x, cy: c.y, t: c.t };
 }
 
+/**
+ * Closest points between segments a-b and c-d: the distance, p on a-b and q
+ * on c-d, and qt, where along c-d q lies (0..1). Distance 0 with `crossing`
+ * set when the segments intersect.
+ */
+export function segmentVsSegment(ax, ay, bx, by, cx, cy, dx, dy) {
+  const ex = bx - ax;
+  const ey = by - ay;
+  const fx = dx - cx;
+  const fy = dy - cy;
+  const denom = ex * fy - ey * fx;
+  if (Math.abs(denom) > 1e-9) {
+    const t = ((cx - ax) * fy - (cy - ay) * fx) / denom;
+    const u = ((cx - ax) * ey - (cy - ay) * ex) / denom;
+    if (t >= 0 && t <= 1 && u >= 0 && u <= 1) {
+      const x = ax + ex * t;
+      const y = ay + ey * t;
+      return { d: 0, px: x, py: y, qx: x, qy: y, qt: u, crossing: true };
+    }
+  }
+  // Not crossing: the closest pair involves an endpoint of one of them.
+  let best = null;
+  const consider = (px, py, qx, qy, qt) => {
+    const d = Math.hypot(px - qx, py - qy);
+    if (!best || d < best.d) best = { d, px, py, qx, qy, qt, crossing: false };
+  };
+  let c = closestPointOnSegment(ax, ay, cx, cy, dx, dy);
+  consider(ax, ay, c.x, c.y, c.t);
+  c = closestPointOnSegment(bx, by, cx, cy, dx, dy);
+  consider(bx, by, c.x, c.y, c.t);
+  c = closestPointOnSegment(cx, cy, ax, ay, bx, by);
+  consider(c.x, c.y, cx, cy, 0);
+  c = closestPointOnSegment(dx, dy, ax, ay, bx, by);
+  consider(c.x, c.y, dx, dy, 1);
+  return best;
+}
+
+/**
+ * Overlap test between capsule 1 (segment a-b, radius ra) and capsule 2
+ * (segment c-d, radius rc, a wall). Returns null when they do not touch,
+ * otherwise a normal, the depth that moves capsule 1 clear along it, and the
+ * contact point. Against the flat of the wall the normal is the wall's
+ * perpendicular facing the reference point (hx, hy), the body that holds
+ * capsule 1, so a shield that crossed or ended up beyond a thin wall is
+ * pushed back to the body's side rather than further through. Against a wall
+ * end the normal simply points from the end to the capsule.
+ */
+export function capsuleVsCapsule(ax, ay, bx, by, ra, cx, cy, dx, dy, rc, hx = ax, hy = ay) {
+  const s = segmentVsSegment(ax, ay, bx, by, cx, cy, dx, dy);
+  const r = ra + rc;
+  if (s.d >= r) return null;
+  let nx;
+  let ny;
+  let depth;
+  const flat = s.crossing || (s.qt > 1e-6 && s.qt < 1 - 1e-6);
+  if (flat) {
+    const fx = dx - cx;
+    const fy = dy - cy;
+    const fl = Math.hypot(fx, fy) || 1;
+    nx = -fy / fl;
+    ny = fx / fl;
+    if ((hx - cx) * nx + (hy - cy) * ny < 0) {
+      nx = -nx;
+      ny = -ny;
+    }
+    // The deepest point that is actually over the wall: the closest point,
+    // and either endpoint whose foot lands within the wall's extent.
+    let low = (s.px - cx) * nx + (s.py - cy) * ny;
+    for (const [px, py] of [[ax, ay], [bx, by]]) {
+      const t = ((px - cx) * fx + (py - cy) * fy) / (fl * fl);
+      if (t >= 0 && t <= 1) low = Math.min(low, (px - cx) * nx + (py - cy) * ny);
+    }
+    depth = r - low;
+  } else {
+    nx = (s.px - s.qx) / s.d;
+    ny = (s.py - s.qy) / s.d;
+    depth = r - s.d;
+  }
+  if (depth <= 1e-9) return null;
+  return { nx, ny, depth, cx: s.qx + nx * rc, cy: s.qy + ny * rc };
+}
+
 /** Circle A vs circle B. Normal points from B toward A. */
 export function circleVsCircle(ax, ay, ar, bx, by, br) {
   let nx = ax - bx;

@@ -13,7 +13,7 @@ import { Effects } from './fx.js';
 import { AudioEngine } from './audio/engine.js';
 import { TRACKS } from './audio/tracks.js';
 import { circleVsCircle, circleVsCapsule, pointInPolygon, resolveCircleVsSegments, predictPath } from './physics.js';
-import { advanceBall, separateFightersFromBall } from './sim.js';
+import { advanceBall, separateFightersFromBall, resolveShieldVsWalls, fightersTouch } from './sim.js';
 import { clamp, rand, wrapAngle } from './vec.js';
 
 const $ = (id) => document.getElementById(id);
@@ -56,7 +56,7 @@ function buildGame(def, pvp = false, rules = { ownBallLoss: ownBallLoss() }, coo
     paddleHits: 0,
     guidePath: null,
     drops: 0, // frames this level that took far longer than the display's refresh interval
-    lossReason: null, // 'hit' | 'camp' once the level is lost
+    lossReason: null, // 'hit' | 'camp' | 'touch' once the level is lost
   };
 }
 
@@ -152,6 +152,7 @@ function step(dt) {
     if (wasIdle && f.lungeState === 'out') onWhack();
     resolveCircleVsSegments(f, g.walls);
     pushOutOfMovers(f);
+    resolveShieldVsWalls(f, g.walls, g.movers);
   }
 
   // Slot b: the AI boss (with its patrol and abilities) or the rival human.
@@ -175,6 +176,19 @@ function step(dt) {
 
   for (let i = 0; i < g.fighters.length; i++) for (let j = i + 1; j < g.fighters.length; j++) separateCircles(g.fighters[i], g.fighters[j]);
   for (const f of g.fighters) f.finalizeStep(dt);
+
+  // Contact rule: touching the boss, shield or body, costs a shield. No
+  // waiting at its side for the ball to arrive.
+  if (state === 'playing' && !g.pvp && !g.tutorial && !g.ball.held) {
+    for (const f of g.humans) {
+      if (f.invuln > 0) continue;
+      const c = fightersTouch(f, g.boss);
+      if (c) {
+        onTouched(f, c);
+        break;
+      }
+    }
+  }
 
   if (!g.ball.held) {
     moveBall(dt);
@@ -211,6 +225,25 @@ function campStep(f, slot, dt) {
 function campTick(leftBefore, leftNow) {
   if (leftNow > PLAYER.campWarn || leftNow >= leftBefore) return;
   if (Math.ceil(leftNow) !== Math.ceil(leftBefore)) audio.sfxCount(false);
+}
+
+/** A human player touched the boss (body or shield, theirs or its): that costs a shield. */
+function onTouched(f, c) {
+  // The grace covers the countdown, during which nobody can step away.
+  f.invuln = COUNTDOWN_SECONDS + PLAYER.invulnTime;
+  touchFx(f, c.x, c.y);
+  netEvent({ e: 'touch', s: f.slot, x: c.x, y: c.y });
+  loseShield('touch', f);
+}
+
+function touchFx(f, x, y) {
+  const g = game;
+  f.hitFlash = 0.5;
+  g.fx.burst(x, y, 0, 0, 24, '#ff4d6d', 260, 1.4, 0.5);
+  g.fx.ring(x, y, '#ff4d6d', 120, 0.5);
+  g.fx.ring(f.x, f.y, '#ffffff', 70, 0.35);
+  g.fx.addShake(8);
+  audio.sfxPlayerHit();
 }
 
 /** A human player stood within a body length of one spot for too long: that is a loss. */
@@ -1058,7 +1091,7 @@ function updateHud() {
   if (lost && lost.slot === 'b') status = `BOSS HIT · ${g.bossHits} MORE TO GO`;
   else if (lost) {
     const who = g.coop ? `${(fighterBySlot(lost.slot) || me).name.replace(/ \(you\)$/, '').toUpperCase()} ` : '';
-    status = `${who}${lost.reason === 'camp' ? 'STOOD STILL' : 'HIT'} · ${g.lives === Infinity ? 'UNLIMITED SHIELDS' : `${g.lives} SHIELD${g.lives === 1 ? '' : 'S'} LEFT`}`;
+    status = `${who}${lost.reason === 'camp' ? 'STOOD STILL' : lost.reason === 'touch' ? 'TOUCHED THE BOSS' : 'HIT'} · ${g.lives === Infinity ? 'UNLIMITED SHIELDS' : `${g.lives} SHIELD${g.lives === 1 ? '' : 'S'} LEFT`}`;
   }
   if (g.pvp && state === 'roundEnd' && net.winner) status = `POINT · ${net.names[net.winner]}${net.reason === 'camp' ? ' · STOOD STILL' : ''}`.toUpperCase();
   setText('hud-status', status);
@@ -2045,6 +2078,7 @@ function guestAdvance(f, dt, intent) {
   f.update(dt, intent);
   resolveCircleVsSegments(f, g.walls);
   pushOutOfMovers(f);
+  resolveShieldVsWalls(f, g.walls, g.movers);
   f.finalizeStep(dt);
 }
 
@@ -2120,6 +2154,9 @@ function playEvent(ev) {
       break;
     case 'camp':
       campFx(fighterBySlot(ev.s) || g.player);
+      break;
+    case 'touch':
+      touchFx(fighterBySlot(ev.s) || g.player, ev.x, ev.y);
       break;
     default:
       break;
@@ -2260,7 +2297,7 @@ function showTitle() {
       </div>
       <div>
         <h3>How to win</h3>
-        <p class="small">The ball only counts when it hits a <b>body</b>. The boss's shield blocks its front: bank shots off walls and deflectors to hit its side or back. A hit on you costs a shield (the difficulty sets how many), and so does <b>standing still</b> within a body length for eight seconds. A moving shield adds its speed to the ball; retreating removes it.</p>
+        <p class="small">The ball only counts when it hits a <b>body</b>. The boss's shield blocks its front: bank shots off walls and deflectors to hit its side or back. A hit on you costs a shield (the difficulty sets how many), and so does <b>standing still</b> within a body length for eight seconds or <b>touching the boss</b>, body or shield. Shields stop at walls. A moving shield adds its speed to the ball; retreating removes it.</p>
       </div>
       <div>
         <h3>Rules</h3>
@@ -2421,7 +2458,7 @@ function showCampaignOver(def) {
   showOverlay(`
     <div class="eyebrow">CAMPAIGN OVER · NO SHIELDS LEFT</div>
     <h1>${def.bossName} holds ${def.title}</h1>
-    <p class="muted">${game.lossReason === 'camp' ? `You stayed within a body length of one spot for ${PLAYER.campSeconds} seconds, and that cost the last shield.` : `That was the last of your ${diff.shields === Infinity ? '' : diff.shields + ' '}shields.`} You reached level ${def.id} on ${diff.name} in ${formatTime(reached.time)}.</p>
+    <p class="muted">${game.lossReason === 'camp' ? `You stayed within a body length of one spot for ${PLAYER.campSeconds} seconds, and that cost the last shield.` : game.lossReason === 'touch' ? 'You touched the boss, and that cost the last shield.' : `That was the last of your ${diff.shields === Infinity ? '' : diff.shields + ' '}shields.`} You reached level ${def.id} on ${diff.name} in ${formatTime(reached.time)}.</p>
     <p class="small muted record-note">${LORE.failed(def.title)}</p>
     <div class="row"><button id="btn-campaign" class="primary">Restart campaign</button><button id="btn-menu">Main menu</button></div>
   `);
@@ -2462,11 +2499,11 @@ function showFailed() {
   setInGame(false);
   const def = game.def;
   if (campaign) return showCampaignOver(def);
-  coopResult('failed', game.lossReason === 'camp' ? 'STOOD STILL' : 'SHIELD DOWN', `${def.bossName} holds ${def.title}`, `That was the last shield. You lasted ${formatTime(game.time)}.`, LORE.failed(def.title));
+  coopResult('failed', game.lossReason === 'camp' ? 'STOOD STILL' : game.lossReason === 'touch' ? 'CONTACT' : 'SHIELD DOWN', `${def.bossName} holds ${def.title}`, `That was the last shield. You lasted ${formatTime(game.time)}.`, LORE.failed(def.title));
   showOverlay(`
-    <div class="eyebrow">${game.lossReason === 'camp' ? 'STOOD STILL' : 'SHIELD DOWN'}</div>
+    <div class="eyebrow">${game.lossReason === 'camp' ? 'STOOD STILL' : game.lossReason === 'touch' ? 'CONTACT' : 'SHIELD DOWN'}</div>
     <h1>${def.bossName} holds ${def.title}</h1>
-    <p class="muted">${game.lossReason === 'camp' ? `You stayed within a body length of one spot for ${PLAYER.campSeconds} seconds. The grid does not allow hiding.` : game.maxLives === 1 ? 'One hit is all it takes.' : `That was your last of ${game.maxLives} shields.`} You lasted ${formatTime(game.time)}.</p>
+    <p class="muted">${game.lossReason === 'camp' ? `You stayed within a body length of one spot for ${PLAYER.campSeconds} seconds. The grid does not allow hiding.` : game.lossReason === 'touch' ? 'You touched the boss. Contact with its body or shield costs a shield; keep your distance and let the ball do the work.' : game.maxLives === 1 ? 'One hit is all it takes.' : `That was your last of ${game.maxLives} shields.`} You lasted ${formatTime(game.time)}.</p>
     <p class="small muted record-note">${LORE.failed(def.title)}</p>
     <div class="row"><button id="btn-retry" class="primary">Retry</button><button id="btn-menu">Main menu</button></div>
   `);
