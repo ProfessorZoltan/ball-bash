@@ -13,7 +13,7 @@ import { Effects } from './fx.js';
 import { AudioEngine } from './audio/engine.js';
 import { TRACKS } from './audio/tracks.js';
 import { circleVsCircle, circleVsCapsule, pointInPolygon, resolveCircleVsSegments, predictPath } from './physics.js';
-import { advanceBall, separateFightersFromBall, resolveShieldVsWalls, fightersTouch } from './sim.js';
+import { advanceBall, separateFightersFromBall, fightersTouch } from './sim.js';
 import { clamp, rand, wrapAngle } from './vec.js';
 
 const $ = (id) => document.getElementById(id);
@@ -152,7 +152,6 @@ function step(dt) {
     if (wasIdle && f.lungeState === 'out') onWhack();
     resolveCircleVsSegments(f, g.walls);
     pushOutOfMovers(f);
-    resolveShieldVsWalls(f, g.walls, g.movers);
   }
 
   // Slot b: the AI boss (with its patrol and abilities) or the rival human.
@@ -2078,7 +2077,6 @@ function guestAdvance(f, dt, intent) {
   f.update(dt, intent);
   resolveCircleVsSegments(f, g.walls);
   pushOutOfMovers(f);
-  resolveShieldVsWalls(f, g.walls, g.movers);
   f.finalizeStep(dt);
 }
 
@@ -2297,7 +2295,7 @@ function showTitle() {
       </div>
       <div>
         <h3>How to win</h3>
-        <p class="small">The ball only counts when it hits a <b>body</b>. The boss's shield blocks its front: bank shots off walls and deflectors to hit its side or back. A hit on you costs a shield (the difficulty sets how many), and so does <b>standing still</b> within a body length for eight seconds or <b>touching the boss</b>, body or shield. Shields stop at walls. A moving shield adds its speed to the ball; retreating removes it.</p>
+        <p class="small">The ball only counts when it hits a <b>body</b>. The boss's shield blocks its front: bank shots off walls and deflectors to hit its side or back. A hit on you costs a shield (the difficulty sets how many), and so does <b>standing still</b> within a body length for eight seconds or <b>touching the boss</b>, body or shield. A moving shield adds its speed to the ball; retreating removes it.</p>
       </div>
       <div>
         <h3>Rules</h3>

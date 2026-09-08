@@ -6,7 +6,7 @@
 export const GAME_MARK = '[<R/D>EF(L)/V]ECTOR';
 export const GAME_NAME = 'Deflector';
 export const GAME_TAGLINE = 'Reflect. Deflect. Defect.';
-export const GAME_VERSION = '0.3.0-alpha'; // shown on the title screen; bump on each release
+export const GAME_VERSION = '0.4.0-alpha'; // shown on the title screen; bump on each release
 
 // Online multiplayer relay. Leave empty to use the LAN server that served
 // the page (npm start). After deploying relay/ to Cloudflare, put its address

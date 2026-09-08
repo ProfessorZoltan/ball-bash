@@ -71,8 +71,8 @@ in `desktop/package.json`, commit, then push a tag; the
 with a `-` in it, like an alpha, is marked pre-release):
 
 ```bash
-git tag v0.3.0-alpha
-git push origin v0.3.0-alpha
+git tag v0.4.0-alpha
+git push origin v0.4.0-alpha
 ```
 
 **Run workflow** on the Actions tab builds without publishing; the files are in
@@ -267,12 +267,6 @@ which launches the game chrome-free thanks to `manifest.webmanifest`.
   last moment. The re-serve gives a grace period that covers the countdown,
   so you can step away once play resumes. The tutorial drone and, in versus,
   the other human are exempt.
-* **Shields stop at walls.** A player's shield is solid against walls,
-  obstacles, intact glass and movers: turning it into a wall stops the turn,
-  walking it into a wall pushes you back along the wall's normal (so you
-  slide), and a gap narrower than the shield has to be passed sideways. So
-  there is no hiding behind a wall and striking the ball through it. Bosses
-  are placed by the level and keep their old freedom.
 * **Lose to a ball you last hit** is a rule you can switch off on the title
   screen (and in the multiplayer lobby, where the host's choice applies to
   both). Off, a ball bounces harmlessly off the body of whoever's shield

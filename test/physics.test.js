@@ -392,40 +392,6 @@ test('capsule vs capsule: separated, touching and crossing pairs', async () => {
   assert.ok(Math.abs(h.depth - (50 + 6)) < 1e-9, `depth ${h.depth}`);
 });
 
-test('shield vs walls: a turn into a wall stops at it, walking into it slides, the shield never crosses', async () => {
-  const { resolveShieldVsWalls, shieldOverlap } = await import('../src/sim.js');
-  const walls = polygonEdges([[0, 0], [600, 0], [600, 400], [0, 400]], 'wall').map((w) => ({ ...w, thick: 4 }));
-  const f = new Fighter({ x: 80, y: 200, angle: 0, kind: 'player' }); // facing +x, shield 36 px ahead
-  // Turn to face the left wall (angle pi) from 70 px away: the 116-wide shield
-  // would poke through x = 0. The turn is refused; the position stays.
-  f.angle = Math.PI;
-  f.x = 30;
-  f.prevX = 30;
-  f.prevY = 200;
-  f.prevAngle = 0;
-  assert.ok(shieldOverlap(f, walls), 'facing the wall from 30 px, the shield is in it');
-  assert.equal(resolveShieldVsWalls(f, walls), true);
-  assert.equal(f.angle, 0, 'the turn was refused');
-  assert.equal(f.x, 30);
-  assert.equal(shieldOverlap(f, walls), null);
-  // Walk the shield into the top wall while moving diagonally: the fighter is
-  // pushed out along the wall's normal and keeps its x movement (a slide).
-  const g = new Fighter({ x: 300, y: 80, angle: -Math.PI / 2, kind: 'player' }); // facing up
-  g.prevX = 290;
-  g.prevY = 82;
-  g.prevAngle = g.angle;
-  g.x = 300;
-  g.y = 30; // shield centre would be at y = -6: through the wall
-  assert.equal(resolveShieldVsWalls(g, walls), true);
-  assert.equal(g.x, 300, 'sideways movement is kept');
-  assert.ok(g.y > 30, 'pushed back down');
-  assert.equal(shieldOverlap(g, walls), null);
-  assert.equal(g.angle, -Math.PI / 2, 'no turn happened, none is undone');
-  // Clear of everything: nothing changes.
-  const k = new Fighter({ x: 300, y: 200, angle: 1, kind: 'player' });
-  assert.equal(resolveShieldVsWalls(k, walls), false);
-});
-
 test('fighters touch: bodies, a body on a shield, and shield on shield', async () => {
   const { fightersTouch } = await import('../src/sim.js');
   const a = new Fighter({ x: 100, y: 100, angle: 0, kind: 'player' });

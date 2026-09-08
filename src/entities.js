@@ -111,7 +111,6 @@ export class Fighter {
     this.iceImmune = false; // true until the fighter steps off the ice after thawing
     this.prevX = this.x;
     this.prevY = this.y;
-    this.prevAngle = this.angle;
     this.campX = this.x; // keep-moving rule: where the fighter was last counted as having moved
     this.campY = this.y;
     this.campTimer = 0; // seconds spent within campDistance of that spot
@@ -180,7 +179,6 @@ export class Fighter {
   update(dt, intent) {
     this.prevX = this.x;
     this.prevY = this.y;
-    this.prevAngle = this.angle;
     if (this.frozen > 0) {
       this.frozen = Math.max(0, this.frozen - dt);
       intent = { mx: 0, my: 0, turn: 0, lunge: false, retract: false };
