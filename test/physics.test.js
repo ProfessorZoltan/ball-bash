@@ -753,3 +753,33 @@ test('lamplighter: candles are nodes, the exit waits on the candles beside it, t
   exit.lit = true;
   assert.equal(objectiveDone(g), true);
 });
+
+test('relay mast: floor emitters pulse on their own clocks, the rings reach guests in a snapshot, and the receiver is hooded', async () => {
+  const { CONDUITS } = await import('../src/conduits.js');
+  const { createGameState } = await import('../src/gamestate.js');
+  const { buildSnapshot, applySnapshot } = await import('../src/netstate.js');
+  const def = CONDUITS.find((c) => c.emitters && c.emitters.length);
+  const g = createGameState(def);
+  assert.equal(g.emitters.length, 2);
+  const [a, b] = g.emitters.map((e) => e.pulser);
+  assert.equal(a.active, false);
+  // Run the emitters to the first pulse of each.
+  for (let t = 0; t < 8; t += 1 / 240) for (const e of g.emitters) e.pulser.update(1 / 240, e.x, e.y);
+  assert.ok(a.nextAt > 5 && !a.active, 'the first pulsed at 5 s and its ring has faded by 8 s');
+  assert.ok(b.active, 'the second pulsed at 7.5 s and its ring is still out');
+  assert.ok(Math.abs(Math.abs(a.nextAt - b.nextAt) - 2.5) < 0.01, `half a period apart: ${a.nextAt} vs ${b.nextAt}`);
+  assert.ok(b.ring() && b.ring().r > 0 && b.ring().x === g.emitters[1].x, 'the ring is where the emitter is');
+  // The snapshot carries the rings.
+  const mirror = createGameState(def);
+  const snap = JSON.parse(JSON.stringify(buildSnapshot(g, { st: 'playing' })));
+  applySnapshot(mirror, snap);
+  const m = mirror.emitters[1].pulser;
+  assert.equal(m.active, true);
+  assert.ok(Math.abs(m.radius - b.radius) < 0.11 && Math.abs(m.t - b.t) < 0.11);
+  assert.equal(m.x, g.emitters[1].x);
+  // The receiver faces the lob.
+  const node = g.nodes[0];
+  assert.equal(node.kind, 'hooded');
+  assert.ok(node.open < 0, 'opens upward');
+  assert.ok(g.turrets.length === 2 && g.objective.turrets === 0, 'turrets harass but are not the job');
+});

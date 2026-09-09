@@ -123,7 +123,12 @@ A **candle** node becomes a light in a dark level once lit; a node with
 `requires` (indices of other nodes) refuses the ball until those are lit. A
 drone marked `lantern` lights only `dark.hidden` px around itself while it
 moves and its full `dark.boss` radius while standing still or for a moment
-after a block. `noGuide: true` switches the dotted shot guide off. Conduits can also hold **drones**, Boss-brained enemies with
+after a block. `noGuide: true` switches the dotted shot guide off.
+**Emitters** (`emitters`) are the Beacon's pulse planted in the floor: each
+entry takes the same fields as a boss `pulse` (`period`, `speed`,
+`maxRadius`, `thick`, `warn`, `delay`, timed from the level start) and its
+rings fling the ball exactly as the Beacon's do. Pulse rings, from bosses and
+emitters alike, now reach co-op guests in the snapshot. Conduits can also hold **drones**, Boss-brained enemies with
 their own stats; a body hit knocks a drone out for the rest of the room, and
 `objective.drones` makes downing them part of the objective.
 
@@ -143,6 +148,7 @@ Conduits built so far:
 | 4½ Signal Box | Switchyard | three yards with a shut door between each and a switch node that opens the next; two shunter carts bound to rails block the crossings; set the route with three accurate shots, then light the exit node in its bay | `src/conduits.js` |
 | 5½ Reliquary | Glass Cathedral | a nave ending in an apse walled off by three panes of stained glass, of which only the amber one breaks, and only to a strike of 600 px/s or more under the 750 cap; the relic node behind it must be reached before the pane heals four seconds later; two choristers loop the nave and block | `src/conduits.js` |
 | 6½ Lamplighter | The Undercroft | an unlit crypt stair where five candle nodes light their corners when struck and the exit only answers once the candles beside it burn; two lantern drones loop the dark with their light shuttered while they move and shown while they stand or block; no guide line | `src/conduits.js` |
+| 7½ Relay Mast | Signal Spire | a mast splits the room and the only lane is over its top; two floor emitters pulse half a period apart and every ring flings the ball, so a shot waits for the silence or rides a ring over; two turrets fire on the same beat; the receiver on the far side is hooded to take the ball only from above and to the left, the way a lob arrives | `src/conduits.js` |
 
 ## Campaign and difficulty
 

@@ -100,6 +100,12 @@ function launchBall() {
   for (const v of game.vents) v.nextAt = simTime + v.delay;
   for (const t of game.turrets) t.nextAt = simTime + t.delay;
   game.shots.length = 0;
+  // Floor emitters keep time from the launch too, so the turrets stay on their beat after a re-serve.
+  for (const e of game.emitters) {
+    e.pulser.t = 0;
+    e.pulser.nextAt = e.delay;
+    e.pulser.active = false;
+  }
   game.history.reset();
   game.history.push(simTime, game.ball);
   for (const f of game.fighters) f.resetCamp();
@@ -170,10 +176,7 @@ function step(dt) {
         d.updateOrbit(dt);
         if (d.pulser) {
           d.pulser.update(dt, d.x, d.y);
-          if (d.pulser.emitted) {
-            audio.sfxPulse();
-            g.fx.ring(d.x, d.y, g.def.palette.obstacle, 80, 0.3);
-          }
+          if (d.pulser.emitted) pulseFx(d.x, d.y);
         }
       }
       const wasIdle = d.lungeState === 'idle';
@@ -216,6 +219,12 @@ function step(dt) {
     }
   }
 
+  if (g.emitters.length && state === 'playing') {
+    for (const e of g.emitters) {
+      e.pulser.update(dt, e.x, e.y);
+      if (e.pulser.emitted) pulseFx(e.x, e.y);
+    }
+  }
   if (g.turrets.length && state === 'playing') stepShots(dt);
 
   if (g.ice) {
@@ -245,6 +254,14 @@ function step(dt) {
 /** Everyone still in play: downed drones are out of the physics. */
 function activeFighters() {
   return game.fighters.filter((f) => !f.down);
+}
+
+/** A pulse left its emitter (a boss or a floor emitter). */
+function pulseFx(x, y) {
+  const g = game;
+  audio.sfxPulse();
+  g.fx.ring(x, y, g.def.palette.obstacle, 80, 0.3);
+  netEvent({ e: 'pulse', x, y });
 }
 
 /** Turrets fire on their clocks; every shot flies, deflects off shields, and stops on a body or a wall. */
@@ -518,7 +535,7 @@ function moveBall(dt) {
   const g = game;
   const b = g.ball;
   const active = activeFighters();
-  const pulsers = g.drones.filter((d) => d.pulser && !d.down).map((d) => d.pulser);
+  const pulsers = g.drones.filter((d) => d.pulser && !d.down).map((d) => d.pulser).concat(g.emitters.map((e) => e.pulser));
   const stopped = advanceBall(
     b,
     g.walls,
@@ -2514,6 +2531,10 @@ function playEvent(ev) {
     }
     case 'shotfx':
       shotFx(ev.x, ev.y);
+      break;
+    case 'pulse':
+      audio.sfxPulse();
+      g.fx.ring(ev.x, ev.y, g.def.palette.obstacle, 80, 0.3);
       break;
     case 'switch': {
       // The snapshot carries the door and switch states; this is just the flourish.

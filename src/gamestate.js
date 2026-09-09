@@ -1,6 +1,6 @@
 // DOM-free construction of a level's live objects, shared by the game, the
 // multiplayer guest mirror and the tests.
-import { Ball, Fighter, Boss, createMover } from './entities.js';
+import { Ball, Fighter, Boss, Pulser, createMover } from './entities.js';
 import { IceTrail } from './ice.js';
 import { polygonEdges, pointInPolygon, closestPointOnSegment } from './physics.js';
 import { angleDiff } from './vec.js';
@@ -258,6 +258,8 @@ export function createGameState(def, { pvp = false, coop = false, rules = DEFAUL
     for (const sg of door.segs) sg.door = door;
     return door;
   });
+  // Emitters: the Beacon's pulse, planted in the floor at fixed points.
+  const emitters = (def.emitters || []).map((e, i) => ({ x: e.x, y: e.y, i, delay: e.delay === undefined ? 2 : e.delay, pulser: new Pulser(e) }));
   // Turrets sit in the wall as solid discs; a deflected shot into one knocks it out.
   const turrets = (def.turrets || []).map((t, i) => ({ x: t.x, y: t.y, r: t.r || 22, period: t.period || 4, delay: t.delay || 1, speed: t.speed || 260, life: t.life || 6, i, nextAt: t.delay || 1, down: false, aim: t.aim || 0 }));
   const turretPolys = turrets.map((t) => ellipse(t.x, t.y, t.r, t.r, 14));
@@ -311,7 +313,7 @@ export function createGameState(def, { pvp = false, coop = false, rules = DEFAUL
   ball.held = true;
   const staticPolys = def.obstacles.filter((o) => !o.glass).map(obstaclePoly).concat(nodePolys, turretPolys);
   const objective = { nodes: nodes.length, drones: def.objective && def.objective.drones ? drones.length : 0, turrets: def.objective && def.objective.turrets ? turrets.length : 0 };
-  const g = { def, staticWalls, staticPolys, panes, doors, walls: [], solidPolys: [], player, ally, allies, boss, drones, nodes, turrets, shots: [], objective, fighters, humans, movers, ice, vents, ball, maxSpeed: def.maxBallSpeed || BALL.maxSpeed, pvp, players: pvpCount, coop: !pvp && allyCount > 0, rules: { ...DEFAULT_RULES, ...rules } };
+  const g = { def, staticWalls, staticPolys, panes, doors, walls: [], solidPolys: [], player, ally, allies, boss, drones, nodes, turrets, emitters, shots: [], objective, fighters, humans, movers, ice, vents, ball, maxSpeed: def.maxBallSpeed || BALL.maxSpeed, pvp, players: pvpCount, coop: !pvp && allyCount > 0, rules: { ...DEFAULT_RULES, ...rules } };
   rebuildWalls(g);
   return g;
 }

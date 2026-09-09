@@ -122,6 +122,10 @@ export class Renderer {
     if (game.ice) this.drawIce(game.ice, level.palette.ice || '#cdf6ff', time, ((game.fighters || []).find((f) => f.slot === game.ice.owner) || game.boss).color, game.time || 0);
     for (const m of game.movers || []) this.drawMover(m, level.palette.obstacle);
     for (const d of game.drones || [game.boss]) if (d.pulser && !d.down) this.drawPulse(d, level.palette.obstacle, time);
+    for (const e of game.emitters || []) {
+      this.drawEmitter(e, level.palette);
+      this.drawPulse(e, level.palette.obstacle, time);
+    }
     if (game.doors && game.doors.length) this.drawDoors(game.doors, level.palette, time);
     for (const d of game.drones || []) if (d.rail) this.drawRail(d.rail, level.palette);
     if (game.nodes && game.nodes.length) this.drawNodes(game.nodes, level.palette, time);
@@ -488,6 +492,32 @@ export class Renderer {
       ctx.fill();
       ctx.restore();
     }
+  }
+
+  /** A floor emitter: a small dish the pulse rings leave from. */
+  drawEmitter(e, palette) {
+    const ctx = this.ctx;
+    const color = palette.emitter || palette.obstacle;
+    ctx.save();
+    ctx.translate(e.x, e.y);
+    ctx.beginPath();
+    ctx.arc(0, 0, 18, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(10, 8, 20, 0.9)';
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = color;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(0, 0, 8, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-18, 0);
+    ctx.lineTo(18, 0);
+    ctx.moveTo(0, -18);
+    ctx.lineTo(0, 18);
+    ctx.globalAlpha = 0.5;
+    ctx.stroke();
+    ctx.restore();
   }
 
   /** Doors: a solid slab while closed, a dashed outline while open. */

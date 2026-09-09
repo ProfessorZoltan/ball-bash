@@ -416,6 +416,60 @@ function lantern(orbit) {
   return { r: 24, paddleWidth: 100, moveSpeed: 120, turnSpeed: 3, leash: 140, threatRadius: 300, blockRadius: 90, safeRadius: 0, reaction: 0.3, orbit, lantern: true, anticipation: { commit: 0.3, swing: false, error: 8 } };
 }
 
+CONDUITS.push({
+  id: 7.5,
+  after: 7,
+  conduit: true,
+  title: 'Relay Mast',
+  bossName: 'Relay',
+  intro: 'A mast splits the room and the only lane is over its top. Two emitters in the floor pulse out of phase, and every ring flings the ball away from it: wait for the silence, or ride a ring over the mast. The turrets fire on the same beat. The receiver on the far side takes the ball from above and nowhere else.',
+  record: 'The Relay Mast carries the Beacon\'s signal down the line. Two emitters keep its time, and the turrets learned the rhythm from them.',
+  stopped: 'The receiver is lit and the mast is quiet. The Spire above has heard its own signal come back.',
+  width: 1600,
+  height: 900,
+  track: 'spire',
+  maxBallSpeed: CONDUIT_MAX_SPEED,
+  palette: {
+    floor: '#080c14',
+    grid: 'rgba(255, 120, 200, 0.07)',
+    wall: '#ff8df0',
+    wallDark: '#3a1a34',
+    obstacle: '#7fe9ff',
+    obstacleDark: '#0d2a40',
+    node: '#7a6a8a',
+    nodeLit: '#7dffc4',
+    turret: '#ffb347',
+    shot: '#ff9f6a',
+    emitter: '#ff8df0',
+  },
+  boundary: [
+    [60, 140],
+    [140, 60],
+    [1460, 60],
+    [1540, 140],
+    [1540, 760],
+    [1460, 840],
+    [140, 840],
+    [60, 760],
+  ],
+  // The mast: floor to two thirds of the way up, with a cap that widens it at the top.
+  obstacles: [rect(800, 580, 40, 520, 0), rect(800, 330, 120, 24, 0)],
+  // Two emitters, half a period apart, each with a turret that fires just after its pulse.
+  emitters: [
+    { x: 450, y: 640, period: 5, speed: 340, maxRadius: 330, thick: 8, warn: 0.8, delay: 5 },
+    { x: 1150, y: 640, period: 5, speed: 340, maxRadius: 330, thick: 8, warn: 0.8, delay: 7.5 },
+  ],
+  turrets: [
+    { x: 1348, y: 194, period: 5, delay: 5.4, speed: 260, life: 6 },
+    { x: 1348, y: 706, period: 5, delay: 7.9, speed: 260, life: 6 },
+  ],
+  // The receiver takes the ball from above and to the left, the way a lob over the mast arrives.
+  nodes: [{ x: 1420, y: 470, r: 28, kind: 'hooded', open: (-3 * Math.PI) / 4, arc: 120 }],
+  drones: [sentry(1250, 360, Math.PI, { moveSpeed: 100, leash: 160, threatRadius: 320, blockRadius: 90 })],
+  player: { x: 260, y: 450, angle: 0 },
+  ball: { x: 460, y: 450, speed: 400, angleDeg: -35 },
+});
+
 /** Every playable room in campaign order: each level, then the conduit that follows it. */
 export const SEQUENCE = LEVELS.flatMap((lvl) => [lvl, ...CONDUITS.filter((c) => c.after === lvl.id)]);
 
