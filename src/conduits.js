@@ -18,6 +18,13 @@ import { BALL } from './config.js';
 
 export const CONDUIT_MAX_SPEED = BALL.maxSpeed / 2;
 
+/** Versus seats for two and three players, each facing the serve point. */
+function seats(ball, sets) {
+  const out = {};
+  for (const [n, list] of Object.entries(sets)) out[n] = list.map(([x, y]) => ({ x, y, angle: Math.atan2(ball.y - y, ball.x - x) }));
+  return out;
+}
+
 /** The drone shared by the early conduits: it holds a spot and turns to block, nothing more. */
 function sentry(x, y, angle, extra = {}) {
   return {
@@ -97,6 +104,9 @@ export const CONDUITS = [
     drones: [sentry(1200, 210, Math.PI)],
     player: { x: 260, y: 400, angle: 0 },
     ball: { x: 480, y: 400, speed: 400, angleDeg: 0 },
+    // Versus: the plates and the prism, nothing else.
+    versus: true,
+    spawns: seats({ x: 480, y: 400 }, { 2: [[260, 400], [1140, 400]], 3: [[260, 400], [1140, 220], [1160, 600]] }),
   },
 ];
 
@@ -166,6 +176,9 @@ CONDUITS.push({
   objective: { drones: true },
   player: { x: 300, y: 450, angle: 0 },
   ball: { x: 520, y: 450, speed: 400, angleDeg: 0 },
+  // Versus: a chamber each, the tunnel between them breathing, and the vents dripping.
+  versus: true,
+  spawns: seats({ x: 520, y: 450 }, { 2: [[300, 450], [1380, 450]], 3: [[300, 450], [1330, 250], [1330, 650]] }),
 });
 
 /** The Sump's little cousins: slow, wide, and inclined to soak a fast ball up rather than return it. */
@@ -223,6 +236,9 @@ CONDUITS.push({
   objective: { turrets: true },
   player: { x: 260, y: 450, angle: 0 },
   ball: { x: 480, y: 450, speed: 400, angleDeg: 0 },
+  // Versus: the plates keep circling and the turrets keep firing at whoever is nearest.
+  versus: true,
+  spawns: seats({ x: 480, y: 450 }, { 2: [[260, 450], [1340, 450]], 3: [[260, 450], [1100, 170], [1100, 730]] }),
 });
 
 CONDUITS.push({
@@ -468,6 +484,9 @@ CONDUITS.push({
   drones: [sentry(1250, 360, Math.PI, { moveSpeed: 100, leash: 160, threatRadius: 320, blockRadius: 90 })],
   player: { x: 260, y: 450, angle: 0 },
   ball: { x: 460, y: 450, speed: 400, angleDeg: -35 },
+  // Versus: a side of the mast each, and every ball goes over the top. A third player takes the lane above the mast, and the seats rotate.
+  versus: true,
+  spawns: seats({ x: 460, y: 450 }, { 2: [[260, 450], [1340, 450]], 3: [[260, 450], [1340, 450], [800, 170]] }),
 });
 
 CONDUITS.push({
@@ -511,6 +530,9 @@ CONDUITS.push({
   objective: { drones: true },
   player: { x: 260, y: 450, angle: 0 },
   ball: { x: 460, y: 420, speed: 400, angleDeg: -30 },
+  // Versus: the well between you. Every seat starts outside its reach.
+  versus: true,
+  spawns: seats({ x: 460, y: 420 }, { 2: [[260, 450], [1340, 450]], 3: [[320, 450], [1200, 230], [1200, 670]] }),
 });
 
 /** The shadow: a first draft of the Absence. It circles the well and is solid three seconds in every five. */
@@ -620,7 +642,13 @@ CONDUITS.push({
   objective: { turrets: true },
   player: { x: 220, y: 450, angle: 0 },
   ball: { x: 420, y: 450, speed: 400, angleDeg: 0 },
+  // Versus: the prism, the turret, the vents and the bay with its door gone and its glass still up.
+  versus: true,
+  spawns: seats({ x: 420, y: 450 }, { 2: [[220, 450], [1400, 450]], 3: [[220, 450], [1380, 240], [1380, 560]] }),
 });
+
+/** The conduits that double as versus arenas, stripped to their hazards (see createGameState). */
+export const VERSUS_CONDUITS = CONDUITS.filter((c) => c.versus);
 
 /** Every playable room in campaign order: each level, then the conduit that follows it. */
 export const SEQUENCE = LEVELS.flatMap((lvl) => [lvl, ...CONDUITS.filter((c) => c.after === lvl.id)]);

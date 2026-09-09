@@ -179,17 +179,14 @@ export const VERSUS_IDS = ['a', 'c', 'd'];
 
 /**
  * Where `n` versus players start in `def`. Versus arenas list spawns per player
- * count; a campaign level uses its player and boss spawns and, for a third
- * player, a clear spot near the first.
+ * count; a campaign level uses its player and boss spawns (a conduit has only
+ * the player's); any seat still missing goes to a fair clear spot.
  */
 export function versusSpawns(def, n) {
   let list = def.spawns;
   if (list && !Array.isArray(list)) list = list[n] || list[Math.max(...Object.keys(list).map(Number))];
-  if (list) return list.slice(0, n).map((s) => ({ x: s.x, y: s.y, angle: s.angle }));
-  const out = [
-    { x: def.player.x, y: def.player.y, angle: def.player.angle },
-    { x: def.boss.x, y: def.boss.y, angle: def.boss.angle },
-  ];
+  const out = list ? list.slice(0, n).map((s) => ({ x: s.x, y: s.y, angle: s.angle })) : [{ x: def.player.x, y: def.player.y, angle: def.player.angle }];
+  if (!list && def.boss) out.push({ x: def.boss.x, y: def.boss.y, angle: def.boss.angle });
   const movers = (def.movers || []).map(createMover);
   while (out.length < n) out.push(findVersusSpawn(def, movers, out));
   return out;
@@ -206,18 +203,22 @@ export function findVersusSpawn(def, movers = [], taken = []) {
   // Everywhere a mover gets to over one cycle, as segments (a long piston
   // sweeps a strip, not the disc its reach would suggest).
   const swept = [];
+  const anchor = def.boss || def.player;
   (def.movers || []).forEach((spec, i) => {
     const m = createMover(spec);
     const period = m.period || 6;
     for (let k = 0; k < 24; k++) {
-      m.update(period / 24, def.boss.x, def.boss.y);
+      m.update(period / 24, anchor.x, anchor.y);
       for (const sg of m.segments()) swept.push({ ...sg, thick: (m.thick || 0) + 8 });
     }
   });
   const clearance = (x, y) => {
     if (!pointInPolygon(x, y, def.boundary)) return -1;
     for (const o of def.obstacles) if (pointInPolygon(x, y, obstaclePoly(o))) return -1;
+    // Nobody starts in a gravity well's reach.
+    if (def.well && Math.hypot(def.well.x - x, def.well.y - y) < (def.well.range || 400)) return -1;
     let d = Infinity;
+    for (const t of def.turrets || []) d = Math.min(d, Math.hypot(t.x - x, t.y - y) - (t.r || 22));
     for (const sg of walls) {
       const c = closestPointOnSegment(x, y, sg.ax, sg.ay, sg.bx, sg.by);
       d = Math.min(d, Math.hypot(c.x - x, c.y - y));
@@ -280,8 +281,11 @@ export function createGameState(def, { pvp = false, coop = false, rules = DEFAUL
     }
   }
   // Nodes (conduit targets) are small solid discs the ball bounces off; the
-  // wall segments remember their node so a bounce can light it.
-  const nodes = (def.nodes || []).map((n, i) => ({ ...n, i, r: n.r || 24, lit: false }));
+  // wall segments remember their node so a bounce can light it. Versus strips
+  // a conduit to its hazards: no nodes, no doors (only a switch node would
+  // ever open one) and no drones; turrets, emitters, vents, glass and the
+  // well stay.
+  const nodes = (pvp ? [] : def.nodes || []).map((n, i) => ({ ...n, i, r: n.r || 24, lit: false }));
   const nodePolys = nodes.map((n) => ellipse(n.x, n.y, n.r, n.r, 16));
   nodes.forEach((n, i) => {
     const segs = polygonEdges(nodePolys[i], 'node');
@@ -289,7 +293,7 @@ export function createGameState(def, { pvp = false, coop = false, rules = DEFAUL
     staticWalls.push(...segs);
   });
   // Doors: slabs a switch node opens and closes; closed ones are walls (see rebuildWalls).
-  const doors = (def.doors || []).map((d, i) => {
+  const doors = (pvp ? [] : def.doors || []).map((d, i) => {
     const poly = obstaclePoly(d);
     const door = { poly, closed: d.open !== true, i, segs: polygonEdges(poly, 'door') };
     for (const sg of door.segs) sg.door = door;
@@ -354,7 +358,7 @@ export function createGameState(def, { pvp = false, coop = false, rules = DEFAUL
   ball.y = def.ball.y;
   ball.held = true;
   const staticPolys = def.obstacles.filter((o) => !o.glass).map(obstaclePoly).concat(nodePolys, turretPolys);
-  const objective = { nodes: nodes.length, drones: def.objective && def.objective.drones ? drones.length : 0, turrets: def.objective && def.objective.turrets ? turrets.length : 0 };
+  const objective = { nodes: nodes.length, drones: def.objective && def.objective.drones ? drones.length : 0, turrets: def.objective && def.objective.turrets && !pvp ? turrets.length : 0 };
   const g = { def, staticWalls, staticPolys, panes, doors, walls: [], solidPolys: [], player, ally, allies, boss, drones, nodes, turrets, emitters, shots: [], objective, fighters, humans, movers, ice, vents, well, ball, maxSpeed: def.maxBallSpeed || BALL.maxSpeed, pvp, players: pvpCount, coop: !pvp && allyCount > 0, rules: { ...DEFAULT_RULES, ...rules } };
   rebuildWalls(g);
   return g;

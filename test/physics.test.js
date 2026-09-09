@@ -922,3 +922,46 @@ test('drafting room: one of everything, the signature waits on the rest, the bay
     return [[n.x - n.r - 1, n.y - n.r - 1], [n.x + n.r + 1, n.y - n.r - 1], [n.x + n.r + 1, n.y + n.r + 1], [n.x - n.r - 1, n.y + n.r + 1]];
   }
 });
+
+test('versus conduits: the hazards stay, the targets and enemies go, three are left out, and every seat is clear', async () => {
+  const { CONDUITS, VERSUS_CONDUITS } = await import('../src/conduits.js');
+  const { createGameState, versusSpawns, wellField } = await import('../src/gamestate.js');
+  assert.deepEqual(CONDUITS.filter((c) => !c.versus).map((c) => c.title), ['Signal Box', 'Reliquary', 'Lamplighter']);
+  assert.equal(VERSUS_CONDUITS.length, CONDUITS.length - 3);
+  for (const def of VERSUS_CONDUITS) {
+    for (const n of [2, 3]) {
+      const seats = versusSpawns(def, n);
+      assert.equal(seats.length, n, `${def.title} seats ${n}`);
+      const g = createGameState(def, { pvp: n, spawns: seats });
+      assert.equal(g.nodes.length, 0, `${def.title}: no nodes`);
+      assert.equal(g.doors.length, 0, `${def.title}: no doors`);
+      assert.equal(g.drones.length, 0, `${def.title}: no drones`);
+      assert.equal(g.turrets.length, (def.turrets || []).length, `${def.title}: turrets stay`);
+      assert.equal(g.emitters.length, (def.emitters || []).length, `${def.title}: emitters stay`);
+      assert.equal(g.vents.length, (def.vents || []).length, `${def.title}: vents stay`);
+      assert.equal(!!g.well, !!def.well, `${def.title}: the well stays`);
+      assert.equal(g.panes.length, def.obstacles.filter((o) => o.glass).length, `${def.title}: glass stays`);
+      assert.equal(g.objective.turrets, 0, 'nothing to clear');
+      assert.equal(g.humans.length, n);
+      assert.ok(g.maxSpeed === def.maxBallSpeed, 'still capped');
+      for (const f of g.humans) {
+        assert.ok(pointInPolygon(f.x, f.y, def.boundary), `${def.title}: seat ${f.slot} inside (${n} players)`);
+        for (const poly of g.solidPolys) assert.ok(!pointInPolygon(f.x, f.y, poly), `${def.title}: seat ${f.slot} outside solids`);
+        for (const w of g.walls) {
+          const c = closestPointOnSegment(f.x, f.y, w.ax, w.ay, w.bx, w.by);
+          assert.ok(Math.hypot(c.x - f.x, c.y - f.y) >= f.r + 8, `${def.title}: seat ${f.slot} clear of walls (${n} players)`);
+        }
+        for (const m of g.movers) if (m.kind === 'piston') for (let k = 0; k <= 24; k++) for (const sg of m.segmentsAt((k / 24) * m.period)) {
+          const c = closestPointOnSegment(f.x, f.y, sg.ax, sg.ay, sg.bx, sg.by);
+          assert.ok(Math.hypot(c.x - f.x, c.y - f.y) >= f.r + m.thick + 8, `${def.title}: seat ${f.slot} clear of the pistons`);
+        }
+        if (g.well) assert.equal(wellField(g.well, f.x, f.y), null, `${def.title}: seat ${f.slot} out of the well's reach`);
+        for (const t of g.turrets) assert.ok(Math.hypot(t.x - f.x, t.y - f.y) > 150, `${def.title}: seat ${f.slot} away from the turrets`);
+      }
+      for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) assert.ok(Math.hypot(seats[i].x - seats[j].x, seats[i].y - seats[j].y) >= 300, `${def.title}: seats apart`);
+    }
+  }
+  // A conduit with no boss and no seat list still seats everyone: the player's spot, then fair clear spots.
+  const auto = versusSpawns(CONDUITS.find((c) => !c.versus), 3);
+  assert.equal(auto.length, 3);
+});

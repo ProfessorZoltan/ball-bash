@@ -238,9 +238,31 @@ two, clear of walls, obstacles and everywhere the movers sweep.
 | Trefoil | three overlapping circles grown into one room, three small pillars in the necks | same |
 | Sawtooth | a square whose walls are chewed into teeth, two diamonds inside | same |
 
+Six of the conduits are versus arenas too, at the bottom of the list, played
+at the conduits' 750 px/s cap and stripped to their hazards: the nodes, the
+switch-operated doors and the drones are gone, and what remains is what
+happens to everyone alike.
+
+| Arena | What stays | What a player can lose a shield to, besides the ball | Source |
+|---|---|---|---|
+| 1½ Lens Gallery | the mirror plates and the spinning prism | nothing new | `VERSUS_CONDUITS` in `src/conduits.js` |
+| 2½ Condensers | a chamber each, the tunnel between them sliding shut and open, six coolant vents | ice from the vents (a freeze, not a shield) | same |
+| 3½ Orbit Deck | the two plates circling the centre, two wall turrets that fire at whoever is nearest | a turret shot on the body | same |
+| 7½ Relay Mast | the mast between the sides, two floor emitters flinging the ball, two turrets on the beat; a third player takes the lane over the mast | a turret shot on the body | same |
+| 8½ Event Horizon | the well and the breathing walls; every seat starts outside its reach | being dragged over the horizon (a swallowed ball just re-serves) | same |
+| 9½ Drafting Room | the prism, the floor turret, two vents, the bay with its door gone and its glass still up | a turret shot on the body | same |
+
+Three conduits stay campaign-only: **Signal Box** is nothing but its switches
+and the doors they open, **Reliquary** is a hall with a dead-end apse behind
+glass once the relic is gone, and **Lamplighter** is dark without its candles.
+Each versus conduit lists its own seats under `spawns` for two and three
+players; a level or conduit without a seat list gets fair seats worked out at
+match time, never inside a well's reach or on a turret.
+
 Rules: every player starts with the same number of shields (the host picks 1,
 2, 3 or 5 in the lobby; 3 is the default). A body hit, an own ball (with the
-own-ball rule on) or standing still costs that player one shield, play stops,
+own-ball rule on), standing still, a turret's shot or a gravity well costs
+that player one shield, play stops,
 and everyone is reseated for a fresh serve. A player with no shields left is
 out and watches the rest; the last one standing wins. Seats are fixed for the
 match (the host wears the arena's wall colour, the first guest its obstacle

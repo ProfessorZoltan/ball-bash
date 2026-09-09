@@ -3,7 +3,7 @@
 import { GAME_MARK, GAME_NAME, GAME_TAGLINE, GAME_VERSION, MARK_READINGS, PHYSICS_DT, BALL, PLAYER, SURFACE_VELOCITY_FACTOR, COUNTDOWN_SECONDS, DIFFICULTIES, DEFAULT_DIFFICULTY, COOP, RELAY_PROTOCOL } from './config.js';
 import { BallHistory, bossIntent, moverSegmentsAt } from './ai.js';
 import { LEVELS, VERSUS_LEVELS, ROSTER, TUTORIAL_LEVEL } from './levels.js';
-import { SEQUENCE, levelLabel, shortId, campaignNextIndex } from './conduits.js';
+import { SEQUENCE, VERSUS_CONDUITS, levelLabel, shortId, campaignNextIndex } from './conduits.js';
 import { LORE } from './lore.js';
 import { createGameState, rebuildWalls as rebuildWallsState, bodyHitCounts, tickCamp, versusSpawns, rotateSpawns, versusColors, VERSUS_IDS, nodeAccepts, objectiveDone, constrainToRail, wellField, wellDrag, wellSwallows, dronePhased } from './gamestate.js';
 import { NetClient, relayConfig, saveRelay } from './net.js';
@@ -216,7 +216,7 @@ function step(dt) {
   }
 
   // The well: a player dragged over the horizon loses a shield and starts over at their spawn.
-  if (state === 'playing' && g.well && !g.pvp && !g.tutorial) {
+  if (state === 'playing' && g.well && !g.tutorial) {
     for (const f of g.humans) {
       if (f.invuln > 0 || !wellSwallows(g.well, f.x, f.y, f.r)) continue;
       onFell(f);
@@ -358,7 +358,8 @@ function onShotHit(p, h) {
   p.invuln = PLAYER.invulnTime;
   playerHitFx(p, h.cx, h.cy, h.nx, h.ny);
   netEvent({ e: 'shield', s: p.slot, x: h.cx, y: h.cy, nx: h.nx, ny: h.ny });
-  loseShield('shot', p);
+  if (game.pvp) pvpLoss(p, 'shot');
+  else loseShield('shot', p);
 }
 
 function turretDown(t) {
@@ -430,6 +431,10 @@ function touchFx(f, x, y) {
 function onFell(f) {
   fellFx(f);
   netEvent({ e: 'fell', s: f.slot });
+  if (game.pvp) {
+    pvpLoss(f, 'well'); // the round ends and everyone is reseated
+    return;
+  }
   f.x = f.spawn.x;
   f.y = f.spawn.y;
   f.angle = f.spawn.angle;
@@ -1467,7 +1472,7 @@ function updateHud() {
   }
   const last = g.pvp && state === 'roundEnd' && net.last ? net.last : null;
   if (last) {
-    const how = last.reason === 'camp' ? 'STOOD STILL' : last.reason === 'own' ? 'OWN BALL' : `HIT BY ${playerName(last.by)}`;
+    const how = last.reason === 'camp' ? 'STOOD STILL' : last.reason === 'own' ? 'OWN BALL' : last.reason === 'shot' ? 'SHOT BY A TURRET' : last.reason === 'well' ? 'FELL INTO THE WELL' : `HIT BY ${playerName(last.by)}`;
     const left = net.shields[last.id] || 0;
     status = `${playerName(last.id)} ${how} · ${last.out ? 'ELIMINATED' : `${left} SHIELD${left === 1 ? '' : 'S'} LEFT`}`.toUpperCase();
   }
@@ -1878,7 +1883,7 @@ const net = {
   shields: {}, // versus: shields left per player id; 0 means eliminated
   maxShields: DEFAULT_VERSUS_SHIELDS,
   out: {}, // versus: player id -> the round they were eliminated in
-  last: null, // versus: the latest loss, { id, reason: 'hit' | 'own' | 'camp', by, out }
+  last: null, // versus: the latest loss, { id, reason: 'hit' | 'own' | 'camp' | 'shot' | 'well', by, out }
   names: { host: 'Host', guest: 'Guest' },
   levelIndex: 0, // versus: index into VERSUS_ARENAS; co-op: index into LEVELS
   winner: null,
@@ -1915,7 +1920,7 @@ function netReset() {
 }
 
 /** Everything versus can be played on: its own arenas first, then the campaign levels. */
-const VERSUS_ARENAS = VERSUS_LEVELS.concat(LEVELS);
+const VERSUS_ARENAS = VERSUS_LEVELS.concat(LEVELS, VERSUS_CONDUITS);
 
 function versusLevel(index) {
   return VERSUS_ARENAS[index] || VERSUS_ARENAS[0];
@@ -2104,7 +2109,7 @@ async function hostRoom() {
 /** Host: the lobby once at least one friend is in the room; re-rendered as people come and go. */
 function renderHostLobby(client) {
   const coopOptions = SEQUENCE.map((l, i) => `<option value="${i}">${l.conduit ? `${shortId(l)} ${l.title}` : `${l.id}. ${l.title}`}</option>`).join('');
-  const arenaOptions = `<optgroup label="Versus arenas">${VERSUS_LEVELS.map((l, i) => `<option value="${i}">${l.title}</option>`).join('')}</optgroup><optgroup label="Campaign levels">${LEVELS.map((l, i) => `<option value="${VERSUS_LEVELS.length + i}">${l.id}. ${l.title}</option>`).join('')}</optgroup>`;
+  const arenaOptions = `<optgroup label="Versus arenas">${VERSUS_LEVELS.map((l, i) => `<option value="${i}">${l.title}</option>`).join('')}</optgroup><optgroup label="Campaign levels">${LEVELS.map((l, i) => `<option value="${VERSUS_LEVELS.length + i}">${l.id}. ${l.title}</option>`).join('')}</optgroup><optgroup label="Conduits · hazards only, half speed">${VERSUS_CONDUITS.map((c, i) => `<option value="${VERSUS_LEVELS.length + LEVELS.length + i}">${shortId(c)} ${c.title}</option>`).join('')}</optgroup>`;
   const saved = loadCampaign();
   const diff = difficultySetting();
   if (!net.roster.length) {
