@@ -234,7 +234,8 @@ export function createGameState(def, { pvp = false, coop = false, rules = DEFAUL
   const panes = [];
   for (const o of def.obstacles) {
     if (o.glass) {
-      const pane = { poly: o.poly, color: o.color, broken: false, regrowAt: 0, segs: polygonEdges(o.poly, 'glass') };
+      // A pane may be unbreakable (it reflects at any speed) or carry its own break speed.
+      const pane = { poly: o.poly, color: o.color, broken: false, regrowAt: 0, unbreakable: !!o.unbreakable, breakSpeed: o.breakSpeed || null, segs: polygonEdges(o.poly, 'glass') };
       for (const sg of pane.segs) sg.pane = pane;
       panes.push(pane);
     } else {

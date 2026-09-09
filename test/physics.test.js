@@ -713,3 +713,23 @@ test('signal box: switches flip doors into and out of the walls, carts stay on t
   for (const n of g.nodes) if (n.kind === 'switch') for (const i of n.toggles) assert.ok(g.doors[i], `switch ${n.i} wires door ${i}`);
   assert.ok(pointInPolygon(exit.x, exit.y, def.boundary));
 });
+
+test('reliquary: only the amber pane breaks, at its own speed under the cap; the relic sits in the apse behind it', async () => {
+  const { CONDUITS } = await import('../src/conduits.js');
+  const { createGameState } = await import('../src/gamestate.js');
+  const def = CONDUITS.find((c) => c.glass && c.conduit);
+  const g = createGameState(def);
+  assert.equal(g.panes.length, 3);
+  const breakable = g.panes.filter((p) => !p.unbreakable);
+  assert.equal(breakable.length, 1, 'one honest pane');
+  assert.ok(def.glass.breakSpeed < def.maxBallSpeed, 'the break speed is reachable under the cap');
+  assert.ok(def.glass.breakSpeed > def.ball.speed, 'but not at serve speed');
+  assert.ok(g.walls.filter((w) => w.kind === 'glass').length === g.panes.reduce((n, p) => n + p.segs.length, 0), 'every pane is a wall while whole');
+  // The relic is inside the room, right of the glass, and the player is left of it.
+  const relic = g.nodes[0];
+  assert.ok(pointInPolygon(relic.x, relic.y, def.boundary));
+  const paneX = breakable[0].poly.reduce((s, p) => s + p[0], 0) / breakable[0].poly.length;
+  assert.ok(relic.x > paneX && def.player.x < paneX);
+  // Choristers loop the nave.
+  for (const d of g.drones) assert.ok(d.orbit, 'choristers have an orbit');
+});

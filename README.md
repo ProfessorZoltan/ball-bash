@@ -116,7 +116,9 @@ a live turret knocks it out; `objective.turrets` makes that the job.
 **Doors** (`doors`, obstacle polygons that start shut) are walls while closed
 and outlines while open; a **switch** node flips the doors listed in its
 `toggles` on every touch, and switches never count toward the objective. A
-drone given a `rail` segment is a **cart**: it moves only along the rail. Conduits can also hold **drones**, Boss-brained enemies with
+drone given a `rail` segment is a **cart**: it moves only along the rail.
+A glass pane marked `unbreakable` reflects at any speed and is drawn with a
+heavy leaded frame; a pane with its own `breakSpeed` overrides the level's. Conduits can also hold **drones**, Boss-brained enemies with
 their own stats; a body hit knocks a drone out for the rest of the room, and
 `objective.drones` makes downing them part of the objective.
 
@@ -134,6 +136,7 @@ Conduits built so far:
 | 2½ Condensers | Coolant Tunnels | two chambers joined by a tunnel whose door slides shut on a clock; coolant vents drip patches of ice on their own clocks; two slow sump-lings that leave ice behind every block have to be knocked out | `src/conduits.js` |
 | 3½ Orbit Deck | The Hollow Reactor | a core node behind two plates on a quick orbit, two wall turrets that throw slow energy shots at you, and a patrol drone; deflect a shot with your shield and send it back into its turret to knock the turret out; the core plus both turrets clear it | `src/conduits.js` |
 | 4½ Signal Box | Switchyard | three yards with a shut door between each and a switch node that opens the next; two shunter carts bound to rails block the crossings; set the route with three accurate shots, then light the exit node in its bay | `src/conduits.js` |
+| 5½ Reliquary | Glass Cathedral | a nave ending in an apse walled off by three panes of stained glass, of which only the amber one breaks, and only to a strike of 600 px/s or more under the 750 cap; the relic node behind it must be reached before the pane heals four seconds later; two choristers loop the nave and block | `src/conduits.js` |
 
 ## Campaign and difficulty
 

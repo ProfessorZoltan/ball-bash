@@ -564,9 +564,9 @@ function onWallBounce(h, seg, before) {
   const g = game;
   if (seg.kind === 'node') return onNodeHit(seg.node, h, before);
   g.ball.banked = true;
-  if (seg.kind === 'glass' && before && !seg.pane.broken) {
+  if (seg.kind === 'glass' && before && !seg.pane.broken && !seg.pane.unbreakable) {
     const speed = Math.hypot(before.vx, before.vy);
-    if (speed >= g.def.glass.breakSpeed) {
+    if (speed >= (seg.pane.breakSpeed || g.def.glass.breakSpeed)) {
       shatter(seg.pane, h, before);
       return;
     }
@@ -872,7 +872,7 @@ function frame(now) {
       if (guideFrame-- <= 0) {
         guideFrame = 6;
         const seeThrough = game.def.glass && game.ball.speed >= game.def.glass.breakSpeed;
-        let guideWalls = seeThrough ? game.walls.filter((w) => w.kind !== 'glass') : game.walls;
+        let guideWalls = seeThrough ? game.walls.filter((w) => w.kind !== 'glass' || w.pane.unbreakable || (w.pane.breakSpeed && game.ball.speed < w.pane.breakSpeed)) : game.walls;
         if (game.movers.length) {
           guideWalls = guideWalls.concat(moverSegmentsAt(game.movers, game.ball.x, game.ball.y, game.ball.vx, game.ball.vy));
         }

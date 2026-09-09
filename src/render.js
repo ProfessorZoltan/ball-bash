@@ -372,10 +372,10 @@ export class Renderer {
   drawGlass(panes, game, time) {
     const ctx = this.ctx;
     const glass = game.def.glass;
-    const hot = glass && game.ball.speed >= glass.breakSpeed;
     ctx.save();
     ctx.lineJoin = 'round';
     for (const pane of panes) {
+      const hot = glass && !pane.unbreakable && game.ball.speed >= (pane.breakSpeed || glass.breakSpeed);
       ctx.beginPath();
       polyPath(ctx, pane.poly);
       if (pane.broken) {
@@ -403,6 +403,14 @@ export class Renderer {
       ctx.lineWidth = 1;
       ctx.strokeStyle = 'rgba(255,255,255,0.35)';
       ctx.stroke();
+      if (pane.unbreakable) {
+        // Leaded glass: a heavy dark frame says this one never gives.
+        ctx.lineWidth = 5;
+        ctx.strokeStyle = 'rgba(20, 16, 30, 0.85)';
+        ctx.setLineDash([10, 6]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
     }
     ctx.restore();
   }

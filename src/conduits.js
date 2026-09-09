@@ -13,7 +13,7 @@
 //
 // Drones are Boss-brained enemies; `objective.drones` makes downing them part
 // of the objective (otherwise they are obstacles that can be knocked out).
-import { LEVELS, rect, ellipse } from './levels.js';
+import { LEVELS, rect, ellipse, arc } from './levels.js';
 import { BALL } from './config.js';
 
 export const CONDUIT_MAX_SPEED = BALL.maxSpeed / 2;
@@ -288,6 +288,65 @@ CONDUITS.push({
 /** A shunter cart: bound to a rail, quick along it, and there to block. */
 function cart(rail) {
   return { rail, moveSpeed: 150, turnSpeed: 3, leash: 600, threatRadius: 420, blockRadius: 90, safeRadius: 0, reaction: 0.28, anticipation: { commit: 0.4, swing: false, error: 7 } };
+}
+
+CONDUITS.push({
+  id: 5.5,
+  after: 5,
+  conduit: true,
+  title: 'Reliquary',
+  bossName: 'Chorister',
+  intro: 'A short nave ending in an apse walled off by three panes of stained glass. Only the amber pane breaks, and only to a hard strike; the others turn any ball away. Break it, then reach the relic behind it before the glass heals. Two choristers drift the nave and block.',
+  record: 'The Reliquary keeps what the Cathedral will not show. Three panes, one of them honest, and a pair of choristers who sing the glass back together.',
+  stopped: 'The relic is lit and the amber pane lies in pieces. The Cathedral has heard the glass break; it will not be surprised twice.',
+  width: 1600,
+  height: 900,
+  track: 'cathedral',
+  maxBallSpeed: CONDUIT_MAX_SPEED,
+  palette: {
+    floor: '#0b0814',
+    grid: 'rgba(200, 160, 255, 0.07)',
+    wall: '#d8c8ff',
+    wallDark: '#2a1e4a',
+    obstacle: '#b892ff',
+    obstacleDark: '#2a1a40',
+    node: '#7a6a9a',
+    nodeLit: '#ffd98a',
+  },
+  // The nave (x 60 to 1300) opens into a rounded apse on the right.
+  boundary: [
+    [60, 280],
+    [140, 200],
+    [1300, 200],
+    ...arc(1300, 450, 240, 250, -Math.PI / 2, Math.PI / 2, 16).slice(1, -1),
+    [1300, 700],
+    [140, 700],
+    [60, 620],
+  ],
+  // Columns down the nave for banks, and the three panes across the apse mouth.
+  obstacles: [
+    rect(560, 300, 40, 40, 45),
+    rect(560, 600, 40, 40, 45),
+    rect(920, 300, 40, 40, 45),
+    rect(920, 600, 40, 40, 45),
+    { poly: rect(1300, 283, 16, 167, 0), color: '#7fb2ff', glass: true, unbreakable: true },
+    { poly: rect(1300, 450, 16, 167, 0), color: '#ffc46b', glass: true },
+    { poly: rect(1300, 617, 16, 167, 0), color: '#c58bff', glass: true, unbreakable: true },
+  ],
+  // Under the half-speed cap only a clean strike reaches 600; the pane heals four seconds later.
+  glass: { breakSpeed: 600, regrow: 4, speedKeep: 0.8 },
+  nodes: [{ x: 1470, y: 450, r: 26, kind: 'plain' }],
+  drones: [
+    sentry(800, 330, Math.PI, chorister({ cx: 800, cy: 450, rx: 300, ry: 130, omega: 0.28, phase: 0 })),
+    sentry(800, 570, Math.PI, chorister({ cx: 800, cy: 450, rx: 300, ry: 130, omega: 0.28, phase: Math.PI })),
+  ],
+  player: { x: 260, y: 450, angle: 0 },
+  ball: { x: 460, y: 450, speed: 400, angleDeg: 0 },
+});
+
+/** A chorister: drifts a slow loop across the nave and blocks what it can reach. */
+function chorister(orbit) {
+  return { r: 24, paddleWidth: 100, moveSpeed: 130, turnSpeed: 3, leash: 140, threatRadius: 320, blockRadius: 90, safeRadius: 0, reaction: 0.3, orbit, anticipation: { commit: 0.3, swing: false, error: 8 } };
 }
 
 /** Every playable room in campaign order: each level, then the conduit that follows it. */
