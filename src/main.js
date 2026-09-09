@@ -14,7 +14,7 @@ import { Effects } from './fx.js';
 import { AudioEngine } from './audio/engine.js';
 import { TRACKS } from './audio/tracks.js';
 import { circleVsCircle, circleVsCapsule, pointInPolygon, resolveCircleVsSegments, predictPath } from './physics.js';
-import { advanceBall, separateFightersFromBall, fightersTouch } from './sim.js';
+import { advanceBall, separateFightersFromBall, fightersTouch, advanceShot, Shot } from './sim.js';
 import { clamp, rand, wrapAngle } from './vec.js';
 
 const $ = (id) => document.getElementById(id);
@@ -96,8 +96,10 @@ function launchBall() {
   const a = ((def.ball.angleDeg + rand(-14, 14)) * Math.PI) / 180;
   game.ball.launch(def.ball.x, def.ball.y, a, def.ball.speed);
   game.ball.banked = false;
-  // Vent clocks run from the launch, not from the countdown.
+  // Vent and turret clocks run from the launch, not from the countdown.
   for (const v of game.vents) v.nextAt = simTime + v.delay;
+  for (const t of game.turrets) t.nextAt = simTime + t.delay;
+  game.shots.length = 0;
   game.history.reset();
   game.history.push(simTime, game.ball);
   for (const f of game.fighters) f.resetCamp();
@@ -209,6 +211,8 @@ function step(dt) {
     }
   }
 
+  if (g.turrets.length && state === 'playing') stepShots(dt);
+
   if (g.ice) {
     // Coolant vents drip on their own clocks while the ball is in play.
     if (state === 'playing') {
@@ -236,6 +240,107 @@ function step(dt) {
 /** Everyone still in play: downed drones are out of the physics. */
 function activeFighters() {
   return game.fighters.filter((f) => !f.down);
+}
+
+/** Turrets fire on their clocks; every shot flies, deflects off shields, and stops on a body or a wall. */
+function stepShots(dt) {
+  const g = game;
+  for (const t of g.turrets) {
+    if (t.down || simTime < t.nextAt) continue;
+    t.nextAt += t.period;
+    fireTurret(t);
+  }
+  const active = activeFighters();
+  for (let i = g.shots.length - 1; i >= 0; i--) {
+    const shot = g.shots[i];
+    if (simTime - shot.born > g.turrets[shot.turret].life) {
+      g.shots.splice(i, 1);
+      continue;
+    }
+    const hit = advanceShot(shot, g.walls, active, dt, g.movers);
+    if (!hit) continue;
+    if (hit.kind === 'paddle') {
+      shot.deflected = true;
+      shot.born = simTime; // a fresh life after a deflection
+      paddleFx(hit.f, hit.h.cx, hit.h.cy, hit.h.nx, hit.h.ny, 0.4, false);
+      netEvent({ e: 'paddle', s: hit.f.slot, x: hit.h.cx, y: hit.h.cy, nx: hit.h.nx, ny: hit.h.ny, st: 0.4, d: 0 });
+      continue;
+    }
+    g.shots.splice(i, 1);
+    if (hit.kind === 'body') {
+      if (hit.f.kind === 'player') onShotHit(hit.f, hit.h);
+      else shotFx(shot.x, shot.y);
+      continue;
+    }
+    // A wall, a mover, or a turret: a deflected shot into a live turret knocks it out.
+    const t = hit.seg.turret;
+    if (t && shot.deflected && !t.down) turretDown(t);
+    else shotFx(shot.x, shot.y);
+    netEvent({ e: 'shotfx', x: shot.x, y: shot.y });
+  }
+}
+
+/** Aim at the nearest human, leading it a little, and loose a shot. */
+function fireTurret(t) {
+  const g = game;
+  let target = null;
+  let best = Infinity;
+  for (const f of g.humans) {
+    const d = Math.hypot(f.x - t.x, f.y - t.y);
+    if (d < best) {
+      best = d;
+      target = f;
+    }
+  }
+  if (!target) return;
+  const lead = Math.min(0.5, best / t.speed) * 0.5;
+  const ax = target.x + target.svx * lead - t.x;
+  const ay = target.y + target.svy * lead - t.y;
+  const len = Math.hypot(ax, ay) || 1;
+  t.aim = Math.atan2(ay, ax);
+  const start = t.r + 10;
+  g.shots.push(new Shot(t.x + (ax / len) * start, t.y + (ay / len) * start, (ax / len) * t.speed, (ay / len) * t.speed, 8, simTime, t.i));
+  fireFx(t);
+  netEvent({ e: 'fire', i: t.i });
+}
+
+function fireFx(t) {
+  const g = game;
+  const color = g.def.palette.shot || '#ff9f6a';
+  g.fx.ring(t.x, t.y, color, 60, 0.3);
+  g.fx.burst(t.x + Math.cos(t.aim) * t.r, t.y + Math.sin(t.aim) * t.r, Math.cos(t.aim), Math.sin(t.aim), 8, color, 220, 0.6, 0.4);
+  audio.sfxPulse();
+}
+
+function shotFx(x, y) {
+  const g = game;
+  g.fx.burst(x, y, 0, 0, 10, g.def.palette.shot || '#ff9f6a', 180, Math.PI, 0.4);
+}
+
+/** A shot reached a human's body: one shield, like a ball. */
+function onShotHit(p, h) {
+  if (p.invuln > 0) return;
+  p.invuln = PLAYER.invulnTime;
+  playerHitFx(p, h.cx, h.cy, h.nx, h.ny);
+  netEvent({ e: 'shield', s: p.slot, x: h.cx, y: h.cy, nx: h.nx, ny: h.ny });
+  loseShield('shot', p);
+}
+
+function turretDown(t) {
+  const g = game;
+  t.down = true;
+  turretFx(t);
+  netEvent({ e: 'turret', i: t.i });
+  if (objectiveDone(g)) conduitCleared();
+}
+
+function turretFx(t) {
+  const g = game;
+  const color = g.def.palette.turret || g.def.palette.obstacle;
+  g.fx.burst(t.x, t.y, 0, 0, 40, color, 360, Math.PI, 0.9);
+  g.fx.ring(t.x, t.y, '#ffffff', 160, 0.5);
+  g.fx.addShake(10);
+  audio.sfxBossHit();
 }
 
 /** A vent dropped a patch of ice. */
@@ -672,6 +777,7 @@ function reserve(reason, slot) {
   g.ball.vx = 0;
   g.ball.vy = 0;
   g.ball.trail.length = 0;
+  g.shots.length = 0;
   g.history.reset();
   g.guidePath = null;
   g.lastLoss = { reason, slot, at: g.time };
@@ -1166,6 +1272,10 @@ function objectiveText(g) {
     const up = g.drones.filter((d) => !d.down).length;
     text += `${text ? ' · ' : ''}${up} DRONE${up === 1 ? '' : 'S'} UP`;
   }
+  if (g.objective.turrets) {
+    const up = g.turrets.filter((t) => !t.down).length;
+    text += `${text ? ' · ' : ''}${up} TURRET${up === 1 ? '' : 'S'} UP`;
+  }
   return text;
 }
 
@@ -1188,7 +1298,7 @@ function updateHud() {
     setText('hud-boss-label', 'BOSS');
     setText('hud-lives', g.lives === Infinity ? '∞' : '◆'.repeat(Math.max(0, g.lives)) + '◇'.repeat(Math.max(0, g.maxLives - g.lives)));
     if (g.def.conduit) {
-      setText('hud-boss-label', g.nodes.length ? 'NODES' : 'DRONES');
+      setText('hud-boss-label', g.nodes.length ? 'NODES' : g.objective.turrets ? 'TURRETS' : 'DRONES');
       setText('hud-boss', objectiveText(g));
     } else if (g.coop) setText('hud-boss', `${g.def.bossName.toUpperCase()} ${'◆'.repeat(Math.max(0, g.bossHits))}${'◇'.repeat(Math.max(0, g.maxBossHits - g.bossHits))}`);
   }
@@ -1211,7 +1321,7 @@ function updateHud() {
   if (lost && lost.slot === 'b') status = `BOSS HIT · ${g.bossHits} MORE TO GO`;
   else if (lost) {
     const who = g.coop ? `${(fighterBySlot(lost.slot) || me || g.player).name.replace(/ \(you\)$/, '').toUpperCase()} ` : '';
-    status = `${who}${lost.reason === 'camp' ? 'STOOD STILL' : lost.reason === 'touch' ? 'TOUCHED THE BOSS' : 'HIT'} · ${g.lives === Infinity ? 'UNLIMITED SHIELDS' : `${g.lives} SHIELD${g.lives === 1 ? '' : 'S'} LEFT`}`;
+    status = `${who}${lost.reason === 'camp' ? 'STOOD STILL' : lost.reason === 'touch' ? 'TOUCHED THE BOSS' : lost.reason === 'shot' ? 'SHOT' : 'HIT'} · ${g.lives === Infinity ? 'UNLIMITED SHIELDS' : `${g.lives} SHIELD${g.lives === 1 ? '' : 'S'} LEFT`}`;
   }
   const last = g.pvp && state === 'roundEnd' && net.last ? net.last : null;
   if (last) {
@@ -2346,6 +2456,22 @@ function playEvent(ev) {
       if (v) ventFx(v);
       break;
     }
+    case 'fire': {
+      const t = g.turrets && g.turrets[ev.i];
+      if (t) fireFx(t);
+      break;
+    }
+    case 'turret': {
+      const t = g.turrets && g.turrets[ev.i];
+      if (t) {
+        t.down = true;
+        turretFx(t);
+      }
+      break;
+    }
+    case 'shotfx':
+      shotFx(ev.x, ev.y);
+      break;
     case 'node': {
       const node = g.nodes && g.nodes[ev.i];
       if (node) {

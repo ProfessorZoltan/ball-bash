@@ -137,6 +137,62 @@ export function separateFightersFromBall(ball, fighters) {
   }
 }
 
+// ------------------------------------------------------------- energy shots
+
+/** A turret's energy ball: slow, short-lived, deflectable with a shield. */
+export class Shot {
+  constructor(x, y, vx, vy, r = 8, born = 0, turret = -1) {
+    this.x = x;
+    this.y = y;
+    this.vx = vx;
+    this.vy = vy;
+    this.r = r;
+    this.born = born;
+    this.turret = turret; // which turret fired it
+    this.deflected = false; // touched a shield: now it can knock a turret out
+  }
+
+  get speed() {
+    return Math.hypot(this.vx, this.vy);
+  }
+}
+
+/**
+ * Move a shot one step. A shield deflects it (with the shield's own motion,
+ * like the ball); a body, a mover or a wall stops it. Returns null while it
+ * flies, else { kind: 'paddle' | 'body' | 'wall', f?, seg?, h }.
+ */
+export function advanceShot(shot, walls, fighters, dt, movers = []) {
+  shot.x += shot.vx * dt;
+  shot.y += shot.vy * dt;
+  for (const f of fighters) {
+    const seg = f.paddleSegment();
+    const h = circleVsCapsule(shot.x, shot.y, shot.r, seg.ax, seg.ay, seg.bx, seg.by, f.paddleThick, shot.vx, shot.vy);
+    if (h) {
+      shot.x += h.nx * h.depth;
+      shot.y += h.ny * h.depth;
+      const sv = f.surfaceVelocityAt(h.cx, h.cy);
+      if (reflect(shot, h.nx, h.ny, sv.x, sv.y, 1, 1)) return { kind: 'paddle', f, h };
+      continue;
+    }
+    const hb = circleVsCircle(shot.x, shot.y, shot.r, f.x, f.y, f.r);
+    if (hb) return { kind: 'body', f, h: hb };
+  }
+  for (const m of movers) {
+    if (!m.segments) continue;
+    for (const seg of m.segments()) {
+      const h = circleVsCapsule(shot.x, shot.y, shot.r, seg.ax, seg.ay, seg.bx, seg.by, m.thick || 0, shot.vx, shot.vy);
+      if (h) return { kind: 'wall', seg, h };
+    }
+  }
+  for (const s of walls) {
+    if (s.broken) continue;
+    const h = circleVsCapsule(shot.x, shot.y, shot.r, s.ax, s.ay, s.bx, s.by, s.thick || 0, shot.vx, shot.vy);
+    if (h) return { kind: 'wall', seg: s, h };
+  }
+  return null;
+}
+
 // ------------------------------------------------------ fighters vs fighters
 
 /**

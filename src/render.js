@@ -123,6 +123,8 @@ export class Renderer {
     for (const m of game.movers || []) this.drawMover(m, level.palette.obstacle);
     for (const d of game.drones || [game.boss]) if (d.pulser && !d.down) this.drawPulse(d, level.palette.obstacle, time);
     if (game.nodes && game.nodes.length) this.drawNodes(game.nodes, level.palette, time);
+    if (game.turrets && game.turrets.length) this.drawTurrets(game.turrets, level.palette, game.time || 0);
+    if (game.shots && game.shots.length) this.drawShots(game.shots, level.palette, game.player ? game.player.color : '#ffffff');
     this.drawRings(game.fx);
     for (const f of game.fighters || [game.boss, game.player]) if (!f.down) this.drawFighter(f, time, f.color);
     this.drawBall(game.ball, state);
@@ -449,6 +451,70 @@ export class Renderer {
       ctx.fillStyle = color;
       ctx.globalAlpha = pulse;
       ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  /** Turrets: a disc in the wall with a barrel that tracks its target and glows as a shot comes due. */
+  drawTurrets(turrets, palette, now) {
+    const ctx = this.ctx;
+    const color = palette.turret || palette.obstacle;
+    for (const t of turrets) {
+      const charge = t.down ? 0 : Math.max(0, 1 - Math.max(0, t.nextAt - now) / t.period);
+      ctx.save();
+      ctx.translate(t.x, t.y);
+      ctx.beginPath();
+      ctx.arc(0, 0, t.r, 0, Math.PI * 2);
+      ctx.fillStyle = t.down ? 'rgba(20, 16, 24, 0.95)' : 'rgba(30, 18, 12, 0.95)';
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = t.down ? 'rgba(120, 120, 140, 0.5)' : color;
+      ctx.shadowBlur = this.blur(t.down ? 0 : 6 + 14 * charge);
+      ctx.shadowColor = color;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      // barrel
+      ctx.rotate(t.aim);
+      ctx.fillStyle = t.down ? 'rgba(120, 120, 140, 0.5)' : color;
+      ctx.fillRect(t.r - 6, -5, 18, 10);
+      if (!t.down) {
+        ctx.beginPath();
+        ctx.arc(t.r + 12, 0, 3 + 4 * charge, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255, 200, 140, ${0.3 + 0.7 * charge})`;
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+  }
+
+  /** Energy shots: small hot orbs; one you have deflected wears your colour. */
+  drawShots(shots, palette, ownColor) {
+    const ctx = this.ctx;
+    const color = palette.shot || '#ff9f6a';
+    for (const p of shots) {
+      const c = p.deflected ? ownColor : color;
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fillStyle = c;
+      ctx.shadowBlur = this.blur(16);
+      ctx.shadowColor = c;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r * 0.45, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+      // a short tail against its motion
+      const sp = Math.hypot(p.vx, p.vy) || 1;
+      ctx.strokeStyle = c;
+      ctx.globalAlpha = 0.45;
+      ctx.lineWidth = p.r * 1.2;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(p.x - (p.vx / sp) * 26, p.y - (p.vy / sp) * 26);
+      ctx.stroke();
       ctx.restore();
     }
   }

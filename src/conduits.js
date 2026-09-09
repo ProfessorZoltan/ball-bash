@@ -13,7 +13,7 @@
 //
 // Drones are Boss-brained enemies; `objective.drones` makes downing them part
 // of the objective (otherwise they are obstacles that can be knocked out).
-import { LEVELS, rect } from './levels.js';
+import { LEVELS, rect, ellipse } from './levels.js';
 import { BALL } from './config.js';
 
 export const CONDUIT_MAX_SPEED = BALL.maxSpeed / 2;
@@ -172,6 +172,58 @@ CONDUITS.push({
 function sumpling() {
   return { r: 30, paddleWidth: 120, paddleBase: 40, paddleThick: 7, moveSpeed: 90, turnSpeed: 2.6, reaction: 0.34, aggression: 0.1, aim: 0.4, absorb: 0.5, absorbSpeed: 480, leash: 150, threatRadius: 340, blockRadius: 100, safeRadius: 200, anticipation: { commit: 0.3, swing: false, error: 9 } };
 }
+
+CONDUITS.push({
+  id: 3.5,
+  after: 3,
+  conduit: true,
+  title: 'Orbit Deck',
+  bossName: 'Understudy',
+  intro: 'A ring around a dead core, two shield plates circling it, and turrets in the wall that throw slow fire at whatever moves. The core only counts when the ball gets through the gap. Catch a turret\'s shot on your shield and send it home.',
+  record: 'The Reactor keeps its spares on the Orbit Deck: plates that learned to circle, turrets that learned to lead a target, and an understudy walking the Sentinel\'s rounds.',
+  stopped: 'The core is lit and both turrets are dark. The Reactor\'s spares are spent; the real thing waits inside.',
+  width: 1600,
+  height: 900,
+  track: 'reactor',
+  maxBallSpeed: CONDUIT_MAX_SPEED,
+  palette: {
+    floor: '#080810',
+    grid: 'rgba(160, 180, 255, 0.08)',
+    wall: '#9fb8ff',
+    wallDark: '#1a2040',
+    obstacle: '#ff6b4a',
+    obstacleDark: '#3a1a10',
+    node: '#7080a8',
+    nodeLit: '#7dffc4',
+    turret: '#ffb347',
+    shot: '#ff9f6a',
+  },
+  boundary: ellipse(800, 450, 745, 415, 44),
+  obstacles: [],
+  // Two plates on a tight, quick orbit around the core: the gap comes round every couple of seconds.
+  movers: [{ type: 'orbiter', x: 800, y: 450, radius: 140, count: 2, length: 120, thick: 8, omega: 0.9, angle: 0.4 }],
+  nodes: [{ x: 800, y: 450, r: 30, kind: 'plain' }],
+  // Turrets in the far wall, upper and lower right, so their fire crosses the core's gap.
+  turrets: [
+    { x: 1348, y: 194, period: 4, delay: 3.5, speed: 260, life: 6 },
+    { x: 1348, y: 706, period: 4, delay: 5.5, speed: 260, life: 6 },
+  ],
+  // The Sentinel's understudy walks the same patrol, smaller and slower, and only blocks.
+  drones: [
+    sentry(1200, 450, Math.PI, {
+      r: 26,
+      moveSpeed: 150,
+      turnSpeed: 3,
+      leash: 120,
+      threatRadius: 300,
+      blockRadius: 90,
+      orbit: { cx: 800, cy: 450, rx: 420, ry: 250, omega: 0.18, phase: 0 },
+    }),
+  ],
+  objective: { turrets: true },
+  player: { x: 260, y: 450, angle: 0 },
+  ball: { x: 480, y: 450, speed: 400, angleDeg: 0 },
+});
 
 /** Every playable room in campaign order: each level, then the conduit that follows it. */
 export const SEQUENCE = LEVELS.flatMap((lvl) => [lvl, ...CONDUITS.filter((c) => c.after === lvl.id)]);

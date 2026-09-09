@@ -561,8 +561,9 @@ test('conduit game state: nodes are solid, drones stand in for the boss, the cap
     }
     assert.equal(objectiveDone(g), false);
     for (const n of g.nodes) n.lit = true;
-    assert.equal(objectiveDone(g), g.objective.drones === 0);
+    assert.equal(objectiveDone(g), g.objective.drones === 0 && g.objective.turrets === 0);
     for (const d of g.drones) d.down = true;
+    for (const t of g.turrets) t.down = true;
     assert.equal(objectiveDone(g), true);
   }
 });
@@ -625,4 +626,48 @@ test('ice patches: a vent patch freezes a fighter on it, melts after patchLife, 
   assert.deepEqual(dst.ice.patches, [{ x: 250, y: 250, r: 48, t: 3 }]);
   // Vents are scheduled from their delay.
   assert.deepEqual(src.vents.map((v) => v.nextAt), def.vents.map((v) => v.delay));
+});
+
+test('energy shots: a shield deflects one (with its motion), a body stops it, a wall stops it, and turrets are solid discs with an objective', async () => {
+  const { advanceShot, Shot } = await import('../src/sim.js');
+  const { CONDUITS } = await import('../src/conduits.js');
+  const { createGameState, objectiveDone } = await import('../src/gamestate.js');
+  const walls = polygonEdges([[0, 0], [600, 0], [600, 400], [0, 400]], 'wall');
+  const f = new Fighter({ x: 300, y: 200, angle: Math.PI, kind: 'player' }); // shield 36 px to the left of the body
+  // Straight at the shield from the left.
+  let shot = new Shot(200, 200, 260, 0, 8, 0, 0);
+  let hit = null;
+  for (let i = 0; i < 240 && !hit; i++) hit = advanceShot(shot, walls, [f], 1 / 240);
+  assert.equal(hit && hit.kind, 'paddle');
+  assert.ok(shot.vx < 0, 'sent back the way it came');
+  // Into the body from behind (the shield is on the other side).
+  shot = new Shot(400, 200, -260, 0, 8, 0, 0);
+  hit = null;
+  for (let i = 0; i < 240 && !hit; i++) hit = advanceShot(shot, walls, [f], 1 / 240);
+  assert.equal(hit && hit.kind, 'body');
+  assert.equal(hit.f, f);
+  // Into a wall.
+  shot = new Shot(100, 100, 0, -260, 8, 0, 0);
+  hit = null;
+  for (let i = 0; i < 240 && !hit; i++) hit = advanceShot(shot, walls, [], 1 / 240);
+  assert.equal(hit && hit.kind, 'wall');
+  // A conduit with turrets: solid, scheduled, and part of the objective.
+  const def = CONDUITS.find((c) => c.turrets && c.turrets.length);
+  const g = createGameState(def);
+  assert.equal(g.turrets.length, def.turrets.length);
+  assert.ok(g.walls.some((w) => w.kind === 'turret' && w.turret === g.turrets[0]));
+  assert.ok(g.solidPolys.some((poly) => pointInPolygon(g.turrets[0].x, g.turrets[0].y, poly)), 'the turret disc is solid');
+  assert.equal(g.objective.turrets, def.turrets.length);
+  for (const n of g.nodes) n.lit = true;
+  assert.equal(objectiveDone(g), false, 'turrets still up');
+  for (const t of g.turrets) t.down = true;
+  assert.equal(objectiveDone(g), true);
+  // A deflected shot into a turret disc is a wall hit carrying the turret.
+  const t = g.turrets[0];
+  shot = new Shot(t.x, t.y + 120, 0, -260, 8, 0, 0);
+  shot.deflected = true;
+  hit = null;
+  for (let i = 0; i < 480 && !hit; i++) hit = advanceShot(shot, g.walls, [], 1 / 240, g.movers);
+  assert.equal(hit && hit.kind, 'wall');
+  assert.equal(hit.seg.turret, t);
 });

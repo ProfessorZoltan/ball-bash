@@ -118,6 +118,7 @@ export function objectiveDone(g) {
   if (!g.def.conduit) return false;
   if (g.nodes.some((n) => !n.lit)) return false;
   if (g.objective.drones && g.drones.some((d) => !d.down)) return false;
+  if (g.objective.turrets && g.turrets.some((t) => !t.down)) return false;
   return true;
 }
 
@@ -234,6 +235,14 @@ export function createGameState(def, { pvp = false, coop = false, rules = DEFAUL
     for (const sg of segs) sg.node = n;
     staticWalls.push(...segs);
   });
+  // Turrets sit in the wall as solid discs; a deflected shot into one knocks it out.
+  const turrets = (def.turrets || []).map((t, i) => ({ x: t.x, y: t.y, r: t.r || 22, period: t.period || 4, delay: t.delay || 1, speed: t.speed || 260, life: t.life || 6, i, nextAt: t.delay || 1, down: false, aim: t.aim || 0 }));
+  const turretPolys = turrets.map((t) => ellipse(t.x, t.y, t.r, t.r, 14));
+  turrets.forEach((t, i) => {
+    const segs = polygonEdges(turretPolys[i], 'turret');
+    for (const sg of segs) sg.turret = t;
+    staticWalls.push(...segs);
+  });
   const movers = (def.movers || []).map(createMover);
   let player;
   let boss;
@@ -277,9 +286,9 @@ export function createGameState(def, { pvp = false, coop = false, rules = DEFAUL
   ball.x = def.ball.x;
   ball.y = def.ball.y;
   ball.held = true;
-  const staticPolys = def.obstacles.filter((o) => !o.glass).map(obstaclePoly).concat(nodePolys);
-  const objective = { nodes: nodes.length, drones: def.objective && def.objective.drones ? drones.length : 0 };
-  const g = { def, staticWalls, staticPolys, panes, walls: [], solidPolys: [], player, ally, allies, boss, drones, nodes, objective, fighters, humans, movers, ice, vents, ball, maxSpeed: def.maxBallSpeed || BALL.maxSpeed, pvp, players: pvpCount, coop: !pvp && allyCount > 0, rules: { ...DEFAULT_RULES, ...rules } };
+  const staticPolys = def.obstacles.filter((o) => !o.glass).map(obstaclePoly).concat(nodePolys, turretPolys);
+  const objective = { nodes: nodes.length, drones: def.objective && def.objective.drones ? drones.length : 0, turrets: def.objective && def.objective.turrets ? turrets.length : 0 };
+  const g = { def, staticWalls, staticPolys, panes, walls: [], solidPolys: [], player, ally, allies, boss, drones, nodes, turrets, shots: [], objective, fighters, humans, movers, ice, vents, ball, maxSpeed: def.maxBallSpeed || BALL.maxSpeed, pvp, players: pvpCount, coop: !pvp && allyCount > 0, rules: { ...DEFAULT_RULES, ...rules } };
   rebuildWalls(g);
   return g;
 }
