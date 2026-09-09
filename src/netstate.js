@@ -48,7 +48,7 @@ export function buildSnapshot(g, meta, events = [], includeIce = true) {
   };
   if (g.panes.length) s.pn = g.panes.map((p) => (p.broken ? r1(p.regrowAt) : -1));
   if (g.nodes && g.nodes.length) s.nd = g.nodes.map((n) => (n.lit ? 1 : 0));
-  if (includeIce && g.ice) s.ice = { u: r1(g.ice.layUntil), o: g.ice.owner, p: g.ice.points.map((p) => [r1(p.x), r1(p.y), r1(p.t)]) };
+  if (includeIce && g.ice) s.ice = { u: r1(g.ice.layUntil), o: g.ice.owner, p: g.ice.points.map((p) => [r1(p.x), r1(p.y), r1(p.t)]), q: g.ice.patches.map((p) => [r1(p.x), r1(p.y), p.r, r1(p.t)]) };
   if (events.length) s.ev = events;
   return s;
 }
@@ -82,6 +82,7 @@ export function applySnapshot(g, s) {
     g.ice.layUntil = s.ice.u;
     g.ice.owner = s.ice.o ?? null;
     g.ice.points = s.ice.p.map(([x, y, t]) => ({ x, y, t }));
+    g.ice.patches = (s.ice.q || []).map(([x, y, r, t]) => ({ x, y, r, t }));
   }
   g.time = s.time;
   return glassChanged;

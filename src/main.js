@@ -96,6 +96,8 @@ function launchBall() {
   const a = ((def.ball.angleDeg + rand(-14, 14)) * Math.PI) / 180;
   game.ball.launch(def.ball.x, def.ball.y, a, def.ball.speed);
   game.ball.banked = false;
+  // Vent clocks run from the launch, not from the countdown.
+  for (const v of game.vents) v.nextAt = simTime + v.delay;
   game.history.reset();
   game.history.push(simTime, game.ball);
   for (const f of game.fighters) f.resetCamp();
@@ -208,6 +210,14 @@ function step(dt) {
   }
 
   if (g.ice) {
+    // Coolant vents drip on their own clocks while the ball is in play.
+    if (state === 'playing') {
+      for (const v of g.vents) {
+        if (simTime < v.nextAt) continue;
+        v.nextAt += v.period;
+        ventDrip(v);
+      }
+    }
     g.ice.update(simTime, g.ball);
     for (const f of g.humans) if (g.ice.affect(f, f.slot)) onPlayerFrozen(f);
   }
@@ -226,6 +236,22 @@ function step(dt) {
 /** Everyone still in play: downed drones are out of the physics. */
 function activeFighters() {
   return game.fighters.filter((f) => !f.down);
+}
+
+/** A vent dropped a patch of ice. */
+function ventDrip(v) {
+  const g = game;
+  g.ice.addPatch(v.x, v.y, v.r, simTime);
+  ventFx(v);
+  netEvent({ e: 'vent', i: v.i });
+}
+
+function ventFx(v) {
+  const g = game;
+  const color = g.def.palette.ice || '#cdf6ff';
+  g.fx.ring(v.x, v.y, color, v.r * 2, 0.5);
+  g.fx.burst(v.x, v.y, 0, -1, 14, color, 160, Math.PI, 0.6);
+  audio.sfxIce();
 }
 
 function campStep(f, slot, dt) {
@@ -1162,7 +1188,7 @@ function updateHud() {
     setText('hud-boss-label', 'BOSS');
     setText('hud-lives', g.lives === Infinity ? '∞' : '◆'.repeat(Math.max(0, g.lives)) + '◇'.repeat(Math.max(0, g.maxLives - g.lives)));
     if (g.def.conduit) {
-      setText('hud-boss-label', 'NODES');
+      setText('hud-boss-label', g.nodes.length ? 'NODES' : 'DRONES');
       setText('hud-boss', objectiveText(g));
     } else if (g.coop) setText('hud-boss', `${g.def.bossName.toUpperCase()} ${'◆'.repeat(Math.max(0, g.bossHits))}${'◇'.repeat(Math.max(0, g.maxBossHits - g.bossHits))}`);
   }
@@ -2315,6 +2341,11 @@ function playEvent(ev) {
     case 'camp':
       campFx(fighterBySlot(ev.s) || g.player);
       break;
+    case 'vent': {
+      const v = g.vents && g.vents[ev.i];
+      if (v) ventFx(v);
+      break;
+    }
     case 'node': {
       const node = g.nodes && g.nodes[ev.i];
       if (node) {

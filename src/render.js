@@ -118,7 +118,8 @@ export class Renderer {
 
     this.drawPredictedPath(game);
     if (game.panes && game.panes.length) this.drawGlass(game.panes, game, time);
-    if (game.ice) this.drawIce(game.ice, level.palette.ice || '#cdf6ff', time, ((game.fighters || []).find((f) => f.slot === game.ice.owner) || game.boss).color);
+    if (game.vents && game.vents.length) this.drawVents(game.vents, level.palette.ice || '#cdf6ff', game.time || 0);
+    if (game.ice) this.drawIce(game.ice, level.palette.ice || '#cdf6ff', time, ((game.fighters || []).find((f) => f.slot === game.ice.owner) || game.boss).color, game.time || 0);
     for (const m of game.movers || []) this.drawMover(m, level.palette.obstacle);
     for (const d of game.drones || [game.boss]) if (d.pulser && !d.down) this.drawPulse(d, level.palette.obstacle, time);
     if (game.nodes && game.nodes.length) this.drawNodes(game.nodes, level.palette, time);
@@ -452,10 +453,69 @@ export class Renderer {
     }
   }
 
-  drawIce(ice, color, time, ownerColor) {
+  /** Coolant vents: a grate that charges up toward its next drip. */
+  drawVents(vents, color, now) {
+    const ctx = this.ctx;
+    ctx.save();
+    for (const v of vents) {
+      const since = now - v.delay;
+      const frac = since < 0 ? 0 : (since % v.period) / v.period; // 0 just after a drip, 1 at the next
+      ctx.beginPath();
+      ctx.arc(v.x, v.y, 14, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(8, 20, 24, 0.9)';
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = color;
+      ctx.globalAlpha = 0.6;
+      ctx.stroke();
+      for (let k = -1; k <= 1; k++) {
+        ctx.beginPath();
+        ctx.moveTo(v.x - 8, v.y + k * 5);
+        ctx.lineTo(v.x + 8, v.y + k * 5);
+        ctx.stroke();
+      }
+      // The charge ring swells as the drip comes due.
+      ctx.globalAlpha = 0.15 + 0.55 * frac * frac;
+      ctx.beginPath();
+      ctx.arc(v.x, v.y, 14 + (v.r - 14) * frac, 0, Math.PI * 2);
+      ctx.setLineDash([4, 6]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    ctx.restore();
+  }
+
+  drawIce(ice, color, time, ownerColor, simNow = 0) {
+    const ctx = this.ctx;
+    if (ice.patches && ice.patches.length) {
+      ctx.save();
+      for (const p of ice.patches) {
+        const a = clamp(1 - (simNow - p.t) / ice.patchLife, 0, 1);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(205, 246, 255, ${0.12 + 0.2 * a})`;
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = color;
+        ctx.globalAlpha = 0.3 + 0.5 * a;
+        ctx.stroke();
+        // frost
+        ctx.lineWidth = 1.5;
+        const rot = (p.x + p.y) * 0.05 + time;
+        for (let k = 0; k < 3; k++) {
+          const ang = rot + (k * Math.PI) / 3;
+          const r = p.r * 0.5 * a;
+          ctx.beginPath();
+          ctx.moveTo(p.x - Math.cos(ang) * r, p.y - Math.sin(ang) * r);
+          ctx.lineTo(p.x + Math.cos(ang) * r, p.y + Math.sin(ang) * r);
+          ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+      }
+      ctx.restore();
+    }
     const pts = ice.points;
     if (pts.length < 2) return;
-    const ctx = this.ctx;
     const now = ice.points[pts.length - 1].t;
     ctx.save();
     ctx.lineCap = 'round';

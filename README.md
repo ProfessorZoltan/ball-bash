@@ -105,7 +105,10 @@ to earn:
 | fast (double ring) | the ball arrives at or above the node's `minSpeed` | same |
 
 A shot that reaches a node without qualifying just bounces, with a red flicker
-so you know why. Conduits can also hold **drones**, Boss-brained enemies with
+so you know why. **Coolant vents** (`vents` in a level, needing an `ice`
+entry) drop a round patch of ice every `period` seconds, the first after
+`delay`; a patch freezes whoever steps on it and melts after the ice's
+`patchLife`. Conduits can also hold **drones**, Boss-brained enemies with
 their own stats; a body hit knocks a drone out for the rest of the room, and
 `objective.drones` makes downing them part of the objective.
 
@@ -120,6 +123,7 @@ Conduits built so far:
 | Conduit | Leads to | What it tests | Source |
 |---|---|---|---|
 | 1½ Lens Gallery | Prism Vault | a plain node, a ricochet node and a hooded node around a small spinning prism, with a sentry that turns to block the hooded one | `src/conduits.js` |
+| 2½ Condensers | Coolant Tunnels | two chambers joined by a tunnel whose door slides shut on a clock; coolant vents drip patches of ice on their own clocks; two slow sump-lings that leave ice behind every block have to be knocked out | `src/conduits.js` |
 
 ## Campaign and difficulty
 

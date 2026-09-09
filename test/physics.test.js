@@ -548,11 +548,12 @@ test('conduit game state: nodes are solid, drones stand in for the boss, the cap
   for (const def of CONDUITS) {
     const g = createGameState(def);
     assert.equal(g.maxSpeed, BALL.maxSpeed / 2);
-    assert.equal(g.nodes.length, def.nodes.length);
+    assert.equal(g.nodes.length, (def.nodes || []).length);
     assert.equal(g.drones.length, def.drones.length);
+    assert.equal(g.vents.length, (def.vents || []).length);
     assert.equal(g.boss, g.drones[0]);
     assert.ok(g.fighters.includes(g.drones[0]));
-    assert.ok(g.walls.some((w) => w.kind === 'node' && w.node === g.nodes[0]), 'node walls carry their node');
+    if (g.nodes.length) assert.ok(g.walls.some((w) => w.kind === 'node' && w.node === g.nodes[0]), 'node walls carry their node');
     assert.ok(pointInPolygon(def.player.x, def.player.y, def.boundary) && pointInPolygon(def.ball.x, def.ball.y, def.boundary));
     for (const n of g.nodes) {
       assert.ok(pointInPolygon(n.x, n.y, def.boundary), `${def.title}: node ${n.i} inside the room`);
@@ -596,3 +597,32 @@ for (const def of (await import('../src/conduits.js')).CONDUITS) {
     assert.ok(bounces > 50, `only ${bounces} bounces`);
   });
 }
+
+test('ice patches: a vent patch freezes a fighter on it, melts after patchLife, and rides along in a snapshot', async () => {
+  const { IceTrail } = await import('../src/ice.js');
+  const { buildSnapshot, applySnapshot } = await import('../src/netstate.js');
+  const { CONDUITS } = await import('../src/conduits.js');
+  const { createGameState } = await import('../src/gamestate.js');
+  const ice = new IceTrail({ lay: 1, life: 1, freeze: 1.5, width: 30, patchLife: 4 });
+  const f = new Fighter({ x: 100, y: 100, kind: 'player' });
+  ice.addPatch(400, 400, 48, 10);
+  ice.update(10, { x: 0, y: 0 });
+  assert.equal(ice.affect(f, 'a'), false, 'far from the patch');
+  f.x = 430;
+  f.y = 400;
+  assert.equal(ice.affect(f, 'a'), true, 'stepping onto the patch freezes');
+  assert.equal(f.frozen, 1.5);
+  ice.update(14.5, { x: 0, y: 0 });
+  assert.equal(ice.patches.length, 0, 'melted after patchLife');
+  // Snapshot round trip carries the patches.
+  const def = CONDUITS.find((c) => c.vents && c.vents.length);
+  const src = createGameState(def);
+  const dst = createGameState(def);
+  src.ice.addPatch(250, 250, 48, 3);
+  src.time = 3;
+  const snap = JSON.parse(JSON.stringify(buildSnapshot(src, { st: 'playing' })));
+  applySnapshot(dst, snap);
+  assert.deepEqual(dst.ice.patches, [{ x: 250, y: 250, r: 48, t: 3 }]);
+  // Vents are scheduled from their delay.
+  assert.deepEqual(src.vents.map((v) => v.nextAt), def.vents.map((v) => v.delay));
+});

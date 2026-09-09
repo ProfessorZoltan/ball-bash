@@ -271,13 +271,15 @@ export function createGameState(def, { pvp = false, coop = false, rules = DEFAUL
   const ally = allies[0] || null;
   const humans = pvp ? fighters.slice() : [player, ...allies];
   const ice = def.ice ? new IceTrail(def.ice) : null;
+  // Coolant vents: each drops a patch of ice every `period` seconds, the first after `delay`.
+  const vents = (def.vents || []).map((v, i) => ({ x: v.x, y: v.y, r: v.r || 48, period: v.period || 7, delay: v.delay || 0, i, nextAt: v.delay || 0 }));
   const ball = new Ball(BALL.radius);
   ball.x = def.ball.x;
   ball.y = def.ball.y;
   ball.held = true;
   const staticPolys = def.obstacles.filter((o) => !o.glass).map(obstaclePoly).concat(nodePolys);
   const objective = { nodes: nodes.length, drones: def.objective && def.objective.drones ? drones.length : 0 };
-  const g = { def, staticWalls, staticPolys, panes, walls: [], solidPolys: [], player, ally, allies, boss, drones, nodes, objective, fighters, humans, movers, ice, ball, maxSpeed: def.maxBallSpeed || BALL.maxSpeed, pvp, players: pvpCount, coop: !pvp && allyCount > 0, rules: { ...DEFAULT_RULES, ...rules } };
+  const g = { def, staticWalls, staticPolys, panes, walls: [], solidPolys: [], player, ally, allies, boss, drones, nodes, objective, fighters, humans, movers, ice, vents, ball, maxSpeed: def.maxBallSpeed || BALL.maxSpeed, pvp, players: pvpCount, coop: !pvp && allyCount > 0, rules: { ...DEFAULT_RULES, ...rules } };
   rebuildWalls(g);
   return g;
 }

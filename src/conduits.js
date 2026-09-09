@@ -100,6 +100,79 @@ export const CONDUITS = [
   },
 ];
 
+CONDUITS.push({
+  id: 2.5,
+  after: 2,
+  conduit: true,
+  title: 'Condensers',
+  bossName: 'Sump-ling',
+  intro: 'Two chambers joined by one tunnel that breathes. Coolant vents in the floor drip ice on their own clocks, and the two sump-lings across the tunnel leave ice behind every block. Knock both out before the floor runs out.',
+  record: 'Condensers feed the Tunnels their cold. The sump-lings are what the Sump was before it grew: small, slow, and never far from a puddle of ice.',
+  stopped: 'Both sump-lings are down and the vents run dry. The Tunnels ahead will be colder still.',
+  width: 1600,
+  height: 900,
+  track: 'coolant',
+  maxBallSpeed: CONDUIT_MAX_SPEED,
+  palette: {
+    floor: '#050d10',
+    grid: 'rgba(120, 255, 220, 0.08)',
+    wall: '#8fe8d8',
+    wallDark: '#0c3a34',
+    obstacle: '#ffb347',
+    obstacleDark: '#3a2410',
+    ice: '#cdf6ff',
+  },
+  // A dumbbell: two chambers and the one tunnel between them (y 380 to 520).
+  boundary: [
+    [60, 160],
+    [140, 80],
+    [600, 80],
+    [680, 160],
+    [680, 380],
+    [920, 380],
+    [920, 160],
+    [1000, 80],
+    [1460, 80],
+    [1540, 160],
+    [1540, 740],
+    [1460, 820],
+    [1000, 820],
+    [920, 740],
+    [920, 520],
+    [680, 520],
+    [680, 740],
+    [600, 820],
+    [140, 820],
+    [60, 740],
+  ],
+  obstacles: [
+    // A pillar for the sump-lings to hide behind, and two diamonds on the player's side.
+    rect(1230, 450, 26, 220, 0),
+    rect(370, 260, 50, 50, 45),
+    rect(370, 640, 50, 50, 45),
+  ],
+  // The tunnel door: a slab that slides down out of the rock to close the tunnel, then back.
+  movers: [{ type: 'piston', parallel: true, x: 800, y: 300, length: 150, thick: 10, axisAngle: Math.PI / 2, amp: 150, period: 6, phase: 0 }],
+  ice: { lay: 1.6, life: 2.5, freeze: 1.5, width: 30, patchLife: 5 },
+  vents: [
+    { x: 250, y: 250, period: 7, delay: 2 },
+    { x: 250, y: 650, period: 7, delay: 4.3 },
+    { x: 560, y: 300, period: 7, delay: 6.6 },
+    { x: 1100, y: 450, period: 7, delay: 3 },
+    { x: 1400, y: 280, period: 7, delay: 5.5 },
+    { x: 1400, y: 620, period: 7, delay: 1 },
+  ],
+  drones: [sentry(1300, 300, Math.PI, sumpling()), sentry(1300, 600, Math.PI, sumpling())],
+  objective: { drones: true },
+  player: { x: 300, y: 450, angle: 0 },
+  ball: { x: 520, y: 450, speed: 400, angleDeg: 0 },
+});
+
+/** The Sump's little cousins: slow, wide, and inclined to soak a fast ball up rather than return it. */
+function sumpling() {
+  return { r: 30, paddleWidth: 120, paddleBase: 40, paddleThick: 7, moveSpeed: 90, turnSpeed: 2.6, reaction: 0.34, aggression: 0.1, aim: 0.4, absorb: 0.5, absorbSpeed: 480, leash: 150, threatRadius: 340, blockRadius: 100, safeRadius: 200, anticipation: { commit: 0.3, swing: false, error: 9 } };
+}
+
 /** Every playable room in campaign order: each level, then the conduit that follows it. */
 export const SEQUENCE = LEVELS.flatMap((lvl) => [lvl, ...CONDUITS.filter((c) => c.after === lvl.id)]);
 
