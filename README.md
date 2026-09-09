@@ -151,8 +151,11 @@ out mid-match the match ends for everyone.
 ## Versus arenas (every player for themselves)
 
 Versus has its own rooms, built for two or three humans rather than staged
-around a boss. The host picks one in the lobby (the campaign levels are still
-there too, further down the list):
+around a boss. The host picks one in the lobby. The ten campaign levels are
+there too, further down the list: two players take the player and boss
+spawns, and a third gets a seat the game works out for that level, the most
+open spot that is as far as possible, and about equally far, from the other
+two, clear of walls, obstacles and everywhere the movers sweep.
 
 | Arena | Shape | Source |
 |---|---|---|

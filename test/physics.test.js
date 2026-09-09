@@ -480,8 +480,21 @@ test('versus arenas: spawns for 2 and 3 players sit inside the room, clear of wa
       assert.deepEqual(rotateSpawns(spawns, n + 1), spawns);
     }
   }
-  // A campaign level seats a third player near the first, clear of the walls.
-  const three = versusSpawns(LEVELS[0], 3);
-  assert.equal(three.length, 3);
-  assert.ok(pointInPolygon(three[2].x, three[2].y, LEVELS[0].boundary));
+  // Every campaign level seats a third player in an open spot well away from the other two.
+  for (const def of LEVELS) {
+    const three = versusSpawns(def, 3);
+    assert.equal(three.length, 3);
+    const t = three[2];
+    assert.ok(pointInPolygon(t.x, t.y, def.boundary), `${def.title}: third seat inside the room`);
+    for (const o of def.obstacles) assert.ok(!pointInPolygon(t.x, t.y, obstaclePoly(o)), `${def.title}: third seat clear of obstacles`);
+    const walls = polygonEdges(def.boundary).concat(...def.obstacles.map((o) => polygonEdges(obstaclePoly(o))));
+    for (const w of walls) {
+      const c = closestPointOnSegment(t.x, t.y, w.ax, w.ay, w.bx, w.by);
+      assert.ok(Math.hypot(c.x - t.x, c.y - t.y) >= PLAYER.radius + 30, `${def.title}: third seat has room`);
+    }
+    const d1 = Math.hypot(t.x - three[0].x, t.y - three[0].y);
+    const d2 = Math.hypot(t.x - three[1].x, t.y - three[1].y);
+    assert.ok(Math.min(d1, d2) >= 300, `${def.title}: third seat is ${Math.round(Math.min(d1, d2))} px from the nearest other seat`);
+    assert.ok(Math.abs(d1 - d2) <= 0.35 * Math.max(d1, d2), `${def.title}: third seat is even-handed (${Math.round(d1)} vs ${Math.round(d2)})`);
+  }
 });

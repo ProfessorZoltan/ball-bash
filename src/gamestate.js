@@ -100,13 +100,59 @@ export function versusSpawns(def, n) {
     { x: def.boss.x, y: def.boss.y, angle: def.boss.angle },
   ];
   const movers = (def.movers || []).map(createMover);
-  const taken = [];
-  while (out.length < n) {
-    const s = findAllySpawn(def, movers, taken);
-    taken.push(s);
-    out.push({ x: s.x, y: s.y, angle: s.angle });
-  }
+  while (out.length < n) out.push(findVersusSpawn(def, movers, out));
   return out;
+}
+
+/**
+ * A fair extra seat in a campaign level: the most open spot that is as far
+ * from every seat already taken as possible, and about equally far from each,
+ * clear of walls, obstacles and movers, facing the serve point.
+ */
+export function findVersusSpawn(def, movers = [], taken = []) {
+  const r = PLAYER.radius;
+  const walls = polygonEdges(def.boundary).concat(...def.obstacles.map((o) => polygonEdges(obstaclePoly(o))));
+  // Everywhere a mover gets to over one cycle, as segments (a long piston
+  // sweeps a strip, not the disc its reach would suggest).
+  const swept = [];
+  (def.movers || []).forEach((spec, i) => {
+    const m = createMover(spec);
+    const period = m.period || 6;
+    for (let k = 0; k < 24; k++) {
+      m.update(period / 24, def.boss.x, def.boss.y);
+      for (const sg of m.segments()) swept.push({ ...sg, thick: (m.thick || 0) + 8 });
+    }
+  });
+  const clearance = (x, y) => {
+    if (!pointInPolygon(x, y, def.boundary)) return -1;
+    for (const o of def.obstacles) if (pointInPolygon(x, y, obstaclePoly(o))) return -1;
+    let d = Infinity;
+    for (const sg of walls) {
+      const c = closestPointOnSegment(x, y, sg.ax, sg.ay, sg.bx, sg.by);
+      d = Math.min(d, Math.hypot(c.x - x, c.y - y));
+    }
+    for (const sg of swept) {
+      const c = closestPointOnSegment(x, y, sg.ax, sg.ay, sg.bx, sg.by);
+      d = Math.min(d, Math.hypot(c.x - x, c.y - y) - sg.thick);
+    }
+    return d;
+  };
+  let best = null;
+  const step = 20;
+  for (let y = step; y < def.height; y += step) {
+    for (let x = step; x < def.width; x += step) {
+      const clear = clearance(x, y);
+      if (clear < r + 30) continue;
+      const dists = taken.map((t) => Math.hypot(t.x - x, t.y - y));
+      const near = Math.min(...dists);
+      const spread = Math.max(...dists) - near;
+      // Far from everyone, evenly so, with room around it.
+      const score = near - spread * 0.5 + Math.min(clear, 120) * 0.5;
+      if (!best || score > best.score) best = { x, y, score };
+    }
+  }
+  if (!best) return findAllySpawn(def, movers, taken);
+  return { x: best.x, y: best.y, angle: Math.atan2(def.ball.y - best.y, def.ball.x - best.x) };
 }
 
 /** Versus colours by seat: the host wears the wall colour, the first guest the obstacle colour, the second the arena's third. */
