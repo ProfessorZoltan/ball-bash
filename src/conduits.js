@@ -349,6 +349,73 @@ function chorister(orbit) {
   return { r: 24, paddleWidth: 100, moveSpeed: 130, turnSpeed: 3, leash: 140, threatRadius: 320, blockRadius: 90, safeRadius: 0, reaction: 0.3, orbit, anticipation: { commit: 0.3, swing: false, error: 8 } };
 }
 
+CONDUITS.push({
+  id: 6.5,
+  after: 6,
+  conduit: true,
+  title: 'Lamplighter',
+  bossName: 'Lantern',
+  intro: 'The stair down to the crypt, unlit. Five candles stand dark around the columns; each one you strike lights its corner, and the way out only shows itself once the candles beside it burn. Two lanterns walk the dark and shutter their light while they move. No guide line here: shoot from what you remember.',
+  record: 'The lamplighter went down before the Sexton and never came back up. The candles are its work. The lanterns were its company.',
+  stopped: 'Every candle burns and the stair is lit. The Undercroft below is darker than this, and the Sexton keeps it that way.',
+  width: 1600,
+  height: 900,
+  track: 'undercroft',
+  maxBallSpeed: CONDUIT_MAX_SPEED,
+  noGuide: true,
+  palette: {
+    floor: '#06060a',
+    grid: 'rgba(200, 180, 140, 0.06)',
+    wall: '#c8b8a0',
+    wallDark: '#2a2418',
+    obstacle: '#8a7a66',
+    obstacleDark: '#1a1610',
+    node: '#5a5040',
+    nodeLit: '#ffd27a',
+  },
+  dark: { ambient: 0.06, player: 210, boss: 150, ball: 120, candle: 170, hidden: 26 },
+  boundary: [
+    [60, 140],
+    [140, 60],
+    [1460, 60],
+    [1540, 140],
+    [1540, 760],
+    [1460, 840],
+    [140, 840],
+    [60, 760],
+  ],
+  // A forest of vault columns.
+  obstacles: [
+    rect(520, 260, 44, 44, 45),
+    rect(520, 640, 44, 44, 45),
+    rect(800, 300, 44, 44, 45),
+    rect(800, 600, 44, 44, 45),
+    rect(1080, 260, 44, 44, 45),
+    rect(1080, 640, 44, 44, 45),
+    rect(1300, 450, 44, 44, 45),
+  ],
+  nodes: [
+    { x: 300, y: 160, r: 20, kind: 'candle' },
+    { x: 300, y: 740, r: 20, kind: 'candle' },
+    { x: 800, y: 450, r: 20, kind: 'candle' },
+    { x: 1300, y: 160, r: 20, kind: 'candle' },
+    { x: 1300, y: 740, r: 20, kind: 'candle' },
+    // The way out: dark and deaf until the two candles beside it burn.
+    { x: 1450, y: 450, r: 26, kind: 'plain', requires: [3, 4] },
+  ],
+  drones: [
+    sentry(1000, 250, Math.PI, lantern({ cx: 1000, cy: 450, rx: 320, ry: 220, omega: 0.22, phase: 0 })),
+    sentry(1000, 650, Math.PI, lantern({ cx: 1000, cy: 450, rx: 320, ry: 220, omega: 0.22, phase: Math.PI })),
+  ],
+  player: { x: 220, y: 450, angle: 0 },
+  ball: { x: 420, y: 450, speed: 400, angleDeg: 0 },
+});
+
+/** A lantern: walks a loop in the dark with its light shuttered, and shows it only when it stands still or blocks. */
+function lantern(orbit) {
+  return { r: 24, paddleWidth: 100, moveSpeed: 120, turnSpeed: 3, leash: 140, threatRadius: 300, blockRadius: 90, safeRadius: 0, reaction: 0.3, orbit, lantern: true, anticipation: { commit: 0.3, swing: false, error: 8 } };
+}
+
 /** Every playable room in campaign order: each level, then the conduit that follows it. */
 export const SEQUENCE = LEVELS.flatMap((lvl) => [lvl, ...CONDUITS.filter((c) => c.after === lvl.id)]);
 

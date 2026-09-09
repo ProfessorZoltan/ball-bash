@@ -733,3 +733,23 @@ test('reliquary: only the amber pane breaks, at its own speed under the cap; the
   // Choristers loop the nave.
   for (const d of g.drones) assert.ok(d.orbit, 'choristers have an orbit');
 });
+
+test('lamplighter: candles are nodes, the exit waits on the candles beside it, the lanterns loop in the dark, and the guide is off', async () => {
+  const { CONDUITS } = await import('../src/conduits.js');
+  const { createGameState, objectiveDone } = await import('../src/gamestate.js');
+  const def = CONDUITS.find((c) => c.dark && c.conduit);
+  assert.ok(def.noGuide, 'no guide line');
+  assert.ok(def.dark.hidden < def.dark.boss, 'a shuttered lantern shows less than an open one');
+  const g = createGameState(def);
+  const candles = g.nodes.filter((n) => n.kind === 'candle');
+  const exit = g.nodes.find((n) => n.requires);
+  assert.equal(candles.length, 5);
+  assert.ok(exit && exit.requires.every((i) => g.nodes[i].kind === 'candle'), 'the exit waits on candles');
+  for (const d of g.drones) assert.ok(d.lantern && d.orbit, 'lanterns loop');
+  for (const n of g.nodes) assert.ok(pointInPolygon(n.x, n.y, def.boundary));
+  for (const n of g.nodes) for (const o of def.obstacles) assert.ok(!pointInPolygon(n.x, n.y, obstaclePoly(o)));
+  for (const n of candles) n.lit = true;
+  assert.equal(objectiveDone(g), false, 'the exit is still dark');
+  exit.lit = true;
+  assert.equal(objectiveDone(g), true);
+});

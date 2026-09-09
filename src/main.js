@@ -189,6 +189,8 @@ function step(dt) {
   const active = activeFighters();
   for (let i = 0; i < active.length; i++) for (let j = i + 1; j < active.length; j++) separateCircles(active[i], active[j]);
   for (const f of g.fighters) f.finalizeStep(dt);
+  // Lantern drones show their light only while standing still or just after a block.
+  for (const d of g.drones) if (d.lantern) d.glow = !d.down && (Math.hypot(d.svx, d.svy) < 20 || d.hitFlash > 0);
 
   // Contact rule: touching an enemy, shield or body, costs a shield. No
   // waiting at its side for the ball to arrive.
@@ -600,7 +602,9 @@ function onNodeHit(node, h, before) {
     netEvent({ e: 'switch', i: node.i });
     return;
   }
-  if (node.lit || !nodeAccepts(node, h, before, g.ball)) {
+  // A node may wait on others (the exit behind the candles).
+  const waiting = node.requires && node.requires.some((i) => g.nodes[i] && !g.nodes[i].lit);
+  if (node.lit || waiting || !nodeAccepts(node, h, before, g.ball)) {
     // Already lit, or the shot did not qualify: an ordinary bounce.
     wallFx(h.cx, h.cy, h.nx, h.ny, n, color);
     netEvent({ e: 'wall', x: h.cx, y: h.cy, nx: h.nx, ny: h.ny, n, c: color });
@@ -715,6 +719,7 @@ function onPaddleHit(f, h, before) {
 }
 
 function paddleFx(f, x, y, nx, ny, strength, big) {
+  if (f.lantern) f.hitFlash = Math.max(f.hitFlash, 1.4); // a lantern drone's block shows its light for a moment
   const g = game;
   audio.sfxPaddle(strength, f.kind === 'boss');
   g.fx.burst(x, y, nx, ny, 8 + Math.floor(strength * 16), f.color, 200 + 400 * strength, 0.9, 0.45);
@@ -871,12 +876,16 @@ function frame(now) {
       audio.setBallSpeed(game.ball.speed, game.def.ball.speed, BALL.minSpeed, game.maxSpeed);
       if (guideFrame-- <= 0) {
         guideFrame = 6;
-        const seeThrough = game.def.glass && game.ball.speed >= game.def.glass.breakSpeed;
+        if (game.def.noGuide) {
+          game.guidePath = null;
+          guideFrame = 60;
+        }
+        const seeThrough = !game.def.noGuide && game.def.glass && game.ball.speed >= game.def.glass.breakSpeed;
         let guideWalls = seeThrough ? game.walls.filter((w) => w.kind !== 'glass' || w.pane.unbreakable || (w.pane.breakSpeed && game.ball.speed < w.pane.breakSpeed)) : game.walls;
         if (game.movers.length) {
           guideWalls = guideWalls.concat(moverSegmentsAt(game.movers, game.ball.x, game.ball.y, game.ball.vx, game.ball.vy));
         }
-        game.guidePath = predictPath(game.ball.x, game.ball.y, game.ball.vx, game.ball.vy, guideWalls, 1, 900, game.ball.r);
+        if (!game.def.noGuide) game.guidePath = predictPath(game.ball.x, game.ball.y, game.ball.vx, game.ball.vy, guideWalls, 1, 900, game.ball.r);
       }
     }
     if (!guest && (state === 'cleared' || state === 'failed') && !endShown) {
@@ -1337,7 +1346,7 @@ function updateHud() {
     } else if (g.coop) setText('hud-boss', `${g.def.bossName.toUpperCase()} ${'◆'.repeat(Math.max(0, g.bossHits))}${'◇'.repeat(Math.max(0, g.maxBossHits - g.bossHits))}`);
   }
   const mode = campaign ? campaign.mode : g.coop && net.coopCampaign ? net.coopMode : null;
-  const tags = [g.coop ? `CO-OP · ${[net.names.host, ...net.roster.map((r) => r.name)].join(' & ').toUpperCase()}` : '', mode ? `${mode.toUpperCase()} CAMPAIGN` : '', g.difficulty ? g.difficulty.name.toUpperCase() : '', g.rules.ownBallLoss ? '' : 'SAFE OWN BALL', g.def.conduit ? 'HALF SPEED' : ''].filter(Boolean);
+  const tags = [g.coop ? `CO-OP · ${[net.names.host, ...net.roster.map((r) => r.name)].join(' & ').toUpperCase()}` : '', mode ? `${mode.toUpperCase()} CAMPAIGN` : '', g.difficulty ? g.difficulty.name.toUpperCase() : '', g.rules.ownBallLoss ? '' : 'SAFE OWN BALL', g.def.conduit ? 'HALF SPEED' : '', g.def.noGuide ? 'NO GUIDE' : ''].filter(Boolean);
   setText('hud-rule', tags.map((t) => `· ${t}`).join(' '));
   const s = g.ball.held && state !== 'cleared' ? 0 : g.ball.speed;
   setText('hud-speed', `${Math.round(s)} px/s`);

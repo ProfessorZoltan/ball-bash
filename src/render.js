@@ -186,7 +186,12 @@ export class Renderer {
       const l = level.lights[i];
       punch(l.x, l.y, (l.r || d.candle) * flicker(i * 3.1), 0.35);
     }
-    for (const f of game.fighters || [game.player, game.boss]) punch(f.x, f.y, (f.kind === 'boss' ? d.boss : d.player) * flicker(f.slot === 'b' ? 1.9 : f.slot === 'c' ? 1.2 : 0.5), 0.5);
+    for (const f of game.fighters || [game.player, game.boss]) {
+      if (f.down) continue;
+      const r = f.lantern ? (f.glow ? d.boss : d.hidden || 26) : f.kind === 'boss' ? d.boss : d.player;
+      punch(f.x, f.y, r * flicker(f.slot === 'b' ? 1.9 : f.slot === 'c' ? 1.2 : 0.5), 0.5);
+    }
+    for (const n of game.nodes || []) if (n.kind === 'candle' && n.lit) punch(n.x, n.y, d.candle * flicker(n.i * 2.3), 0.35);
     if (!game.ball.held || state === 'countdown') {
       punch(game.ball.x, game.ball.y, d.ball + game.ball.speed * 0.07, 0.45);
     }
@@ -200,7 +205,7 @@ export class Renderer {
     // blur costs by the bounding box of what is drawn, so batching flames from
     // opposite corners into one path would blur the whole canvas.
     ctx.setTransform(v.dpr * v.scale, 0, 0, v.dpr * v.scale, (v.ox + shx) * v.dpr, (v.oy + shy) * v.dpr);
-    const lights = level.lights || [];
+    const lights = (level.lights || []).concat((game.nodes || []).filter((n) => n.kind === 'candle' && n.lit).map((n) => ({ x: n.x, y: n.y - n.r * 0.2 })));
     ctx.fillStyle = '#fff1c0';
     ctx.shadowColor = '#ffc860';
     ctx.shadowBlur = this.blur(18);
@@ -442,6 +447,15 @@ export class Renderer {
         ctx.beginPath();
         ctx.arc(0, 0, n.r + 6, 0, Math.PI * 2);
         ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+      if (n.kind === 'candle') {
+        // A wick: a short stroke up from the core, dark until lit.
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = n.lit ? '#fff1c0' : color;
+        ctx.beginPath();
+        ctx.moveTo(0, n.r * 0.1);
+        ctx.lineTo(0, -n.r * 0.45);
         ctx.stroke();
       }
       if (n.kind === 'switch') {
