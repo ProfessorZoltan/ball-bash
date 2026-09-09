@@ -276,6 +276,8 @@ html, body {
 .roster li.ready:hover, .roster li.now:hover { color: var(--cyan); }
 .roster li.now { cursor: pointer; }
 .roster li.ready::after { content: ' · play'; font-size: 11px; color: var(--cyan); opacity: 0.8; }
+.roster li.conduit { font-size: 12px; opacity: 0.8; padding-left: 10px; }
+.roster li.conduit span { width: 20px; }
 .roster li.locked::after { content: ' · locked'; font-size: 11px; opacity: 0.6; }
 .roster li.now::after { content: ' · ready'; font-size: 11px; color: var(--orange); }
 .small { font-size: 13px; line-height: 1.55; }

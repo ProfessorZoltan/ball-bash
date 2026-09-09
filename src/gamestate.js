@@ -3,7 +3,8 @@
 import { Ball, Fighter, Boss, createMover } from './entities.js';
 import { IceTrail } from './ice.js';
 import { polygonEdges, pointInPolygon, closestPointOnSegment } from './physics.js';
-import { obstaclePoly } from './levels.js';
+import { angleDiff } from './vec.js';
+import { obstaclePoly, ellipse } from './levels.js';
 import { BALL, PLAYER, COOP } from './config.js';
 
 function playerStats(def, spawn) {
@@ -58,7 +59,7 @@ export function findAllySpawn(def, movers = [], taken = []) {
       if (Math.hypot(c.x - x, c.y - y) < r) return false;
     }
     for (const m of movers) if (Math.hypot(m.x - x, m.y - y) < (m.reach || 0) + r + 10) return false;
-    if (Math.hypot(def.boss.x - x, def.boss.y - y) < 260) return false;
+    for (const b of enemySpecs(def)) if (Math.hypot(b.x - x, b.y - y) < 260) return false;
     for (const t of taken) if (Math.hypot(t.x - x, t.y - y) < 2 * PLAYER.radius + 12) return false;
     return true;
   };
@@ -81,6 +82,43 @@ export function tickCamp(f, dt, { distance = PLAYER.campDistance, seconds = PLAY
   }
   f.campTimer += dt;
   return f.campTimer >= seconds;
+}
+
+/** The AI enemies a level describes: its drones, or its one boss. */
+export function enemySpecs(def) {
+  return def.drones && def.drones.length ? def.drones : [def.boss];
+}
+
+/** Slots for AI enemies: the boss's own, then letters no human uses. */
+export const DRONE_SLOTS = ['b', 'e', 'f', 'g', 'h'];
+
+/**
+ * Does a ball touching a node light it? `h` is the contact (normal from the
+ * node toward the ball), `before` the ball's velocity before the bounce.
+ */
+export function nodeAccepts(node, h, before, ball) {
+  const speed = before ? Math.hypot(before.vx, before.vy) : ball.speed;
+  if (node.minSpeed && speed < node.minSpeed) return false;
+  switch (node.kind) {
+    case 'ricochet':
+      return !!ball.banked;
+    case 'hooded': {
+      const arc = ((node.arc || 100) * Math.PI) / 360;
+      return Math.abs(angleDiff(Math.atan2(h.ny, h.nx), node.open || 0)) <= arc;
+    }
+    case 'fast':
+      return speed >= (node.minSpeed || 0);
+    default:
+      return true;
+  }
+}
+
+/** A conduit is cleared when every node is lit and, if the objective asks, every drone is down. */
+export function objectiveDone(g) {
+  if (!g.def.conduit) return false;
+  if (g.nodes.some((n) => !n.lit)) return false;
+  if (g.objective.drones && g.drones.some((d) => !d.down)) return false;
+  return true;
 }
 
 /** Player ids in versus, in seating order: the host, then the guests by relay id. */
@@ -187,11 +225,21 @@ export function createGameState(def, { pvp = false, coop = false, rules = DEFAUL
       staticWalls.push(...polygonEdges(obstaclePoly(o), 'obstacle'));
     }
   }
+  // Nodes (conduit targets) are small solid discs the ball bounces off; the
+  // wall segments remember their node so a bounce can light it.
+  const nodes = (def.nodes || []).map((n, i) => ({ ...n, i, r: n.r || 24, lit: false }));
+  const nodePolys = nodes.map((n) => ellipse(n.x, n.y, n.r, n.r, 16));
+  nodes.forEach((n, i) => {
+    const segs = polygonEdges(nodePolys[i], 'node');
+    for (const sg of segs) sg.node = n;
+    staticWalls.push(...segs);
+  });
   const movers = (def.movers || []).map(createMover);
   let player;
   let boss;
   let fighters;
   const allies = [];
+  let drones = [];
   if (pvp) {
     // Every player for themselves: each human is its own team, seated at the
     // spawns in order (the host first). `boss` stays an alias for the second
@@ -209,14 +257,16 @@ export function createGameState(def, { pvp = false, coop = false, rules = DEFAUL
     fighters = rivals;
   } else {
     player = new Fighter({ ...playerStats(def, def.player), name: 'You', kind: 'player', slot: 'a', team: 'us', color: def.palette.wall });
-    boss = new Boss({ ...def.boss, name: def.bossName, color: def.palette.obstacle, slot: 'b', team: 'boss' });
+    // One boss, or a conduit's drones (the first doubles as `boss` for code that wants one).
+    drones = enemySpecs(def).map((spec, i) => new Boss({ ...spec, name: i === 0 ? def.bossName : `${def.bossName} ${i + 1}`, color: def.palette.obstacle, slot: DRONE_SLOTS[i], team: 'boss' }));
+    boss = drones[0];
     const taken = [];
     for (let i = 0; i < allyCount; i++) {
       const spawn = findAllySpawn(def, movers, taken);
       taken.push(spawn);
       allies.push(new Fighter({ ...playerStats(def, spawn), name: `Ally ${i + 1}`, kind: 'player', slot: 'cd'[i], team: 'us', color: COOP.allyColors[i] }));
     }
-    fighters = [player, ...allies, boss];
+    fighters = [player, ...allies, ...drones];
   }
   const ally = allies[0] || null;
   const humans = pvp ? fighters.slice() : [player, ...allies];
@@ -225,8 +275,9 @@ export function createGameState(def, { pvp = false, coop = false, rules = DEFAUL
   ball.x = def.ball.x;
   ball.y = def.ball.y;
   ball.held = true;
-  const staticPolys = def.obstacles.filter((o) => !o.glass).map(obstaclePoly);
-  const g = { def, staticWalls, staticPolys, panes, walls: [], solidPolys: [], player, ally, allies, boss, fighters, humans, movers, ice, ball, pvp, players: pvpCount, coop: !pvp && allyCount > 0, rules: { ...DEFAULT_RULES, ...rules } };
+  const staticPolys = def.obstacles.filter((o) => !o.glass).map(obstaclePoly).concat(nodePolys);
+  const objective = { nodes: nodes.length, drones: def.objective && def.objective.drones ? drones.length : 0 };
+  const g = { def, staticWalls, staticPolys, panes, walls: [], solidPolys: [], player, ally, allies, boss, drones, nodes, objective, fighters, humans, movers, ice, ball, maxSpeed: def.maxBallSpeed || BALL.maxSpeed, pvp, players: pvpCount, coop: !pvp && allyCount > 0, rules: { ...DEFAULT_RULES, ...rules } };
   rebuildWalls(g);
   return g;
 }

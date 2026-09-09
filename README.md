@@ -88,6 +88,39 @@ npm run build        # installer + portable .exe in desktop/dist/
 `electron-builder --mac` or `--linux` from the same folder produce a `.dmg` or
 an AppImage; the workflow only builds Windows.
 
+## Conduits and the two campaigns
+
+Between the ten levels sit the conduits: the code that carries you from one
+room to the next. Each is a smaller, sparer room built from a fragment of the
+level it leads to, with the ball capped at 750 px/s, half the usual limit, so
+aim counts for more than reaction. There is no boss to kill. A conduit is lit
+(cleared) when its objective is done, usually a set of **nodes** the ball has
+to earn:
+
+| Node | Lights when | Source |
+|---|---|---|
+| plain | the ball touches it | `nodeAccepts` in `src/gamestate.js` |
+| ricochet (dashed ring) | the ball bounced off a wall or mover since its last shield touch | same |
+| hooded (a hood covers all but an opening) | the ball arrives through the opening | same |
+| fast (double ring) | the ball arrives at or above the node's `minSpeed` | same |
+
+A shot that reaches a node without qualifying just bounces, with a red flicker
+so you know why. Conduits can also hold **drones**, Boss-brained enemies with
+their own stats; a body hit knocks a drone out for the rest of the room, and
+`objective.drones` makes downing them part of the objective.
+
+**Short campaign** plays the ten levels. **Full campaign** plays the levels
+with the conduits between them. Both draw on the same shield pool, and losing
+the last shield in a conduit ends the campaign like any level. Conduits are
+also playable on their own from the title roster, where they appear as
+half-steps (1½, 2½ ...) under the level they follow.
+
+Conduits built so far:
+
+| Conduit | Leads to | What it tests | Source |
+|---|---|---|---|
+| 1½ Lens Gallery | Prism Vault | a plain node, a ricochet node and a hooded node around a small spinning prism, with a sentry that turns to block the hooded one | `src/conduits.js` |
+
 ## Campaign and difficulty
 
 **Campaign** plays the ten levels in order on one shield pool. Every body hit
@@ -535,6 +568,7 @@ src/entities.js            Ball, Fighter (player), Boss
 src/ai.js                  boss perception delay, path prediction, brace/absorb
 src/ice.js                 ice trail hazard (Coolant Tunnels)
 src/levels.js              level data, the roster and the tutorial's training hall
+src/conduits.js            the conduits between levels and the campaign sequence
 src/lore.js                worldbuilding: the bulletin, the record's chapters, status words
 src/input.js               keyboard, mouse, touch -> one intent object
 src/render.js              Canvas 2D neon renderer with 2.5D wall extrusion

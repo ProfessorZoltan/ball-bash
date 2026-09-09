@@ -32,6 +32,7 @@ export class Renderer {
 
   setLevel(level) {
     this.level = level;
+    this.maxSpeed = level && level.maxBallSpeed ? level.maxBallSpeed : BALL.maxSpeed;
     this.staticLayer = null;
   }
 
@@ -119,9 +120,10 @@ export class Renderer {
     if (game.panes && game.panes.length) this.drawGlass(game.panes, game, time);
     if (game.ice) this.drawIce(game.ice, level.palette.ice || '#cdf6ff', time, ((game.fighters || []).find((f) => f.slot === game.ice.owner) || game.boss).color);
     for (const m of game.movers || []) this.drawMover(m, level.palette.obstacle);
-    if (game.boss.pulser) this.drawPulse(game.boss, level.palette.obstacle, time);
+    for (const d of game.drones || [game.boss]) if (d.pulser && !d.down) this.drawPulse(d, level.palette.obstacle, time);
+    if (game.nodes && game.nodes.length) this.drawNodes(game.nodes, level.palette, time);
     this.drawRings(game.fx);
-    for (const f of game.fighters || [game.boss, game.player]) this.drawFighter(f, time, f.color);
+    for (const f of game.fighters || [game.boss, game.player]) if (!f.down) this.drawFighter(f, time, f.color);
     this.drawBall(game.ball, state);
     this.drawParticles(game.fx);
 
@@ -401,6 +403,55 @@ export class Renderer {
   }
 
   /** Ice trail: a frosted ribbon that melts from the tail. */
+  /** Conduit nodes: dark discs that light up when the ball earns them. */
+  drawNodes(nodes, palette, time) {
+    const ctx = this.ctx;
+    const dim = palette.node || '#6e7fa8';
+    const lit = palette.nodeLit || '#7dffc4';
+    for (const n of nodes) {
+      const color = n.lit ? lit : dim;
+      ctx.save();
+      ctx.translate(n.x, n.y);
+      // body
+      ctx.beginPath();
+      ctx.arc(0, 0, n.r, 0, Math.PI * 2);
+      ctx.fillStyle = n.lit ? 'rgba(125, 255, 196, 0.22)' : 'rgba(10, 14, 30, 0.9)';
+      ctx.fill();
+      ctx.lineWidth = n.lit ? 3 : 2;
+      ctx.strokeStyle = color;
+      if (n.kind === 'ricochet') ctx.setLineDash([6, 5]);
+      ctx.shadowBlur = this.blur(n.lit ? 18 : 0);
+      ctx.shadowColor = color;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.setLineDash([]);
+      if (n.kind === 'fast') {
+        ctx.beginPath();
+        ctx.arc(0, 0, n.r + 6, 0, Math.PI * 2);
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+      if (n.kind === 'hooded') {
+        // The hood covers everything but the open arc.
+        const half = (((n.arc || 100) * Math.PI) / 360);
+        const open = n.open || 0;
+        ctx.beginPath();
+        ctx.arc(0, 0, n.r + 5, open + half, open - half + Math.PI * 2);
+        ctx.lineWidth = 6;
+        ctx.strokeStyle = n.lit ? color : palette.wall;
+        ctx.stroke();
+      }
+      // core
+      const pulse = n.lit ? 0.75 + 0.25 * Math.sin(time * 4 + n.i) : 0.35;
+      ctx.beginPath();
+      ctx.arc(0, 0, n.r * 0.35, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.globalAlpha = pulse;
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
   drawIce(ice, color, time, ownerColor) {
     const pts = ice.points;
     if (pts.length < 2) return;
@@ -751,7 +802,7 @@ export class Renderer {
 
   drawBall(ball, state) {
     const ctx = this.ctx;
-    const t = clamp((ball.speed - BALL.minSpeed) / (BALL.maxSpeed - BALL.minSpeed), 0, 1);
+    const t = clamp((ball.speed - BALL.minSpeed) / ((this.maxSpeed || BALL.maxSpeed) - BALL.minSpeed), 0, 1);
     const hue = lerp(190, 320, t);
     const color = `hsl(${hue}, 100%, ${lerp(65, 75, t)}%)`;
 

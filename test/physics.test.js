@@ -498,3 +498,101 @@ test('versus arenas: spawns for 2 and 3 players sit inside the room, clear of wa
     assert.ok(Math.abs(d1 - d2) <= 0.35 * Math.max(d1, d2), `${def.title}: third seat is even-handed (${Math.round(d1)} vs ${Math.round(d2)})`);
   }
 });
+
+// ------------------------------------------------------------ conduits
+
+test('conduits: the sequence interleaves them after their levels, and campaign modes step through it', async () => {
+  const { CONDUITS, SEQUENCE, campaignNextIndex, levelLabel, shortId, CONDUIT_MAX_SPEED } = await import('../src/conduits.js');
+  assert.equal(SEQUENCE.length, LEVELS.length + CONDUITS.length);
+  assert.equal(SEQUENCE[0], LEVELS[0]);
+  for (const c of CONDUITS) {
+    const i = SEQUENCE.indexOf(c);
+    assert.ok(i > 0 && SEQUENCE[i - 1].id === c.after, `${c.title} follows level ${c.after}`);
+    assert.equal(c.maxBallSpeed, CONDUIT_MAX_SPEED);
+    assert.equal(CONDUIT_MAX_SPEED, BALL.maxSpeed / 2);
+  }
+  assert.equal(levelLabel(LEVELS[2]), 'Level 3');
+  assert.equal(levelLabel(CONDUITS[0]), 'Conduit 1½');
+  assert.equal(shortId(LEVELS[0]), '01');
+  // Short mode skips conduits; full mode visits them; both end after the last level.
+  const first = SEQUENCE.indexOf(LEVELS[0]);
+  assert.equal(SEQUENCE[campaignNextIndex(first, 'short')], LEVELS[1]);
+  assert.equal(SEQUENCE[campaignNextIndex(first, 'full')], CONDUITS[0]);
+  assert.equal(SEQUENCE[campaignNextIndex(SEQUENCE.indexOf(CONDUITS[0]), 'full')], LEVELS[1]);
+  assert.equal(campaignNextIndex(SEQUENCE.length - 1, 'full'), -1);
+  assert.equal(campaignNextIndex(SEQUENCE.length - 1, 'short'), -1);
+});
+
+test('nodes: plain, ricochet, hooded and fast conditions', async () => {
+  const { nodeAccepts } = await import('../src/gamestate.js');
+  const fromRight = { nx: 1, ny: 0 };
+  const fromLeft = { nx: -1, ny: 0 };
+  const slow = { vx: -300, vy: 0 };
+  const quick = { vx: -700, vy: 0 };
+  const ball = { banked: false, speed: 300 };
+  assert.equal(nodeAccepts({ kind: 'plain' }, fromLeft, slow, ball), true);
+  assert.equal(nodeAccepts({ kind: 'ricochet' }, fromLeft, slow, ball), false, 'straight from the shield');
+  assert.equal(nodeAccepts({ kind: 'ricochet' }, fromLeft, slow, { ...ball, banked: true }), true, 'after a wall');
+  assert.equal(nodeAccepts({ kind: 'hooded', open: 0, arc: 110 }, fromRight, slow, ball), true, 'into the open side');
+  assert.equal(nodeAccepts({ kind: 'hooded', open: 0, arc: 110 }, fromLeft, slow, ball), false, 'into the hood');
+  assert.equal(nodeAccepts({ kind: 'hooded', open: 0, arc: 110 }, { nx: Math.cos(0.9), ny: Math.sin(0.9) }, slow, ball), true, 'inside a 110 degree opening');
+  assert.equal(nodeAccepts({ kind: 'hooded', open: 0, arc: 110 }, { nx: Math.cos(1.1), ny: Math.sin(1.1) }, slow, ball), false, 'outside it');
+  assert.equal(nodeAccepts({ kind: 'fast', minSpeed: 600 }, fromLeft, slow, ball), false);
+  assert.equal(nodeAccepts({ kind: 'fast', minSpeed: 600 }, fromLeft, quick, ball), true);
+  assert.equal(nodeAccepts({ kind: 'plain', minSpeed: 600 }, fromLeft, slow, ball), false, 'minSpeed applies to any kind');
+});
+
+test('conduit game state: nodes are solid, drones stand in for the boss, the cap is half speed, and lighting everything clears it', async () => {
+  const { CONDUITS } = await import('../src/conduits.js');
+  const { createGameState, objectiveDone } = await import('../src/gamestate.js');
+  for (const def of CONDUITS) {
+    const g = createGameState(def);
+    assert.equal(g.maxSpeed, BALL.maxSpeed / 2);
+    assert.equal(g.nodes.length, def.nodes.length);
+    assert.equal(g.drones.length, def.drones.length);
+    assert.equal(g.boss, g.drones[0]);
+    assert.ok(g.fighters.includes(g.drones[0]));
+    assert.ok(g.walls.some((w) => w.kind === 'node' && w.node === g.nodes[0]), 'node walls carry their node');
+    assert.ok(pointInPolygon(def.player.x, def.player.y, def.boundary) && pointInPolygon(def.ball.x, def.ball.y, def.boundary));
+    for (const n of g.nodes) {
+      assert.ok(pointInPolygon(n.x, n.y, def.boundary), `${def.title}: node ${n.i} inside the room`);
+      for (const o of def.obstacles) assert.ok(!pointInPolygon(n.x, n.y, obstaclePoly(o)), `${def.title}: node ${n.i} clear of obstacles`);
+    }
+    assert.equal(objectiveDone(g), false);
+    for (const n of g.nodes) n.lit = true;
+    assert.equal(objectiveDone(g), g.objective.drones === 0);
+    for (const d of g.drones) d.down = true;
+    assert.equal(objectiveDone(g), true);
+  }
+});
+
+for (const def of (await import('../src/conduits.js')).CONDUITS) {
+  test(`conduit ${def.title} is sealed at its half-speed cap: the ball never leaves the room or enters a node`, async () => {
+    const { createGameState } = await import('../src/gamestate.js');
+    const g = createGameState(def);
+    const ball = g.ball;
+    const dt = 1 / 240;
+    let seed = 77;
+    const rnd = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
+    let bounces = 0;
+    for (let run = 0; run < 6; run++) {
+      ball.launch(def.ball.x, def.ball.y, rnd() * Math.PI * 2, g.maxSpeed);
+      for (let i = 0; i < 240 * 20; i++) {
+        for (const m of g.movers) m.update(dt, g.boss.x, g.boss.y);
+        g.player.update(dt, { mx: rnd() * 2 - 1, my: rnd() * 2 - 1, turn: rnd() * 2 - 1, lunge: rnd() < 0.02 });
+        g.player.finalizeStep(dt);
+        for (const d of g.drones) {
+          d.update(dt, { mx: 0, my: 0, turn: 1 });
+          d.finalizeStep(dt);
+        }
+        advanceBall(ball, g.walls, g.fighters, dt, 1, { onWall: () => bounces++, onMover: () => bounces++, onBody: () => false }, g.movers, g.solidPolys);
+        separateFightersFromBall(ball, g.fighters);
+        ball.clampSpeed(BALL.minSpeed, g.maxSpeed);
+        assert.ok(pointInPolygon(ball.x, ball.y, def.boundary), `ball escaped ${def.title} at step ${i}: ${ball.x},${ball.y}`);
+        for (const poly of g.solidPolys) assert.ok(!pointInPolygon(ball.x, ball.y, poly), `ball inside an obstacle or node at step ${i}`);
+        assert.ok(ball.speed <= g.maxSpeed + 1e-6, `ball over the cap: ${ball.speed}`);
+      }
+    }
+    assert.ok(bounces > 50, `only ${bounces} bounces`);
+  });
+}

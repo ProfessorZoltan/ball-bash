@@ -3,8 +3,9 @@
 import { GAME_MARK, GAME_NAME, GAME_TAGLINE, GAME_VERSION, MARK_READINGS, PHYSICS_DT, BALL, PLAYER, SURFACE_VELOCITY_FACTOR, COUNTDOWN_SECONDS, DIFFICULTIES, DEFAULT_DIFFICULTY, COOP, RELAY_PROTOCOL } from './config.js';
 import { BallHistory, bossIntent, moverSegmentsAt } from './ai.js';
 import { LEVELS, VERSUS_LEVELS, ROSTER, TUTORIAL_LEVEL } from './levels.js';
+import { SEQUENCE, levelLabel, shortId, campaignNextIndex } from './conduits.js';
 import { LORE } from './lore.js';
-import { createGameState, rebuildWalls as rebuildWallsState, bodyHitCounts, tickCamp, versusSpawns, rotateSpawns, versusColors, VERSUS_IDS } from './gamestate.js';
+import { createGameState, rebuildWalls as rebuildWallsState, bodyHitCounts, tickCamp, versusSpawns, rotateSpawns, versusColors, VERSUS_IDS, nodeAccepts, objectiveDone } from './gamestate.js';
 import { NetClient, relayConfig, saveRelay } from './net.js';
 import { buildSnapshot, applySnapshot } from './netstate.js';
 import { Input } from './input.js';
@@ -63,7 +64,7 @@ function buildGame(def, pvp = false, rules = { ownBallLoss: ownBallLoss() }, coo
 function startLevel(index) {
   if (net.mode === 'host' && net.coop) return coopStartLevel(index);
   levelIndex = index;
-  const def = LEVELS[index];
+  const def = SEQUENCE[index];
   $('tutor').hidden = true;
   resetFrameWatch();
   game = buildGame(def);
@@ -84,7 +85,7 @@ function startLevel(index) {
   hideOverlay();
   setInGame(true);
   $('hud').hidden = false;
-  $('hud-level').textContent = `LEVEL ${def.id} · ${def.title.toUpperCase()}`;
+  $('hud-level').textContent = `${levelLabel(def).toUpperCase()} · ${def.title.toUpperCase()}`;
   $('hud-boss').textContent = def.bossName.toUpperCase();
   $('hud-track').textContent = TRACKS[def.track].title;
   audio.playTrack(TRACKS[def.track]);
@@ -94,6 +95,7 @@ function launchBall() {
   const def = game.def;
   const a = ((def.ball.angleDeg + rand(-14, 14)) * Math.PI) / 180;
   game.ball.launch(def.ball.x, def.ball.y, a, def.ball.speed);
+  game.ball.banked = false;
   game.history.reset();
   game.history.push(simTime, game.ball);
   for (const f of game.fighters) f.resetCamp();
@@ -141,7 +143,7 @@ function step(dt) {
   } else {
     intents.a = local; // the host's human (only the host simulates)
     for (const f of g.allies) intents[f.slot] = net.remoteIntents[f.slot] || ZERO_INTENT;
-    intents.b = state === 'playing' ? bossIntent(g.boss, g.history, g.humans, g.walls, dt, simTime, g.movers) : ZERO_INTENT;
+    for (const d of g.drones) intents[d.slot] = state === 'playing' && !d.down ? bossIntent(d, g.history, g.humans, g.walls, dt, simTime, g.movers) : ZERO_INTENT;
   }
   // Movement is locked until the ball launches; aiming is allowed.
   if (state === 'countdown') for (const k of Object.keys(intents)) intents[k] = { ...intents[k], mx: 0, my: 0, lunge: false };
@@ -154,37 +156,45 @@ function step(dt) {
     pushOutOfMovers(f);
   }
 
-  // Slot b: the AI boss (with its patrol and abilities) or the rival human.
-  if (!g.pvp && !g.tutorial && state === 'playing') {
-    g.boss.updateOrbit(dt);
-    if (g.boss.pulser) {
-      g.boss.pulser.update(dt, g.boss.x, g.boss.y);
-      if (g.boss.pulser.emitted) {
-        audio.sfxPulse();
-        g.fx.ring(g.boss.x, g.boss.y, g.def.palette.obstacle, 80, 0.3);
+  // The AI enemies: the level's boss (with its patrol and abilities) or a
+  // conduit's drones. A downed drone sits out the rest of the level.
+  if (!g.pvp) {
+    for (const d of g.drones) {
+      if (d.down) continue;
+      if (!g.tutorial && state === 'playing') {
+        d.updateOrbit(dt);
+        if (d.pulser) {
+          d.pulser.update(dt, d.x, d.y);
+          if (d.pulser.emitted) {
+            audio.sfxPulse();
+            g.fx.ring(d.x, d.y, g.def.palette.obstacle, 80, 0.3);
+          }
+        }
       }
+      const wasIdle = d.lungeState === 'idle';
+      d.update(dt, intents[d.slot] || ZERO_INTENT);
+      if (wasIdle && d.lungeState === 'out') onWhack();
+      resolveCircleVsSegments(d, g.walls);
+      pushOutOfMovers(d);
     }
   }
-  if (!g.pvp) {
-    const bossWasIdle = g.boss.lungeState === 'idle';
-    g.boss.update(dt, intents.b);
-    if (bossWasIdle && g.boss.lungeState === 'out') onWhack();
-    resolveCircleVsSegments(g.boss, g.walls);
-    pushOutOfMovers(g.boss);
-  }
 
-  for (let i = 0; i < g.fighters.length; i++) for (let j = i + 1; j < g.fighters.length; j++) separateCircles(g.fighters[i], g.fighters[j]);
+  const active = activeFighters();
+  for (let i = 0; i < active.length; i++) for (let j = i + 1; j < active.length; j++) separateCircles(active[i], active[j]);
   for (const f of g.fighters) f.finalizeStep(dt);
 
-  // Contact rule: touching the boss, shield or body, costs a shield. No
+  // Contact rule: touching an enemy, shield or body, costs a shield. No
   // waiting at its side for the ball to arrive.
   if (state === 'playing' && !g.pvp && !g.tutorial && !g.ball.held) {
-    for (const f of g.humans) {
+    outer: for (const f of g.humans) {
       if (f.invuln > 0) continue;
-      const c = fightersTouch(f, g.boss);
-      if (c) {
-        onTouched(f, c);
-        break;
+      for (const d of g.drones) {
+        if (d.down) continue;
+        const c = fightersTouch(f, d);
+        if (c) {
+          onTouched(f, c);
+          break outer;
+        }
       }
     }
   }
@@ -192,7 +202,7 @@ function step(dt) {
   if (!g.ball.held) {
     moveBall(dt);
     if (state === 'playing') {
-      separateFightersFromBall(g.ball, g.fighters);
+      separateFightersFromBall(g.ball, activeFighters());
       g.history.push(simTime, g.ball);
     }
   }
@@ -211,6 +221,11 @@ function step(dt) {
       campStep(f, f.slot, dt);
     }
   }
+}
+
+/** Everyone still in play: downed drones are out of the physics. */
+function activeFighters() {
+  return game.fighters.filter((f) => !f.down);
 }
 
 function campStep(f, slot, dt) {
@@ -278,7 +293,7 @@ function updateGlass() {
   let changed = false;
   for (const pane of g.panes) {
     if (!pane.broken || simTime < pane.regrowAt) continue;
-    const blocked = [g.ball, g.player, g.boss].some((c) =>
+    const blocked = [g.ball, ...activeFighters()].some((c) =>
       pane.segs.some((sg) => circleVsCapsule(c.x, c.y, c.r + 4, sg.ax, sg.ay, sg.bx, sg.by, 0)),
     );
     if (blocked) {
@@ -366,10 +381,12 @@ function separateCircles(a, b) {
 function moveBall(dt) {
   const g = game;
   const b = g.ball;
+  const active = activeFighters();
+  const pulsers = g.drones.filter((d) => d.pulser && !d.down).map((d) => d.pulser);
   const stopped = advanceBall(
     b,
     g.walls,
-    g.fighters,
+    active,
     dt,
     SURFACE_VELOCITY_FACTOR,
     {
@@ -386,17 +403,17 @@ function moveBall(dt) {
           onPvpHit(f, h);
           return true;
         }
-        if (f.kind === 'boss') return onBossHit(h);
+        if (f.kind === 'boss') return g.def.conduit ? onDroneHit(f, h) : onBossHit(h);
         onPlayerHit(f, h);
         return false;
       },
     },
-    g.boss.pulser ? g.movers.concat([g.boss.pulser]) : g.movers,
+    pulsers.length ? g.movers.concat(pulsers) : g.movers,
     g.solidPolys,
   );
   if (stopped) return;
 
-  b.clampSpeed(BALL.minSpeed, BALL.maxSpeed);
+  b.clampSpeed(BALL.minSpeed, g.maxSpeed);
   if (b.speed > g.topSpeed) g.topSpeed = b.speed;
 
   // Safety net: the arena is sealed, but if numerical trouble ever pushed the
@@ -405,11 +422,14 @@ function moveBall(dt) {
 }
 
 function speedNorm(s) {
-  return clamp((s - BALL.minSpeed) / (BALL.maxSpeed - BALL.minSpeed), 0, 1);
+  const max = game ? game.maxSpeed : BALL.maxSpeed;
+  return clamp((s - BALL.minSpeed) / (max - BALL.minSpeed), 0, 1);
 }
 
 function onWallBounce(h, seg, before) {
   const g = game;
+  if (seg.kind === 'node') return onNodeHit(seg.node, h, before);
+  g.ball.banked = true;
   if (seg.kind === 'glass' && before && !seg.pane.broken) {
     const speed = Math.hypot(before.vx, before.vy);
     if (speed >= g.def.glass.breakSpeed) {
@@ -430,8 +450,67 @@ function wallFx(x, y, nx, ny, n, color) {
   game.fx.burst(x, y, nx, ny, 4 + Math.floor(n * 8), color, 160 + 300 * n, 1.1, 0.35);
 }
 
+/** The ball touched a conduit node: light it if the node's condition holds. */
+function onNodeHit(node, h, before) {
+  const g = game;
+  const color = node.lit ? g.def.palette.nodeLit || '#7dffc4' : g.def.palette.node || '#6e7fa8';
+  const n = speedNorm(g.ball.speed);
+  g.ball.lastHitBy = 'wall';
+  guideFrame = 0;
+  if (node.lit || !nodeAccepts(node, h, before, g.ball)) {
+    // Already lit, or the shot did not qualify: an ordinary bounce.
+    wallFx(h.cx, h.cy, h.nx, h.ny, n, color);
+    netEvent({ e: 'wall', x: h.cx, y: h.cy, nx: h.nx, ny: h.ny, n, c: color });
+    if (!node.lit) refusedFx(node);
+    return;
+  }
+  node.lit = true;
+  nodeFx(node, h);
+  netEvent({ e: 'node', i: node.i, x: h.cx, y: h.cy, nx: h.nx, ny: h.ny });
+  if (objectiveDone(g)) conduitCleared();
+}
+
+function nodeFx(node, h) {
+  const g = game;
+  const color = g.def.palette.nodeLit || '#7dffc4';
+  g.fx.burst(h.cx, h.cy, h.nx, h.ny, 30, color, 320, Math.PI, 0.7);
+  g.fx.ring(node.x, node.y, color, 150, 0.6);
+  g.fx.ring(node.x, node.y, '#ffffff', 70, 0.35);
+  g.fx.addShake(5);
+  audio.sfxBossHit();
+}
+
+/** A node that turned the ball away: a dim flicker so the player knows the shot did not qualify. */
+function refusedFx(node) {
+  game.fx.ring(node.x, node.y, '#ff4d6d', 60, 0.3);
+}
+
+/** Every node lit (and every drone down, when asked): the conduit is cleared. */
+function conduitCleared() {
+  const g = game;
+  state = 'cleared';
+  g.ball.held = true;
+  audio.stopTrack(2.5);
+  endTimer = 1.6;
+}
+
+/** A body hit on a conduit drone knocks it out of the level; it may be the objective. */
+function onDroneHit(f, h) {
+  const g = game;
+  hitFx(f, h.cx, h.cy, h.nx, h.ny);
+  netEvent({ e: 'hit', s: f.slot, x: h.cx, y: h.cy, nx: h.nx, ny: h.ny });
+  f.down = true;
+  f.hitFlash = 3;
+  if (objectiveDone(g)) {
+    conduitCleared();
+    return true;
+  }
+  return false;
+}
+
 function onMoverHit(m, h, before) {
   const g = game;
+  g.ball.banked = true;
   const after = g.ball.speed;
   const delta = after - before;
   const strength = clamp(Math.abs(delta) / 400, 0, 1);
@@ -459,6 +538,7 @@ function onPaddleHit(f, h, before) {
   g.ball.lastHitBy = f.kind;
   g.ball.lastPaddle = f.kind;
   g.ball.lastTeam = f.team;
+  g.ball.banked = false;
   if (!isBoss) g.paddleHits++;
   if (g.tutorial && !isBoss) tutorialPaddle(before, after);
   // The ice trail follows the boss's blocks; in PvP, either player's.
@@ -625,7 +705,7 @@ function frame(now) {
       }
     }
     if (state === 'playing') {
-      audio.setBallSpeed(game.ball.speed, game.def.ball.speed, BALL.minSpeed, BALL.maxSpeed);
+      audio.setBallSpeed(game.ball.speed, game.def.ball.speed, BALL.minSpeed, game.maxSpeed);
       if (guideFrame-- <= 0) {
         guideFrame = 6;
         const seeThrough = game.def.glass && game.ball.speed >= game.def.glass.breakSpeed;
@@ -960,7 +1040,7 @@ function handleGlobalKeys() {
   if (input.consumePress('Enter') && !net.mode) {
     if (state === 'title') begin();
     else if (state === 'cleared') {
-      const nextIdx = LEVELS.findIndex((l) => l.id === game.def.id + 1);
+      const nextIdx = nextAfter(levelIndex);
       startLevel(nextIdx >= 0 ? nextIdx : levelIndex);
     } else if (state === 'failed') startLevel(levelIndex);
     else if (state === 'paused') resume();
@@ -1052,6 +1132,17 @@ function setHtml(id, html) {
 }
 
 /** A name or number in that player's colour (PvP HUD and overlays). */
+/** "◆◆◇" for a conduit's nodes, plus the drones still standing when they are part of the job. */
+function objectiveText(g) {
+  const lit = g.nodes.filter((n) => n.lit).length;
+  let text = g.nodes.length ? '◆'.repeat(lit) + '◇'.repeat(g.nodes.length - lit) : '';
+  if (g.objective.drones) {
+    const up = g.drones.filter((d) => !d.down).length;
+    text += `${text ? ' · ' : ''}${up} DRONE${up === 1 ? '' : 'S'} UP`;
+  }
+  return text;
+}
+
 function tint(who, text) {
   const c = net.colors[who] || 'inherit';
   return `<span style="color:${c}">${text}</span>`;
@@ -1070,9 +1161,13 @@ function updateHud() {
     setText('hud-lives-label', 'SHIELDS');
     setText('hud-boss-label', 'BOSS');
     setText('hud-lives', g.lives === Infinity ? '∞' : '◆'.repeat(Math.max(0, g.lives)) + '◇'.repeat(Math.max(0, g.maxLives - g.lives)));
-    if (g.coop) setText('hud-boss', `${g.def.bossName.toUpperCase()} ${'◆'.repeat(Math.max(0, g.bossHits))}${'◇'.repeat(Math.max(0, g.maxBossHits - g.bossHits))}`);
+    if (g.def.conduit) {
+      setText('hud-boss-label', 'NODES');
+      setText('hud-boss', objectiveText(g));
+    } else if (g.coop) setText('hud-boss', `${g.def.bossName.toUpperCase()} ${'◆'.repeat(Math.max(0, g.bossHits))}${'◇'.repeat(Math.max(0, g.maxBossHits - g.bossHits))}`);
   }
-  const tags = [g.coop ? `CO-OP · ${[net.names.host, ...net.roster.map((r) => r.name)].join(' & ').toUpperCase()}` : '', campaign || (g.coop && net.coopCampaign) ? 'CAMPAIGN' : '', g.difficulty ? g.difficulty.name.toUpperCase() : '', g.rules.ownBallLoss ? '' : 'SAFE OWN BALL'].filter(Boolean);
+  const mode = campaign ? campaign.mode : g.coop && net.coopCampaign ? net.coopMode : null;
+  const tags = [g.coop ? `CO-OP · ${[net.names.host, ...net.roster.map((r) => r.name)].join(' & ').toUpperCase()}` : '', mode ? `${mode.toUpperCase()} CAMPAIGN` : '', g.difficulty ? g.difficulty.name.toUpperCase() : '', g.rules.ownBallLoss ? '' : 'SAFE OWN BALL', g.def.conduit ? 'HALF SPEED' : ''].filter(Boolean);
   setText('hud-rule', tags.map((t) => `· ${t}`).join(' '));
   const s = g.ball.held && state !== 'cleared' ? 0 : g.ball.speed;
   setText('hud-speed', `${Math.round(s)} px/s`);
@@ -1484,6 +1579,7 @@ const net = {
   reason: null, // why the last round ended: 'hit' | 'camp'
   coop: false, // two humans against the boss (host owns the campaign and the rules)
   coopCampaign: false, // guest-side: the host is running a campaign
+  coopMode: 'short', // guest-side: that campaign's mode
   // Guest-side prediction of its own character: every input carries a
   // sequence number, the host acknowledges the latest it acted on in each
   // snapshot, and the guest replays the inputs after that on top of the
@@ -1729,7 +1825,7 @@ async function hostRoom() {
 
 /** Host: the lobby once at least one friend is in the room; re-rendered as people come and go. */
 function renderHostLobby(client) {
-  const options = LEVELS.map((l, i) => `<option value="${i}">${l.id}. ${l.title}</option>`).join('');
+  const coopOptions = SEQUENCE.map((l, i) => `<option value="${i}">${l.conduit ? `${shortId(l)} ${l.title}` : `${l.id}. ${l.title}`}</option>`).join('');
   const arenaOptions = `<optgroup label="Versus arenas">${VERSUS_LEVELS.map((l, i) => `<option value="${i}">${l.title}</option>`).join('')}</optgroup><optgroup label="Campaign levels">${LEVELS.map((l, i) => `<option value="${VERSUS_LEVELS.length + i}">${l.id}. ${l.title}</option>`).join('')}</optgroup>`;
   const saved = loadCampaign();
   const diff = difficultySetting();
@@ -1752,8 +1848,8 @@ function renderHostLobby(client) {
         <div class="row" id="mp-versus-opts"><label class="mp-field">Arena <select id="mp-level">${arenaOptions}</select></label><label class="mp-field">Shields each <select id="mp-shields">${VERSUS_SHIELDS.map((n) => `<option value="${n}" ${n === versusShieldsSetting() ? 'selected' : ''}>${n}</option>`).join('')}</select></label></div>
         <p class="small muted" id="mp-versus-note">Every player for themselves. A body hit, an own ball or standing still costs that player a shield and resets everyone; with no shields left they are out. The last one standing wins.</p>
         <div class="row" id="mp-coop-opts" hidden>
-          <label class="mp-field">Play <select id="mp-coop-play"><option value="level">One level</option><option value="campaign">New campaign</option>${saved ? `<option value="resume">Continue campaign · Level ${LEVELS[saved.levelIndex].id}</option>` : ''}</select></label>
-          <label class="mp-field">Level <select id="mp-coop-level">${options}</select></label>
+          <label class="mp-field">Play <select id="mp-coop-play"><option value="level">One level</option><option value="campaign">New short campaign</option><option value="full">New full campaign (with conduits)</option>${saved ? `<option value="resume">Continue ${saved.mode} campaign · ${levelLabel(SEQUENCE[saved.levelIndex])}</option>` : ''}</select></label>
+          <label class="mp-field">Level <select id="mp-coop-level">${coopOptions}</select></label>
         </div>
         <p class="small muted" id="mp-coop-note" hidden>Co-op shares one pool of shields (${diff.name}: ${diff.blurb}, set on the title screen) and the boss takes ${people * COOP.bossHitsPerHuman} hits.</p>
         <div class="row"><button id="mp-start" class="primary">Start match</button></div>
@@ -1783,7 +1879,7 @@ function renderHostLobby(client) {
           return startNetMatch(Number($('mp-level').value), shields);
         }
         const play = $('mp-coop-play').value;
-        startCoop({ campaign: play !== 'level', resume: play === 'resume', levelIdx: Number($('mp-coop-level').value) });
+        startCoop({ campaign: play !== 'level', resume: play === 'resume', mode: play === 'full' ? 'full' : 'short', levelIdx: Number($('mp-coop-level').value) });
       };
   }
 }
@@ -1850,6 +1946,7 @@ function onSetup(msg) {
   if (msg.coop) {
     net.coop = true;
     net.coopCampaign = !!msg.campaign;
+    net.coopMode = msg.mode || 'short';
     net.roster = Array.isArray(msg.roster) && msg.roster.length ? msg.roster : [{ id: 'c', name: msg.names.guest }];
     net.localSlot = net.client.id || 'c';
     net.levelIndex = msg.level;
@@ -1924,7 +2021,7 @@ function startCoop(opts) {
   if (opts.campaign) {
     const saved = opts.resume ? loadCampaign() : null;
     const diff = saved ? difficultyById(saved.difficulty) : difficultySetting();
-    campaign = saved ? { ...saved } : { difficulty: diff.id, shields: diff.shields, levelIndex: 0, time: 0, lost: 0 };
+    campaign = saved ? { ...saved } : { difficulty: diff.id, shields: diff.shields, levelIndex: 0, time: 0, lost: 0, mode: opts.mode || 'short' };
     saveCampaign();
     coopStartLevel(campaign.levelIndex);
   } else {
@@ -1941,13 +2038,13 @@ function coopStartLevel(index) {
   if (net.roster[0]) net.names.guest = net.roster[0].name;
   const diff = campaign ? difficultyById(campaign.difficulty) : difficultySetting();
   const shields = campaign ? campaign.shields : diff.shields;
-  net.client.send({ t: 'setup', coop: true, level: index, names: net.names, roster: net.roster, rules: net.rules, difficulty: diff.id, campaign: !!campaign, shields: shields === Infinity ? 'inf' : shields });
+  net.client.send({ t: 'setup', coop: true, level: index, names: net.names, roster: net.roster, rules: net.rules, difficulty: diff.id, campaign: !!campaign, mode: campaign ? campaign.mode : null, shields: shields === Infinity ? 'inf' : shields });
   beginCoopLevel(diff, shields === Infinity ? 'inf' : shields);
 }
 
 /** Both sides: build the co-op arena (host human a, ally c, boss b) and start the countdown. */
 function beginCoopLevel(diff, shields) {
-  const def = LEVELS[net.levelIndex];
+  const def = SEQUENCE[net.levelIndex];
   const sameTrack = game && game.def === def && audio.track;
   levelIndex = net.levelIndex;
   resetFrameWatch();
@@ -1977,7 +2074,7 @@ function beginCoopLevel(diff, shields) {
   setInGame(true);
   $('hud').hidden = false;
   $('countdown').hidden = true;
-  $('hud-level').textContent = `LEVEL ${def.id} · ${def.title.toUpperCase()}`;
+  $('hud-level').textContent = `${levelLabel(def).toUpperCase()} · ${def.title.toUpperCase()}`;
   $('hud-boss').textContent = def.bossName.toUpperCase();
   $('hud-track').textContent = TRACKS[def.track].title;
   if (!sameTrack) audio.playTrack(TRACKS[def.track]);
@@ -2218,6 +2315,14 @@ function playEvent(ev) {
     case 'camp':
       campFx(fighterBySlot(ev.s) || g.player);
       break;
+    case 'node': {
+      const node = g.nodes && g.nodes[ev.i];
+      if (node) {
+        node.lit = true;
+        nodeFx(node, { cx: ev.x, cy: ev.y, nx: ev.nx, ny: ev.ny });
+      }
+      break;
+    }
     case 'touch':
       touchFx(fighterBySlot(ev.s) || g.player, ev.x, ev.y);
       break;
@@ -2318,15 +2423,14 @@ function stopMarkAnimation() {
 function showTitle() {
   state = 'title';
   setInGame(false);
-  renderer.setLevel(LEVELS[levelIndex]);
+  renderer.setLevel(SEQUENCE[levelIndex]);
   renderer.resize();
   $('hud').hidden = true;
   $('countdown').hidden = true;
-  const def = LEVELS[levelIndex];
-  const roster = ROSTER.map((r) => {
-    const idx = LEVELS.findIndex((l) => l.id === r.id);
-    const cls = r.id === def.id ? 'now' : idx >= 0 ? 'ready' : 'locked';
-    return `<li class="${cls}" ${idx >= 0 ? `data-level="${idx}"` : ''}><span>${String(r.id).padStart(2, '0')}</span> ${r.title}</li>`;
+  const def = SEQUENCE[levelIndex];
+  const roster = SEQUENCE.map((r, idx) => {
+    const cls = `${r.id === def.id ? 'now' : 'ready'}${r.conduit ? ' conduit' : ''}`;
+    return `<li class="${cls}" data-level="${idx}" title="${r.conduit ? 'Conduit: half-speed aim test between levels' : ''}"><span>${shortId(r)}</span> ${r.title}</li>`;
   }).join('');
   showOverlay(`
     <h1 class="title mark" aria-label="${GAME_NAME}">${markHtml()}</h1>
@@ -2339,9 +2443,9 @@ function showTitle() {
           <p class="you"><span>${LORE.bulletin.you}</span><a id="btn-record" href="#record">${LORE.bulletin.link} ›</a></p>
         </div>
         <div class="level-card">
-          <div class="eyebrow">LEVEL ${def.id}</div>
+          <div class="eyebrow">${levelLabel(def).toUpperCase()}</div>
           <div class="level-title">${def.title}</div>
-          <div class="muted">Boss: ${def.bossName}${clearedIds().has(def.id) ? ` · <span class="stopped">${LORE.status.stopped.toLowerCase()}</span>` : ''}</div>
+          <div class="muted">${def.conduit ? 'Aim test · half-speed ball' : `Boss: ${def.bossName}`}${clearedIds().has(def.id) ? ` · <span class="stopped">${def.conduit ? 'lit' : LORE.status.stopped.toLowerCase()}</span>` : ''}</div>
           <p class="intro">${def.intro}</p>
           ${def.record ? `<p class="record"><b>RECORD</b>${def.record}</p>` : ''}
         </div>
@@ -2374,7 +2478,7 @@ function showTitle() {
         ${qualitySelectHtml()}
       </div>
     </div>
-    <div class="row menu">${campaignButtonsHtml()}<button id="btn-start">Level ${def.id} only</button><button id="btn-tutorial">Tutorial</button><button id="btn-jukebox">Soundtrack</button><button id="btn-multi" title="${lanInfo && lanInfo.online ? 'Play online through the relay' : lanInfo ? 'Play on this Wi-Fi network' : 'Set a relay in the lobby, or run npm start on one PC and open its LAN address on both'}">${lanInfo && lanInfo.online ? 'Online match' : lanInfo ? 'LAN match' : 'Multiplayer'}</button>${fullscreenHint()}</div>
+    <div class="row menu">${campaignButtonsHtml()}<button id="btn-start">${levelLabel(def)} only</button><button id="btn-tutorial">Tutorial</button><button id="btn-jukebox">Soundtrack</button><button id="btn-multi" title="${lanInfo && lanInfo.online ? 'Play online through the relay' : lanInfo ? 'Play on this Wi-Fi network' : 'Set a relay in the lobby, or run npm start on one PC and open its LAN address on both'}">${lanInfo && lanInfo.online ? 'Online match' : lanInfo ? 'LAN match' : 'Multiplayer'}</button>${fullscreenHint()}</div>
     ${lanInfo ? '' : IS_DESKTOP ? '<p class="small muted">Multiplayer is unavailable: neither the relay nor the app\'s own server answered.</p>' : '<p class="small muted">Multiplayer needs a relay: paste one in the lobby for online play, or run <code>npm start</code> on one PC and open its LAN address on both.</p>'}
   `);
   $('btn-start').onclick = begin;
@@ -2397,7 +2501,7 @@ function showTitle() {
   for (const li of document.querySelectorAll('.roster li[data-level]')) {
     li.onclick = () => {
       levelIndex = Number(li.dataset.level);
-      renderer.setLevel(LEVELS[levelIndex]);
+      renderer.setLevel(SEQUENCE[levelIndex]);
       renderer.resize();
       showTitle();
     };
@@ -2422,7 +2526,13 @@ let campaign = null; // { difficulty, shields, levelIndex, time, lost } while a 
 function loadCampaign() {
   try {
     const c = JSON.parse(localStorage.getItem(CAMPAIGN_KEY) || 'null');
-    if (!c || !difficultyById(c.difficulty) || !LEVELS[c.levelIndex]) return null;
+    if (!c || !difficultyById(c.difficulty)) return null;
+    if (!c.mode) {
+      // Saved before conduits existed: the index counted levels only.
+      c.levelIndex = SEQUENCE.indexOf(LEVELS[c.levelIndex]);
+      c.mode = 'short';
+    }
+    if (!SEQUENCE[c.levelIndex]) return null;
     return { ...c, shields: c.shields === 'inf' ? Infinity : Number(c.shields) };
   } catch (_) {
     return null;
@@ -2446,11 +2556,15 @@ function clearCampaign() {
   }
 }
 
-/** Start (or, given a saved state, resume) a campaign; the tutorial runs first for a first-time player. */
-async function startCampaign(saved = null) {
+/**
+ * Start (or, given a saved state, resume) a campaign; the tutorial runs first
+ * for a first-time player. `mode` is 'short' (the ten levels) or 'full' (the
+ * levels with the conduits between them).
+ */
+async function startCampaign(saved = null, mode = 'short') {
   await audio.init();
   const diff = saved ? difficultyById(saved.difficulty) : difficultySetting();
-  campaign = saved ? { ...saved } : { difficulty: diff.id, shields: diff.shields, levelIndex: 0, time: 0, lost: 0 };
+  campaign = saved ? { ...saved } : { difficulty: diff.id, shields: diff.shields, levelIndex: 0, time: 0, lost: 0, mode };
   saveCampaign();
   if (net.mode === 'host' && net.coop) return coopStartLevel(campaign.levelIndex);
   const go = () => startLevel(campaign.levelIndex);
@@ -2460,17 +2574,25 @@ async function startCampaign(saved = null) {
 
 function campaignButtonsHtml() {
   const saved = loadCampaign();
+  const fresh = `<button id="btn-campaign" ${saved ? '' : 'class="primary"'} title="The ten levels in order">Short campaign</button><button id="btn-campaign-full" title="The ten levels with the nine conduits between them: half-speed aim tests">Full campaign</button>`;
   if (saved) {
-    const lvl = LEVELS[saved.levelIndex];
-    return `<button id="btn-continue" class="primary" title="Continue the saved campaign">Continue · Level ${lvl.id}</button><button id="btn-campaign">New campaign</button>`;
+    const lvl = SEQUENCE[saved.levelIndex];
+    return `<button id="btn-continue" class="primary" title="Continue the saved ${saved.mode} campaign">Continue · ${levelLabel(lvl)}</button>${fresh}`;
   }
-  return '<button id="btn-campaign" class="primary">Campaign</button>';
+  return fresh;
 }
 
 function bindCampaignButtons() {
   const cont = $('btn-continue');
   if (cont) cont.onclick = () => startCampaign(loadCampaign());
-  $('btn-campaign').onclick = () => startCampaign();
+  $('btn-campaign').onclick = () => startCampaign(null, 'short');
+  $('btn-campaign-full').onclick = () => startCampaign(null, 'full');
+}
+
+/** The room after SEQUENCE[index]: the campaign's next stop, or simply the next room when playing alone. -1 at the end. */
+function nextAfter(index) {
+  if (campaign) return campaignNextIndex(index, campaign.mode);
+  return index + 1 < SEQUENCE.length ? index + 1 : -1;
 }
 
 function showCampaignCleared(def, next, nextIdx, last) {
@@ -2481,9 +2603,9 @@ function showCampaignCleared(def, next, nextIdx, last) {
     clearCampaign();
     const done = { ...campaign };
     campaign = null;
-    coopResult('campaign-complete', `CAMPAIGN COMPLETE · ${diff.name.toUpperCase()}`, 'The arcade is yours', `${def.stopped || `${def.bossName} is down.`} Total time ${formatTime(done.time)}, shields lost ${done.lost}.`);
+    coopResult('campaign-complete', `${done.mode === 'full' ? 'FULL ' : ''}CAMPAIGN COMPLETE · ${diff.name.toUpperCase()}`, 'The arcade is yours', `${def.stopped || `${def.bossName} is down.`} Total time ${formatTime(done.time)}, shields lost ${done.lost}.`);
     showOverlay(`
-      <div class="eyebrow">CAMPAIGN COMPLETE · ${diff.name.toUpperCase()}</div>
+      <div class="eyebrow">${done.mode === 'full' ? 'FULL ' : ''}CAMPAIGN COMPLETE · ${diff.name.toUpperCase()}</div>
       <h1>The arcade is yours</h1>
       <p class="muted">${def.stopped || `${def.bossName} is down.`}</p>
       <table class="stats">
@@ -2494,15 +2616,15 @@ function showCampaignCleared(def, next, nextIdx, last) {
       </table>
       <div class="row"><button id="btn-campaign" class="primary">New campaign</button><button id="btn-menu">Main menu</button></div>
     `);
-    $('btn-campaign').onclick = () => startCampaign();
+    $('btn-campaign').onclick = () => startCampaign(null, done.mode || 'short');
     $('btn-menu').onclick = goToMenu;
     return;
   }
   campaign.levelIndex = nextIdx;
   saveCampaign();
-  coopResult('campaign-cleared', `LEVEL ${def.id} CLEARED · ${def.bossName.toUpperCase()} ${LORE.status.stopped}`, def.title, `${def.stopped || `${def.bossName} is down.`} Shields: ${shields}.`);
+  coopResult('campaign-cleared', clearedEyebrow(def), def.title, `${def.stopped || `${def.bossName} is down.`} Shields: ${shields}.`);
   showOverlay(`
-    <div class="eyebrow">LEVEL ${def.id} CLEARED · ${def.bossName.toUpperCase()} ${LORE.status.stopped}</div>
+    <div class="eyebrow">${clearedEyebrow(def)}</div>
     <h1>${def.title}</h1>
     <p class="muted">${def.stopped || `${def.bossName} is down.`}</p>
     <table class="stats">
@@ -2510,7 +2632,7 @@ function showCampaignCleared(def, next, nextIdx, last) {
       <tr><td>Top ball speed</td><td>${Math.round(game.topSpeed)} px/s</td></tr>
       <tr><td>Shields</td><td>${shields}</td></tr>
     </table>
-    <div class="row"><button id="btn-next" class="primary">Continue · Level ${next.id} · ${next.title}</button><button id="btn-menu">Main menu</button></div>
+    <div class="row"><button id="btn-next" class="primary">Continue · ${levelLabel(next)} · ${next.title}</button><button id="btn-menu">Main menu</button></div>
     <p class="small muted">Your campaign is saved; Main menu keeps it for later.</p>
   `);
   $('btn-next').onclick = () => startLevel(nextIdx);
@@ -2522,29 +2644,34 @@ function showCampaignOver(def) {
   const reached = { ...campaign, time: campaign.time + game.time };
   clearCampaign();
   campaign = null;
-  coopResult('campaign-over', 'CAMPAIGN OVER · NO SHIELDS LEFT', `${def.bossName} holds ${def.title}`, `You reached level ${def.id} on ${diff.name} in ${formatTime(reached.time)}.`, LORE.failed(def.title));
+  coopResult('campaign-over', 'CAMPAIGN OVER · NO SHIELDS LEFT', `${def.bossName} holds ${def.title}`, `You reached ${levelLabel(def).toLowerCase()} on ${diff.name} in ${formatTime(reached.time)}.`, LORE.failed(def.title));
   showOverlay(`
     <div class="eyebrow">CAMPAIGN OVER · NO SHIELDS LEFT</div>
     <h1>${def.bossName} holds ${def.title}</h1>
-    <p class="muted">${game.lossReason === 'camp' ? `You stayed within a body length of one spot for ${PLAYER.campSeconds} seconds, and that cost the last shield.` : game.lossReason === 'touch' ? 'You touched the boss, and that cost the last shield.' : `That was the last of your ${diff.shields === Infinity ? '' : diff.shields + ' '}shields.`} You reached level ${def.id} on ${diff.name} in ${formatTime(reached.time)}.</p>
+    <p class="muted">${game.lossReason === 'camp' ? `You stayed within a body length of one spot for ${PLAYER.campSeconds} seconds, and that cost the last shield.` : game.lossReason === 'touch' ? 'You touched the boss, and that cost the last shield.' : `That was the last of your ${diff.shields === Infinity ? '' : diff.shields + ' '}shields.`} You reached ${levelLabel(def).toLowerCase()} on ${diff.name} in ${formatTime(reached.time)}.</p>
     <p class="small muted record-note">${LORE.failed(def.title)}</p>
     <div class="row"><button id="btn-campaign" class="primary">Restart campaign</button><button id="btn-menu">Main menu</button></div>
   `);
-  $('btn-campaign').onclick = () => startCampaign();
+  $('btn-campaign').onclick = () => startCampaign(null, reached.mode || 'short');
   $('btn-menu').onclick = goToMenu;
+}
+
+/** "LEVEL 3 CLEARED · THE SUMP STOPPED", or for a conduit "CONDUIT 3½ LIT". */
+function clearedEyebrow(def) {
+  return def.conduit ? `${levelLabel(def).toUpperCase()} LIT` : `${levelLabel(def).toUpperCase()} CLEARED · ${def.bossName.toUpperCase()} ${LORE.status.stopped}`;
 }
 
 function showCleared() {
   setInGame(false);
   const def = game.def;
   markCleared(def.id);
-  const next = ROSTER.find((r) => r.id === def.id + 1);
-  const nextIdx = LEVELS.findIndex((l) => l.id === def.id + 1);
+  const nextIdx = nextAfter(levelIndex);
+  const next = nextIdx >= 0 ? SEQUENCE[nextIdx] : null;
   const last = !next;
   if (campaign) return showCampaignCleared(def, next, nextIdx, last);
-  coopResult('cleared', last ? 'EVERY LEVEL CLEARED' : `LEVEL ${def.id} CLEARED · ${def.bossName.toUpperCase()} ${LORE.status.stopped}`, last ? 'The arcade is yours' : def.title, def.stopped || `${def.bossName} is down.`);
+  coopResult('cleared', last ? 'EVERY LEVEL CLEARED' : clearedEyebrow(def), last ? 'The arcade is yours' : def.title, def.stopped || `${def.bossName} is down.`);
   showOverlay(`
-    <div class="eyebrow">${last ? 'EVERY LEVEL CLEARED' : `LEVEL ${def.id} CLEARED · ${def.bossName.toUpperCase()} ${LORE.status.stopped}`}</div>
+    <div class="eyebrow">${last ? 'EVERY LEVEL CLEARED' : clearedEyebrow(def)}</div>
     <h1>${last ? 'The arcade is yours' : def.title}</h1>
     <p class="muted">${def.stopped || `${def.bossName} is down.`}</p>
     <table class="stats">
@@ -2554,7 +2681,7 @@ function showCleared() {
     </table>
     <div class="row">
       <button id="btn-replay" class="primary">Play again</button>
-      ${next ? `<button id="btn-next" ${nextIdx >= 0 ? 'class="primary"' : 'disabled'}>Level ${next.id} · ${next.title}${nextIdx >= 0 ? '' : ' — coming soon'}</button>` : ''}
+      ${next ? `<button id="btn-next" class="primary">${levelLabel(next)} · ${next.title}</button>` : ''}
       <button id="btn-menu">Main menu</button>
     </div>
   `);
@@ -2588,7 +2715,7 @@ document.title = `${GAME_NAME} — ${GAME_TAGLINE}`;
 for (const [id, name] of [['tb-left', 'left'], ['tb-right', 'right'], ['tb-whack', 'whack'], ['tb-retract', 'retract']]) {
   input.bindTouchButton($(id), name);
 }
-renderer.setLevel(LEVELS[levelIndex]);
+renderer.setLevel(SEQUENCE[levelIndex]);
 applyQuality();
 renderer.resize();
 showTitle();

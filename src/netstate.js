@@ -6,7 +6,7 @@ const r1 = (v) => Math.round(v * 10) / 10;
 const r3 = (v) => Math.round(v * 1000) / 1000;
 
 export function fighterState(f) {
-  return [r1(f.x), r1(f.y), r3(f.angle), r1(f.paddleOffset), r1(f.frozen), f.lungeState === 'out' ? 1 : 0, r1(f.hitFlash), r1(f.invuln), r1(f.campTimer)];
+  return [r1(f.x), r1(f.y), r3(f.angle), r1(f.paddleOffset), r1(f.frozen), f.lungeState === 'out' ? 1 : 0, r1(f.hitFlash), r1(f.invuln), r1(f.campTimer), f.down ? 1 : 0];
 }
 
 export function applyFighter(f, a) {
@@ -19,6 +19,7 @@ export function applyFighter(f, a) {
   f.hitFlash = a[6];
   f.invuln = a[7];
   f.campTimer = a[8] || 0;
+  f.down = !!a[9];
 }
 
 export function moverState(m) {
@@ -46,6 +47,7 @@ export function buildSnapshot(g, meta, events = [], includeIce = true) {
     mv: g.movers.map(moverState),
   };
   if (g.panes.length) s.pn = g.panes.map((p) => (p.broken ? r1(p.regrowAt) : -1));
+  if (g.nodes && g.nodes.length) s.nd = g.nodes.map((n) => (n.lit ? 1 : 0));
   if (includeIce && g.ice) s.ice = { u: r1(g.ice.layUntil), o: g.ice.owner, p: g.ice.points.map((p) => [r1(p.x), r1(p.y), r1(p.t)]) };
   if (events.length) s.ev = events;
   return s;
@@ -75,6 +77,7 @@ export function applySnapshot(g, s) {
     }
     if (glassChanged) rebuildWalls(g);
   }
+  if (s.nd && g.nodes) for (let i = 0; i < s.nd.length && i < g.nodes.length; i++) g.nodes[i].lit = !!s.nd[i];
   if (s.ice && g.ice) {
     g.ice.layUntil = s.ice.u;
     g.ice.owner = s.ice.o ?? null;
