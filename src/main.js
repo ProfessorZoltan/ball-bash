@@ -5,7 +5,7 @@ import { BallHistory, bossIntent, moverSegmentsAt } from './ai.js';
 import { LEVELS, VERSUS_LEVELS, ROSTER, TUTORIAL_LEVEL } from './levels.js';
 import { SEQUENCE, levelLabel, shortId, campaignNextIndex } from './conduits.js';
 import { LORE } from './lore.js';
-import { createGameState, rebuildWalls as rebuildWallsState, bodyHitCounts, tickCamp, versusSpawns, rotateSpawns, versusColors, VERSUS_IDS, nodeAccepts, objectiveDone } from './gamestate.js';
+import { createGameState, rebuildWalls as rebuildWallsState, bodyHitCounts, tickCamp, versusSpawns, rotateSpawns, versusColors, VERSUS_IDS, nodeAccepts, objectiveDone, constrainToRail } from './gamestate.js';
 import { NetClient, relayConfig, saveRelay } from './net.js';
 import { buildSnapshot, applySnapshot } from './netstate.js';
 import { Input } from './input.js';
@@ -165,6 +165,7 @@ function step(dt) {
   if (!g.pvp) {
     for (const d of g.drones) {
       if (d.down) continue;
+      if (d.rail) d.home = { x: d.x, y: d.y }; // a cart's home is wherever it is: the rail is its leash
       if (!g.tutorial && state === 'playing') {
         d.updateOrbit(dt);
         if (d.pulser) {
@@ -178,8 +179,10 @@ function step(dt) {
       const wasIdle = d.lungeState === 'idle';
       d.update(dt, intents[d.slot] || ZERO_INTENT);
       if (wasIdle && d.lungeState === 'out') onWhack();
+      if (d.rail) constrainToRail(d, d.rail);
       resolveCircleVsSegments(d, g.walls);
       pushOutOfMovers(d);
+      if (d.rail) constrainToRail(d, d.rail);
     }
   }
 
@@ -588,6 +591,15 @@ function onNodeHit(node, h, before) {
   const n = speedNorm(g.ball.speed);
   g.ball.lastHitBy = 'wall';
   guideFrame = 0;
+  if (node.kind === 'switch') {
+    // A switch flips its doors on every touch (with a moment's grace against double taps).
+    wallFx(h.cx, h.cy, h.nx, h.ny, n, color);
+    if (simTime - (node.flippedAt || -9) < 0.4) return;
+    node.flippedAt = simTime;
+    flipSwitch(node);
+    netEvent({ e: 'switch', i: node.i });
+    return;
+  }
   if (node.lit || !nodeAccepts(node, h, before, g.ball)) {
     // Already lit, or the shot did not qualify: an ordinary bounce.
     wallFx(h.cx, h.cy, h.nx, h.ny, n, color);
@@ -599,6 +611,25 @@ function onNodeHit(node, h, before) {
   nodeFx(node, h);
   netEvent({ e: 'node', i: node.i, x: h.cx, y: h.cy, nx: h.nx, ny: h.ny });
   if (objectiveDone(g)) conduitCleared();
+}
+
+/** Toggle a switch node and every door it is wired to. */
+function flipSwitch(node) {
+  const g = game;
+  node.lit = !node.lit;
+  for (const i of node.toggles || []) if (g.doors[i]) g.doors[i].closed = !g.doors[i].closed;
+  rebuildWallsState(g);
+  guideFrame = 0;
+  const color = node.lit ? g.def.palette.nodeLit || '#7dffc4' : g.def.palette.node || '#6e7fa8';
+  g.fx.ring(node.x, node.y, color, 90, 0.4);
+  for (const i of node.toggles || []) {
+    const d = g.doors[i];
+    if (!d) continue;
+    const cx = d.poly.reduce((s, p) => s + p[0], 0) / d.poly.length;
+    const cy = d.poly.reduce((s, p) => s + p[1], 0) / d.poly.length;
+    g.fx.ring(cx, cy, g.def.palette.door || g.def.palette.obstacle, 70, 0.35);
+  }
+  audio.sfxCount(true);
 }
 
 function nodeFx(node, h) {
@@ -1266,8 +1297,11 @@ function setHtml(id, html) {
 /** A name or number in that player's colour (PvP HUD and overlays). */
 /** "◆◆◇" for a conduit's nodes, plus the drones still standing when they are part of the job. */
 function objectiveText(g) {
-  const lit = g.nodes.filter((n) => n.lit).length;
-  let text = g.nodes.length ? '◆'.repeat(lit) + '◇'.repeat(g.nodes.length - lit) : '';
+  const targets = g.nodes.filter((n) => n.kind !== 'switch');
+  const switches = g.nodes.filter((n) => n.kind === 'switch');
+  const lit = targets.filter((n) => n.lit).length;
+  let text = targets.length ? '◆'.repeat(lit) + '◇'.repeat(targets.length - lit) : '';
+  if (switches.length) text += `${text ? ' · ' : ''}ROUTE ${switches.map((n) => (n.lit ? '▮' : '▯')).join('')}`;
   if (g.objective.drones) {
     const up = g.drones.filter((d) => !d.down).length;
     text += `${text ? ' · ' : ''}${up} DRONE${up === 1 ? '' : 'S'} UP`;
@@ -2472,6 +2506,16 @@ function playEvent(ev) {
     case 'shotfx':
       shotFx(ev.x, ev.y);
       break;
+    case 'switch': {
+      // The snapshot carries the door and switch states; this is just the flourish.
+      const node = g.nodes && g.nodes[ev.i];
+      if (node) {
+        const color = g.def.palette.nodeLit || '#7dffc4';
+        g.fx.ring(node.x, node.y, color, 90, 0.4);
+        audio.sfxCount(true);
+      }
+      break;
+    }
     case 'node': {
       const node = g.nodes && g.nodes[ev.i];
       if (node) {

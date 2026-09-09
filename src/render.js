@@ -122,6 +122,8 @@ export class Renderer {
     if (game.ice) this.drawIce(game.ice, level.palette.ice || '#cdf6ff', time, ((game.fighters || []).find((f) => f.slot === game.ice.owner) || game.boss).color, game.time || 0);
     for (const m of game.movers || []) this.drawMover(m, level.palette.obstacle);
     for (const d of game.drones || [game.boss]) if (d.pulser && !d.down) this.drawPulse(d, level.palette.obstacle, time);
+    if (game.doors && game.doors.length) this.drawDoors(game.doors, level.palette, time);
+    for (const d of game.drones || []) if (d.rail) this.drawRail(d.rail, level.palette);
     if (game.nodes && game.nodes.length) this.drawNodes(game.nodes, level.palette, time);
     if (game.turrets && game.turrets.length) this.drawTurrets(game.turrets, level.palette, game.time || 0);
     if (game.shots && game.shots.length) this.drawShots(game.shots, level.palette, game.player ? game.player.color : '#ffffff');
@@ -434,6 +436,17 @@ export class Renderer {
         ctx.lineWidth = 1.5;
         ctx.stroke();
       }
+      if (n.kind === 'switch') {
+        // A lever across the disc: horizontal while off, tilted while on.
+        ctx.rotate(n.lit ? -0.6 : 0);
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = n.lit ? lit : palette.wall;
+        ctx.beginPath();
+        ctx.moveTo(-n.r * 0.7, 0);
+        ctx.lineTo(n.r * 0.7, 0);
+        ctx.stroke();
+        ctx.rotate(n.lit ? 0.6 : 0);
+      }
       if (n.kind === 'hooded') {
         // The hood covers everything but the open arc.
         const half = (((n.arc || 100) * Math.PI) / 360);
@@ -453,6 +466,66 @@ export class Renderer {
       ctx.fill();
       ctx.restore();
     }
+  }
+
+  /** Doors: a solid slab while closed, a dashed outline while open. */
+  drawDoors(doors, palette, time) {
+    const ctx = this.ctx;
+    const color = palette.door || palette.obstacle;
+    for (const d of doors) {
+      ctx.save();
+      ctx.beginPath();
+      for (let i = 0; i < d.poly.length; i++) {
+        const p = d.poly[i];
+        if (i === 0) ctx.moveTo(p[0], p[1]);
+        else ctx.lineTo(p[0], p[1]);
+      }
+      ctx.closePath();
+      if (d.closed) {
+        ctx.fillStyle = palette.doorDark || palette.obstacleDark || '#222';
+        ctx.fill();
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = color;
+        ctx.shadowBlur = this.blur(12);
+        ctx.shadowColor = color;
+        ctx.stroke();
+      } else {
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = color;
+        ctx.globalAlpha = 0.35 + 0.15 * Math.sin(time * 3 + d.i);
+        ctx.setLineDash([6, 8]);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+
+  /** A cart's rail: a thin line with ties. */
+  drawRail(rail, palette) {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.strokeStyle = palette.rail || palette.wall;
+    ctx.globalAlpha = 0.35;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(rail.ax, rail.ay);
+    ctx.lineTo(rail.bx, rail.by);
+    ctx.stroke();
+    const dx = rail.bx - rail.ax;
+    const dy = rail.by - rail.ay;
+    const l = Math.hypot(dx, dy) || 1;
+    const px = -dy / l;
+    const py = dx / l;
+    ctx.lineWidth = 2;
+    for (let t = 0; t <= l; t += 40) {
+      const x = rail.ax + (dx / l) * t;
+      const y = rail.ay + (dy / l) * t;
+      ctx.beginPath();
+      ctx.moveTo(x - px * 9, y - py * 9);
+      ctx.lineTo(x + px * 9, y + py * 9);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   /** Turrets: a disc in the wall with a barrel that tracks its target and glows as a shot comes due. */

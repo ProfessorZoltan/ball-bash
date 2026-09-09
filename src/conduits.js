@@ -225,6 +225,71 @@ CONDUITS.push({
   ball: { x: 480, y: 450, speed: 400, angleDeg: 0 },
 });
 
+CONDUITS.push({
+  id: 4.5,
+  after: 4,
+  conduit: true,
+  title: 'Signal Box',
+  bossName: 'Shunter cart',
+  intro: 'Three yards in a row, a shut door between each, and a switch that opens the next one. Two shunter carts run the rails across the yards and block whatever crosses. Set the route, one accurate shot at a time, then send the ball home.',
+  record: 'The Signal Box sets the Switchyard\'s routes. Its carts are the Shunter\'s rolling stock: no engine of their own, just a rail and a grudge.',
+  stopped: 'The route is set and the exit is lit. The Switchyard\'s doors will not wait for a switch.',
+  width: 1600,
+  height: 900,
+  track: 'switchyard',
+  maxBallSpeed: CONDUIT_MAX_SPEED,
+  palette: {
+    floor: '#0a0a0e',
+    grid: 'rgba(255, 200, 120, 0.07)',
+    wall: '#ffd166',
+    wallDark: '#3a2e10',
+    obstacle: '#7fe9ff',
+    obstacleDark: '#0d2a40',
+    node: '#8a7a5a',
+    nodeLit: '#7dffc4',
+    door: '#ff8c42',
+    doorDark: '#3a1e0c',
+    rail: '#c9b27a',
+  },
+  boundary: [
+    [60, 140],
+    [140, 60],
+    [1460, 60],
+    [1540, 140],
+    [1540, 760],
+    [1460, 840],
+    [140, 840],
+    [60, 760],
+  ],
+  obstacles: [
+    // Two yard walls with a doorway in the middle of each, and the stub that closes off the exit bay.
+    rect(560, 220, 24, 320, 0),
+    rect(560, 680, 24, 320, 0),
+    rect(1060, 220, 24, 320, 0),
+    rect(1060, 680, 24, 320, 0),
+    rect(1380, 720, 20, 240, 0),
+  ],
+  // Doors start shut; each switch flips one. The exit bay's door lies across its top.
+  doors: [rect(560, 450, 24, 140, 0), rect(1060, 450, 24, 140, 0), rect(1465, 600, 150, 20, 0)],
+  nodes: [
+    { x: 480, y: 160, kind: 'switch', toggles: [0] },
+    { x: 1000, y: 740, kind: 'switch', toggles: [1] },
+    { x: 1480, y: 160, kind: 'switch', toggles: [2] },
+    { x: 1465, y: 730, kind: 'plain' },
+  ],
+  drones: [
+    sentry(810, 450, Math.PI, cart({ ax: 810, ay: 160, bx: 810, by: 740 })),
+    sentry(1300, 450, Math.PI, cart({ ax: 1300, ay: 160, bx: 1300, by: 740 })),
+  ],
+  player: { x: 200, y: 450, angle: 0 },
+  ball: { x: 330, y: 450, speed: 400, angleDeg: 0 },
+});
+
+/** A shunter cart: bound to a rail, quick along it, and there to block. */
+function cart(rail) {
+  return { rail, moveSpeed: 150, turnSpeed: 3, leash: 600, threatRadius: 420, blockRadius: 90, safeRadius: 0, reaction: 0.28, anticipation: { commit: 0.4, swing: false, error: 7 } };
+}
+
 /** Every playable room in campaign order: each level, then the conduit that follows it. */
 export const SEQUENCE = LEVELS.flatMap((lvl) => [lvl, ...CONDUITS.filter((c) => c.after === lvl.id)]);
 

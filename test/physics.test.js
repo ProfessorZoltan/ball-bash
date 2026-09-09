@@ -671,3 +671,45 @@ test('energy shots: a shield deflects one (with its motion), a body stops it, a 
   assert.equal(hit && hit.kind, 'wall');
   assert.equal(hit.seg.turret, t);
 });
+
+test('signal box: switches flip doors into and out of the walls, carts stay on their rails, and only the exit node counts', async () => {
+  const { CONDUITS } = await import('../src/conduits.js');
+  const { createGameState, rebuildWalls, constrainToRail, objectiveDone } = await import('../src/gamestate.js');
+  const def = CONDUITS.find((c) => c.doors && c.doors.length);
+  const g = createGameState(def);
+  assert.equal(g.doors.length, def.doors.length);
+  const doorSegs = () => g.walls.filter((w) => w.kind === 'door').length;
+  const before = doorSegs();
+  assert.ok(before > 0, 'closed doors are walls');
+  assert.ok(g.solidPolys.includes(g.doors[0].poly), 'closed doors are solid');
+  g.doors[0].closed = false;
+  rebuildWalls(g);
+  assert.equal(doorSegs(), before - g.doors[0].segs.length, 'an open door leaves the walls');
+  assert.ok(!g.solidPolys.includes(g.doors[0].poly));
+  g.doors[0].closed = true;
+  rebuildWalls(g);
+  assert.equal(doorSegs(), before);
+  // Rails.
+  const cart = g.drones[0];
+  assert.ok(cart.rail, 'the first drone is a cart');
+  cart.x = cart.rail.ax + 40;
+  cart.y = 300;
+  cart.vx = 50;
+  cart.vy = -100;
+  constrainToRail(cart, cart.rail);
+  assert.equal(cart.x, cart.rail.ax);
+  assert.equal(cart.y, 300);
+  assert.equal(cart.vx, 0);
+  assert.equal(cart.vy, -100);
+  cart.y = cart.rail.by + 500;
+  constrainToRail(cart, cart.rail);
+  assert.equal(cart.y, cart.rail.by, 'clamped to the rail end');
+  // Objective: the exit alone.
+  const exit = g.nodes.find((n) => n.kind !== 'switch');
+  assert.equal(objectiveDone(g), false);
+  exit.lit = true;
+  assert.equal(objectiveDone(g), true, 'switches need not be on');
+  // Every switch's doors exist, and the exit sits inside its bay behind the third door.
+  for (const n of g.nodes) if (n.kind === 'switch') for (const i of n.toggles) assert.ok(g.doors[i], `switch ${n.i} wires door ${i}`);
+  assert.ok(pointInPolygon(exit.x, exit.y, def.boundary));
+});

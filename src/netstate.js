@@ -48,6 +48,7 @@ export function buildSnapshot(g, meta, events = [], includeIce = true) {
   };
   if (g.panes.length) s.pn = g.panes.map((p) => (p.broken ? r1(p.regrowAt) : -1));
   if (g.nodes && g.nodes.length) s.nd = g.nodes.map((n) => (n.lit ? 1 : 0));
+  if (g.doors && g.doors.length) s.dr = g.doors.map((d) => (d.closed ? 1 : 0));
   if (g.turrets && g.turrets.length) {
     s.tu = g.turrets.map((t) => [t.down ? 1 : 0, r3(t.aim)]);
     s.pj = g.shots.map((p) => [r1(p.x), r1(p.y), r1(p.vx), r1(p.vy), p.deflected ? 1 : 0]);
@@ -82,6 +83,20 @@ export function applySnapshot(g, s) {
     if (glassChanged) rebuildWalls(g);
   }
   if (s.nd && g.nodes) for (let i = 0; i < s.nd.length && i < g.nodes.length; i++) g.nodes[i].lit = !!s.nd[i];
+  if (s.dr && g.doors) {
+    let changed = false;
+    for (let i = 0; i < s.dr.length && i < g.doors.length; i++) {
+      const closed = !!s.dr[i];
+      if (g.doors[i].closed !== closed) {
+        g.doors[i].closed = closed;
+        changed = true;
+      }
+    }
+    if (changed) {
+      rebuildWalls(g);
+      glassChanged = true;
+    }
+  }
   if (s.tu && g.turrets) {
     for (let i = 0; i < s.tu.length && i < g.turrets.length; i++) {
       g.turrets[i].down = !!s.tu[i][0];

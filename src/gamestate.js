@@ -113,10 +113,25 @@ export function nodeAccepts(node, h, before, ball) {
   }
 }
 
-/** A conduit is cleared when every node is lit and, if the objective asks, every drone is down. */
+/** Keep a rail-bound drone on its rail: snap to the nearest point and drop the sideways velocity. */
+export function constrainToRail(f, rail) {
+  const c = closestPointOnSegment(f.x, f.y, rail.ax, rail.ay, rail.bx, rail.by);
+  f.x = c.x;
+  f.y = c.y;
+  const dx = rail.bx - rail.ax;
+  const dy = rail.by - rail.ay;
+  const l = Math.hypot(dx, dy) || 1;
+  const ux = dx / l;
+  const uy = dy / l;
+  const along = f.vx * ux + f.vy * uy;
+  f.vx = ux * along || 0; // `|| 0` turns a -0 into 0
+  f.vy = uy * along || 0;
+}
+
+/** A conduit is cleared when every node is lit and, if the objective asks, every drone is down. Switches are controls, not targets. */
 export function objectiveDone(g) {
   if (!g.def.conduit) return false;
-  if (g.nodes.some((n) => !n.lit)) return false;
+  if (g.nodes.some((n) => n.kind !== 'switch' && !n.lit)) return false;
   if (g.objective.drones && g.drones.some((d) => !d.down)) return false;
   if (g.objective.turrets && g.turrets.some((t) => !t.down)) return false;
   return true;
@@ -235,6 +250,13 @@ export function createGameState(def, { pvp = false, coop = false, rules = DEFAUL
     for (const sg of segs) sg.node = n;
     staticWalls.push(...segs);
   });
+  // Doors: slabs a switch node opens and closes; closed ones are walls (see rebuildWalls).
+  const doors = (def.doors || []).map((d, i) => {
+    const poly = obstaclePoly(d);
+    const door = { poly, closed: d.open !== true, i, segs: polygonEdges(poly, 'door') };
+    for (const sg of door.segs) sg.door = door;
+    return door;
+  });
   // Turrets sit in the wall as solid discs; a deflected shot into one knocks it out.
   const turrets = (def.turrets || []).map((t, i) => ({ x: t.x, y: t.y, r: t.r || 22, period: t.period || 4, delay: t.delay || 1, speed: t.speed || 260, life: t.life || 6, i, nextAt: t.delay || 1, down: false, aim: t.aim || 0 }));
   const turretPolys = turrets.map((t) => ellipse(t.x, t.y, t.r, t.r, 14));
@@ -288,7 +310,7 @@ export function createGameState(def, { pvp = false, coop = false, rules = DEFAUL
   ball.held = true;
   const staticPolys = def.obstacles.filter((o) => !o.glass).map(obstaclePoly).concat(nodePolys, turretPolys);
   const objective = { nodes: nodes.length, drones: def.objective && def.objective.drones ? drones.length : 0, turrets: def.objective && def.objective.turrets ? turrets.length : 0 };
-  const g = { def, staticWalls, staticPolys, panes, walls: [], solidPolys: [], player, ally, allies, boss, drones, nodes, turrets, shots: [], objective, fighters, humans, movers, ice, vents, ball, maxSpeed: def.maxBallSpeed || BALL.maxSpeed, pvp, players: pvpCount, coop: !pvp && allyCount > 0, rules: { ...DEFAULT_RULES, ...rules } };
+  const g = { def, staticWalls, staticPolys, panes, doors, walls: [], solidPolys: [], player, ally, allies, boss, drones, nodes, turrets, shots: [], objective, fighters, humans, movers, ice, vents, ball, maxSpeed: def.maxBallSpeed || BALL.maxSpeed, pvp, players: pvpCount, coop: !pvp && allyCount > 0, rules: { ...DEFAULT_RULES, ...rules } };
   rebuildWalls(g);
   return g;
 }
@@ -296,6 +318,7 @@ export function createGameState(def, { pvp = false, coop = false, rules = DEFAUL
 /** Recompute the active wall list (static walls plus unbroken glass). */
 export function rebuildWalls(g) {
   const whole = g.panes.filter((p) => !p.broken);
-  g.walls = g.staticWalls.concat(...whole.map((p) => p.segs));
-  g.solidPolys = g.staticPolys.concat(whole.map((p) => p.poly));
+  const shut = (g.doors || []).filter((d) => d.closed);
+  g.walls = g.staticWalls.concat(...whole.map((p) => p.segs), ...shut.map((d) => d.segs));
+  g.solidPolys = g.staticPolys.concat(whole.map((p) => p.poly), shut.map((d) => d.poly));
 }
