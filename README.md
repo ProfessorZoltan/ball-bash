@@ -71,8 +71,8 @@ in `desktop/package.json`, commit, then push a tag; the
 with a `-` in it, like an alpha, is marked pre-release):
 
 ```bash
-git tag v0.5.0-alpha
-git push origin v0.5.0-alpha
+git tag v0.6.0-alpha
+git push origin v0.6.0-alpha
 ```
 
 **Run workflow** on the Actions tab builds without publishing; the files are in
