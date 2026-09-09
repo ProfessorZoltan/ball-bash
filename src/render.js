@@ -4,6 +4,12 @@ import { BALL, PLAYER } from './config.js';
 import { clamp, lerp } from './vec.js';
 
 const WALL_HEIGHT = 9; // px of extrusion under each wall face
+
+/** '#rrggbb' at an alpha, as an rgba() string. */
+function withAlpha(hex, a) {
+  const n = parseInt(hex.slice(1, 7), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+}
 const DARK_SCALE = 0.5; // the darkness layer's resolution relative to the canvas
 
 export class Renderer {
@@ -116,6 +122,7 @@ export class Renderer {
     ctx.drawImage(this.staticLayer, shx * v.dpr, shy * v.dpr);
     ctx.setTransform(v.dpr * v.scale, 0, 0, v.dpr * v.scale, (v.ox + shx) * v.dpr, (v.oy + shy) * v.dpr);
 
+    if (game.well) this.drawWell(game.well, level.palette, time);
     this.drawPredictedPath(game);
     if (game.panes && game.panes.length) this.drawGlass(game.panes, game, time);
     if (game.vents && game.vents.length) this.drawVents(game.vents, level.palette.ice || '#cdf6ff', game.time || 0);
@@ -495,6 +502,59 @@ export class Renderer {
   }
 
   /** A floor emitter: a small dish the pulse rings leave from. */
+  /** The gravity well: a black horizon, an accretion of slowly turning rings, and a dotted mark of its reach. */
+  drawWell(w, palette, time) {
+    const ctx = this.ctx;
+    const color = palette.well || '#b49cff';
+    ctx.save();
+    ctx.translate(w.x, w.y);
+    ctx.strokeStyle = color;
+    // Its reach: where the pull begins.
+    ctx.setLineDash([3, 11]);
+    ctx.lineDashOffset = -time * 10;
+    ctx.lineWidth = 1.5;
+    ctx.globalAlpha = 0.4;
+    ctx.beginPath();
+    ctx.arc(0, 0, w.range, 0, Math.PI * 2);
+    ctx.stroke();
+    // The halo: light bending in.
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+    const halo = ctx.createRadialGradient(0, 0, w.r, 0, 0, w.r * 3.4);
+    halo.addColorStop(0, withAlpha(color, 0.38));
+    halo.addColorStop(0.5, withAlpha(color, 0.1));
+    halo.addColorStop(1, withAlpha(color, 0));
+    ctx.fillStyle = halo;
+    ctx.beginPath();
+    ctx.arc(0, 0, w.r * 3.4, 0, Math.PI * 2);
+    ctx.fill();
+    // Accretion rings, each turning at its own pace, the inner ones faster.
+    for (let i = 0; i < 3; i++) {
+      const rr = w.r * (1.55 + i * 0.75);
+      ctx.setLineDash([rr * 0.5, rr * 0.3]);
+      ctx.lineDashOffset = time * (i % 2 ? 40 : -70) / (1 + i * 0.6);
+      ctx.globalAlpha = 0.38 - i * 0.1;
+      ctx.lineWidth = 2 - i * 0.4;
+      ctx.beginPath();
+      ctx.arc(0, 0, rr, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    // The horizon.
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+    ctx.beginPath();
+    ctx.arc(0, 0, w.r, 0, Math.PI * 2);
+    ctx.fillStyle = '#000000';
+    ctx.shadowColor = color;
+    ctx.shadowBlur = this.blur(26);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.lineWidth = 1.5;
+    ctx.globalAlpha = 0.85;
+    ctx.stroke();
+    ctx.restore();
+  }
+
   drawEmitter(e, palette) {
     const ctx = this.ctx;
     const color = palette.emitter || palette.obstacle;
@@ -938,7 +998,7 @@ export class Renderer {
     const frozen = f.frozen > 0;
     if (frozen) color = '#cdf6ff';
     ctx.save();
-    ctx.globalAlpha = blink ? 0.45 : 1;
+    ctx.globalAlpha = blink ? 0.45 : f.phased ? 0.28 : 1; // a phased drone is barely there
     if (frozen) {
       // Ice shell: a hexagon of frost around the body.
       ctx.beginPath();

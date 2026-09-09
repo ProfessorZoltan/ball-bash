@@ -5,7 +5,7 @@ import { BallHistory, bossIntent, moverSegmentsAt } from './ai.js';
 import { LEVELS, VERSUS_LEVELS, ROSTER, TUTORIAL_LEVEL } from './levels.js';
 import { SEQUENCE, levelLabel, shortId, campaignNextIndex } from './conduits.js';
 import { LORE } from './lore.js';
-import { createGameState, rebuildWalls as rebuildWallsState, bodyHitCounts, tickCamp, versusSpawns, rotateSpawns, versusColors, VERSUS_IDS, nodeAccepts, objectiveDone, constrainToRail } from './gamestate.js';
+import { createGameState, rebuildWalls as rebuildWallsState, bodyHitCounts, tickCamp, versusSpawns, rotateSpawns, versusColors, VERSUS_IDS, nodeAccepts, objectiveDone, constrainToRail, wellField, wellDrag, wellSwallows, dronePhased } from './gamestate.js';
 import { NetClient, relayConfig, saveRelay } from './net.js';
 import { buildSnapshot, applySnapshot } from './netstate.js';
 import { Input } from './input.js';
@@ -13,7 +13,7 @@ import { Renderer } from './render.js';
 import { Effects } from './fx.js';
 import { AudioEngine } from './audio/engine.js';
 import { TRACKS } from './audio/tracks.js';
-import { circleVsCircle, circleVsCapsule, pointInPolygon, resolveCircleVsSegments, predictPath } from './physics.js';
+import { circleVsCircle, circleVsCapsule, pointInPolygon, resolveCircleVsSegments, predictPath, predictCurvedPath } from './physics.js';
 import { advanceBall, separateFightersFromBall, fightersTouch, advanceShot, Shot } from './sim.js';
 import { clamp, rand, wrapAngle } from './vec.js';
 
@@ -100,6 +100,8 @@ function launchBall() {
   for (const v of game.vents) v.nextAt = simTime + v.delay;
   for (const t of game.turrets) t.nextAt = simTime + t.delay;
   game.shots.length = 0;
+  // A phasing drone is solid from the serve.
+  for (const d of game.drones) if (d.phasing) d.phaseAt = simTime;
   // Floor emitters keep time from the launch too, so the turrets stay on their beat after a re-serve.
   for (const e of game.emitters) {
     e.pulser.t = 0;
@@ -162,6 +164,7 @@ function step(dt) {
     const wasIdle = f.lungeState === 'idle';
     f.update(dt, intents[f.slot]);
     if (wasIdle && f.lungeState === 'out') onWhack();
+    if (g.well && state === 'playing') wellDrag(g.well, f, dt);
     resolveCircleVsSegments(f, g.walls);
     pushOutOfMovers(f);
   }
@@ -171,6 +174,7 @@ function step(dt) {
   if (!g.pvp) {
     for (const d of g.drones) {
       if (d.down) continue;
+      if (d.phasing) d.phased = state === 'playing' && dronePhased(d.phasing, simTime - (d.phaseAt || 0)); // a shadow is only there part of the time, and solid through every countdown
       if (d.rail) d.home = { x: d.x, y: d.y }; // a cart's home is wherever it is: the rail is its leash
       if (!g.tutorial && state === 'playing') {
         d.updateOrbit(dt);
@@ -201,13 +205,22 @@ function step(dt) {
     outer: for (const f of g.humans) {
       if (f.invuln > 0) continue;
       for (const d of g.drones) {
-        if (d.down) continue;
+        if (d.down || d.phased) continue;
         const c = fightersTouch(f, d);
         if (c) {
           onTouched(f, c);
           break outer;
         }
       }
+    }
+  }
+
+  // The well: a player dragged over the horizon loses a shield and starts over at their spawn.
+  if (state === 'playing' && g.well && !g.pvp && !g.tutorial) {
+    for (const f of g.humans) {
+      if (f.invuln > 0 || !wellSwallows(g.well, f.x, f.y, f.r)) continue;
+      onFell(f);
+      break;
     }
   }
 
@@ -251,9 +264,9 @@ function step(dt) {
   }
 }
 
-/** Everyone still in play: downed drones are out of the physics. */
+/** Everyone still in play: downed drones are out of the physics, and so is a drone while it is phased. */
 function activeFighters() {
-  return game.fighters.filter((f) => !f.down);
+  return game.fighters.filter((f) => !f.down && !f.phased);
 }
 
 /** A pulse left its emitter (a boss or a floor emitter). */
@@ -413,6 +426,59 @@ function touchFx(f, x, y) {
   audio.sfxPlayerHit();
 }
 
+/** The well took a human player: that costs a shield, and they start over at their spawn, out of its reach. */
+function onFell(f) {
+  fellFx(f);
+  netEvent({ e: 'fell', s: f.slot });
+  f.x = f.spawn.x;
+  f.y = f.spawn.y;
+  f.angle = f.spawn.angle;
+  f.vx = 0;
+  f.vy = 0;
+  f.prevX = f.x;
+  f.prevY = f.y;
+  f.markRender(); // no interpolated streak from the well to the spawn
+  f.resetCamp();
+  f.invuln = COUNTDOWN_SECONDS + PLAYER.invulnTime;
+  loseShield('well', f);
+}
+
+function fellFx(f) {
+  const g = game;
+  const w = g.well;
+  f.hitFlash = 0.5;
+  g.fx.ring(w.x, w.y, '#ff4d6d', 170, 0.6);
+  g.fx.ring(w.x, w.y, '#ffffff', 90, 0.4);
+  g.fx.burst(w.x, w.y, 0, 0, 30, f.color, 220, Math.PI, 0.6);
+  g.fx.addShake(10);
+  audio.sfxSwallow();
+  audio.sfxPlayerHit();
+}
+
+/** The ball crossed the horizon: the well keeps it and the serve starts over. No shield is lost. */
+function swallowBall() {
+  swallowFx();
+  netEvent({ e: 'swallow' });
+  reserve('swallow', null);
+}
+
+function swallowFx() {
+  const g = game;
+  const w = g.well;
+  g.fx.ring(w.x, w.y, g.def.palette.well || '#b49cff', 150, 0.5);
+  g.fx.ring(w.x, w.y, '#ffffff', 60, 0.3);
+  g.fx.burst(w.x, w.y, 0, 0, 20, '#ffffff', 160, Math.PI, 0.4);
+  g.fx.addShake(6);
+  audio.sfxSwallow();
+}
+
+/** The well's pull on the ball at (x, y), for the guide. */
+function wellAccel(x, y) {
+  const w = game.well;
+  const p = wellField(w, x, y);
+  return p ? { ax: p.ux * w.pull * p.k, ay: p.uy * w.pull * p.k } : null;
+}
+
 /** A human player stood within a body length of one spot for too long: that is a loss. */
 function onCamped(f, slot) {
   const g = game;
@@ -534,6 +600,13 @@ function separateCircles(a, b) {
 function moveBall(dt) {
   const g = game;
   const b = g.ball;
+  if (g.well) {
+    const p = wellField(g.well, b.x, b.y);
+    if (p) {
+      b.vx += p.ux * g.well.pull * p.k * dt;
+      b.vy += p.uy * g.well.pull * p.k * dt;
+    }
+  }
   const active = activeFighters();
   const pulsers = g.drones.filter((d) => d.pulser && !d.down).map((d) => d.pulser).concat(g.emitters.map((e) => e.pulser));
   const stopped = advanceBall(
@@ -568,6 +641,10 @@ function moveBall(dt) {
 
   b.clampSpeed(BALL.minSpeed, g.maxSpeed);
   if (b.speed > g.topSpeed) g.topSpeed = b.speed;
+  if (g.well && state === 'playing' && wellSwallows(g.well, b.x, b.y)) {
+    swallowBall();
+    return;
+  }
 
   // Safety net: the arena is sealed, but if numerical trouble ever pushed the
   // ball through a wall, put it back in play rather than losing it.
@@ -902,7 +979,11 @@ function frame(now) {
         if (game.movers.length) {
           guideWalls = guideWalls.concat(moverSegmentsAt(game.movers, game.ball.x, game.ball.y, game.ball.vx, game.ball.vy));
         }
-        if (!game.def.noGuide) game.guidePath = predictPath(game.ball.x, game.ball.y, game.ball.vx, game.ball.vy, guideWalls, 1, 900, game.ball.r);
+        if (game.def.noGuide) {
+          // nothing: the guide is off
+        } else if (game.well) {
+          game.guidePath = predictCurvedPath(game.ball.x, game.ball.y, game.ball.vx, game.ball.vy, guideWalls, wellAccel, { bounces: 1, maxDist: 900, radius: game.ball.r, speed: [BALL.minSpeed, game.maxSpeed], stop: (x, y) => wellSwallows(game.well, x, y) });
+        } else game.guidePath = predictPath(game.ball.x, game.ball.y, game.ball.vx, game.ball.vy, guideWalls, 1, 900, game.ball.r);
       }
     }
     if (!guest && (state === 'cleared' || state === 'failed') && !endShown) {
@@ -1379,9 +1460,10 @@ function updateHud() {
   let status = frozen ? `FROZEN ${me.frozen.toFixed(1)}` : camping ? `MOVE · ${Math.max(0, campLeft).toFixed(1)}` : !me && g.pvp ? 'OUT · WATCHING' : '';
   const lost = g.lastLoss && state === 'countdown' && g.time - g.lastLoss.at < 4 ? g.lastLoss : null;
   if (lost && lost.slot === 'b') status = `BOSS HIT · ${g.bossHits} MORE TO GO`;
+  else if (lost && lost.reason === 'swallow') status = 'THE WELL TOOK THE BALL';
   else if (lost) {
     const who = g.coop ? `${(fighterBySlot(lost.slot) || me || g.player).name.replace(/ \(you\)$/, '').toUpperCase()} ` : '';
-    status = `${who}${lost.reason === 'camp' ? 'STOOD STILL' : lost.reason === 'touch' ? 'TOUCHED THE BOSS' : lost.reason === 'shot' ? 'SHOT' : 'HIT'} · ${g.lives === Infinity ? 'UNLIMITED SHIELDS' : `${g.lives} SHIELD${g.lives === 1 ? '' : 'S'} LEFT`}`;
+    status = `${who}${lost.reason === 'camp' ? 'STOOD STILL' : lost.reason === 'touch' ? 'TOUCHED THE BOSS' : lost.reason === 'shot' ? 'SHOT' : lost.reason === 'well' ? 'FELL INTO THE WELL' : 'HIT'} · ${g.lives === Infinity ? 'UNLIMITED SHIELDS' : `${g.lives} SHIELD${g.lives === 1 ? '' : 'S'} LEFT`}`;
   }
   const last = g.pvp && state === 'roundEnd' && net.last ? net.last : null;
   if (last) {
@@ -2433,6 +2515,7 @@ function guestStep(dt) {
 function guestAdvance(f, dt, intent) {
   const g = game;
   f.update(dt, intent);
+  if (g.well && state === 'playing') wellDrag(g.well, f, dt);
   resolveCircleVsSegments(f, g.walls);
   pushOutOfMovers(f);
   f.finalizeStep(dt);
@@ -2556,6 +2639,12 @@ function playEvent(ev) {
     }
     case 'touch':
       touchFx(fighterBySlot(ev.s) || g.player, ev.x, ev.y);
+      break;
+    case 'swallow':
+      if (g.well) swallowFx();
+      break;
+    case 'fell':
+      if (g.well) fellFx(fighterBySlot(ev.s) || g.player);
       break;
     default:
       break;
@@ -2921,15 +3010,25 @@ function showCleared() {
   $('btn-menu').onclick = goToMenu;
 }
 
+/** The words for how a level was lost: the overlay's eyebrow and its explanation. */
+function failWords() {
+  const r = game.lossReason;
+  if (r === 'camp') return { eyebrow: 'STOOD STILL', text: `You stayed within a body length of one spot for ${PLAYER.campSeconds} seconds. The grid does not allow hiding.` };
+  if (r === 'touch') return { eyebrow: 'CONTACT', text: 'You touched the boss. Contact with its body or shield costs a shield; keep your distance and let the ball do the work.' };
+  if (r === 'well') return { eyebrow: 'PULLED IN', text: 'The well took you. Inside the dotted ring everything drifts toward it, faster the closer you get; past the horizon nothing comes back.' };
+  return { eyebrow: 'SHIELD DOWN', text: game.maxLives === 1 ? 'One hit is all it takes.' : `That was your last of ${game.maxLives} shields.` };
+}
+
 function showFailed() {
   setInGame(false);
   const def = game.def;
   if (campaign) return showCampaignOver(def);
-  coopResult('failed', game.lossReason === 'camp' ? 'STOOD STILL' : game.lossReason === 'touch' ? 'CONTACT' : 'SHIELD DOWN', `${def.bossName} holds ${def.title}`, `That was the last shield. You lasted ${formatTime(game.time)}.`, LORE.failed(def.title));
+  const words = failWords();
+  coopResult('failed', words.eyebrow, `${def.bossName} holds ${def.title}`, `That was the last shield. You lasted ${formatTime(game.time)}.`, LORE.failed(def.title));
   showOverlay(`
-    <div class="eyebrow">${game.lossReason === 'camp' ? 'STOOD STILL' : game.lossReason === 'touch' ? 'CONTACT' : 'SHIELD DOWN'}</div>
+    <div class="eyebrow">${words.eyebrow}</div>
     <h1>${def.bossName} holds ${def.title}</h1>
-    <p class="muted">${game.lossReason === 'camp' ? `You stayed within a body length of one spot for ${PLAYER.campSeconds} seconds. The grid does not allow hiding.` : game.lossReason === 'touch' ? 'You touched the boss. Contact with its body or shield costs a shield; keep your distance and let the ball do the work.' : game.maxLives === 1 ? 'One hit is all it takes.' : `That was your last of ${game.maxLives} shields.`} You lasted ${formatTime(game.time)}.</p>
+    <p class="muted">${words.text} You lasted ${formatTime(game.time)}.</p>
     <p class="small muted record-note">${LORE.failed(def.title)}</p>
     <div class="row"><button id="btn-retry" class="primary">Retry</button><button id="btn-menu">Main menu</button></div>
   `);

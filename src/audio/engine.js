@@ -836,6 +836,42 @@ export class AudioEngine {
     th.stop(t + 0.32);
   }
 
+  /** The well takes something: a falling sweep that lands on a sub thump. */
+  sfxSwallow() {
+    if (!this.ctx) return;
+    const c = this.ctx;
+    const t = c.currentTime;
+    const o = this.osc('sawtooth', 900, t);
+    o.frequency.exponentialRampToValueAtTime(55, t + 0.45);
+    const flt = c.createBiquadFilter();
+    flt.type = 'lowpass';
+    flt.frequency.setValueAtTime(2400, t);
+    flt.frequency.exponentialRampToValueAtTime(180, t + 0.45);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.2, t + 0.03);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+    o.connect(flt);
+    flt.connect(g);
+    g.connect(this.sfxBus);
+    const rs = c.createGain();
+    rs.gain.value = 0.6;
+    g.connect(rs);
+    rs.connect(this.reverbSend);
+    o.start(t);
+    o.stop(t + 0.52);
+    const th = this.osc('sine', 80, t + 0.3);
+    th.frequency.exponentialRampToValueAtTime(30, t + 0.6);
+    const tg = c.createGain();
+    tg.gain.setValueAtTime(0.0001, t + 0.3);
+    tg.gain.linearRampToValueAtTime(0.5, t + 0.33);
+    tg.gain.exponentialRampToValueAtTime(0.0001, t + 0.7);
+    th.connect(tg);
+    tg.connect(this.sfxBus);
+    th.start(t + 0.3);
+    th.stop(t + 0.72);
+  }
+
   /** The ring catches the ball: a short bright ping. */
   sfxPing(strength = 0.5) {
     if (!this.ctx) return;

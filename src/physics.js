@@ -289,6 +289,56 @@ export function predictPath(x, y, vx, vy, segs, bounces = 2, maxDist = 2500, rad
 }
 
 /**
+ * predictPath for a ball in a field: `accel(x, y)` returns {ax, ay} in px/s²
+ * (or null where there is none) and `speed` is the [min, max] the ball is
+ * clamped to. The path is integrated in short steps, each cast against the
+ * segments, so it bends the way the ball will. `stop(x, y)` ends it early
+ * (the well's horizon). Returns short legs in the same shape as predictPath.
+ */
+export function predictCurvedPath(x, y, vx, vy, segs, accel, { bounces = 1, maxDist = 900, radius = 0, speed = [0, Infinity], step = 1 / 90, stop = null } = {}) {
+  const path = [];
+  let remaining = maxDist;
+  let bounced = 0;
+  for (let i = 0; i < 600 && remaining > 0; i++) {
+    const a = accel(x, y);
+    if (a) {
+      vx += a.ax * step;
+      vy += a.ay * step;
+    }
+    let s = Math.sqrt(vx * vx + vy * vy);
+    if (s < 1e-6) break;
+    const c = Math.min(speed[1], Math.max(speed[0], s));
+    vx *= c / s;
+    vy *= c / s;
+    s = c;
+    const dx = vx / s;
+    const dy = vy / s;
+    const len = Math.min(s * step, remaining);
+    const hit = raycastSegments(x, y, dx, dy, segs, len + radius);
+    if (hit) {
+      const dot = dx * hit.nx + dy * hit.ny;
+      const back = Math.abs(dot) > 1e-3 ? Math.min(hit.t, radius / Math.abs(dot)) : 0;
+      const t = Math.max(0, hit.t - back);
+      path.push({ ax: x, ay: y, bx: x + dx * t, by: y + dy * t, dx, dy });
+      remaining -= t;
+      x += dx * t + hit.nx * 0.5;
+      y += dy * t + hit.ny * 0.5;
+      const vd = vx * hit.nx + vy * hit.ny;
+      vx -= 2 * vd * hit.nx;
+      vy -= 2 * vd * hit.ny;
+      if (++bounced > bounces) break;
+    } else {
+      path.push({ ax: x, ay: y, bx: x + dx * len, by: y + dy * len, dx, dy });
+      x += dx * len;
+      y += dy * len;
+      remaining -= len;
+    }
+    if (stop && stop(x, y)) break;
+  }
+  return path;
+}
+
+/**
  * If the point (c.x, c.y) is inside `poly`, move the circle out through the
  * nearest edge (plus its radius). Thin obstacles can swallow a ball's centre
  * when it is crushed against them by a moving surface; edge-by-edge push-out

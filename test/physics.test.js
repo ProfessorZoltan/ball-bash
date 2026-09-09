@@ -783,3 +783,87 @@ test('relay mast: floor emitters pulse on their own clocks, the rings reach gues
   assert.ok(node.open < 0, 'opens upward');
   assert.ok(g.turrets.length === 2 && g.objective.turrets === 0, 'turrets harass but are not the job');
 });
+
+test('event horizon: the well pulls harder up close and not at all beyond its reach, the serve slingshots past it, the guide bends, and the shadow phases', async () => {
+  const { CONDUITS } = await import('../src/conduits.js');
+  const { createGameState, wellField, wellDrag, wellSwallows, dronePhased } = await import('../src/gamestate.js');
+  const { predictCurvedPath } = await import('../src/physics.js');
+  const { buildSnapshot, applySnapshot } = await import('../src/netstate.js');
+  const def = CONDUITS.find((c) => c.well);
+  const g = createGameState(def);
+  const w = g.well;
+  assert.ok(pointInPolygon(w.x, w.y, def.boundary));
+  assert.equal(wellField(w, w.x + w.range + 1, w.y), null, 'nothing beyond its reach');
+  const near = wellField(w, w.x + 100, w.y);
+  const far = wellField(w, w.x + 250, w.y);
+  assert.ok(near.k > far.k && near.ux === -1 && Math.abs(near.uy) < 1e-9, 'stronger up close, pointing at the well');
+  assert.ok(wellField(w, w.x, w.y + w.range - 1).k < far.k * 0.05, 'fades out at the edge');
+  assert.ok(Math.hypot(def.player.x - w.x, def.player.y - w.y) > w.range, 'the spawn is out of reach');
+  assert.ok(Math.hypot(g.nodes[0].x - w.x, g.nodes[0].y - w.y) > w.range, 'so is the node');
+  // Free flight under the pull, the way moveBall applies it.
+  const fly = (x, y, deg, secs) => {
+    const a = (deg * Math.PI) / 180;
+    const b = { x, y, vx: Math.cos(a) * def.ball.speed, vy: Math.sin(a) * def.ball.speed };
+    const dt = 1 / 240;
+    for (let t = 0; t < secs; t += dt) {
+      const p = wellField(w, b.x, b.y);
+      if (p) {
+        b.vx += p.ux * w.pull * p.k * dt;
+        b.vy += p.uy * w.pull * p.k * dt;
+      }
+      const s = Math.hypot(b.vx, b.vy);
+      const c = Math.max(BALL.minSpeed, Math.min(g.maxSpeed, s));
+      b.vx *= c / s;
+      b.vy *= c / s;
+      b.x += b.vx * dt;
+      b.y += b.vy * dt;
+      if (wellSwallows(w, b.x, b.y)) return { swallowed: true, b };
+    }
+    return { swallowed: false, b };
+  };
+  for (const deg of [def.ball.angleDeg - 14, def.ball.angleDeg, def.ball.angleDeg + 14]) {
+    const r = fly(def.ball.x, def.ball.y, deg, 2.5);
+    assert.ok(!r.swallowed && r.b.x > w.x + w.range, `the serve at ${deg}° comes out the far side (${r.swallowed}, ${r.b.x})`);
+  }
+  assert.ok(fly(def.player.x, def.player.y, 0, 3).swallowed, 'a straight shot at the well is taken');
+  // The guide bends the same way: heading up-right from the player's side, it crosses the well's column lower than a straight line would.
+  const crossY = (path, x) => {
+    for (const leg of path) if (leg.ax <= x && leg.bx >= x) return leg.ay + ((leg.by - leg.ay) * (x - leg.ax)) / (leg.bx - leg.ax);
+    return null;
+  };
+  const accel = (x, y) => {
+    const p = wellField(w, x, y);
+    return p ? { ax: p.ux * w.pull * p.k, ay: p.uy * w.pull * p.k } : null;
+  };
+  const opts = { bounces: 1, maxDist: 900, radius: BALL.radius, speed: [BALL.minSpeed, g.maxSpeed], stop: (x, y) => wellSwallows(w, x, y) };
+  const straight = predictPath(300, 450, 400, -160, g.walls, 1, 900, BALL.radius);
+  const flat = predictCurvedPath(300, 450, 400, -160, g.walls, () => null, opts);
+  const bent = predictCurvedPath(300, 450, 400, -160, g.walls, accel, opts);
+  assert.ok(Math.abs(crossY(flat, 700) - crossY(straight, 700)) < 1, 'with no field the curved guide is the straight one');
+  assert.ok(crossY(bent, 800) > crossY(straight, 800) + 40, `pulled toward the well: ${crossY(bent, 800)} vs ${crossY(straight, 800)}`);
+  assert.ok(bent.length > 20, 'many short legs');
+  const into = predictCurvedPath(300, 450, 400, 0, g.walls, accel, opts);
+  const end = into[into.length - 1];
+  assert.ok(wellSwallows(w, end.bx, end.by), 'a guide aimed at the well ends at the horizon');
+  // A player inside the reach drifts toward the well, and their body counts before their centre does.
+  const f = g.player;
+  f.x = w.x - 200;
+  f.y = w.y;
+  wellDrag(w, f, 1 / 240);
+  assert.ok(f.x > w.x - 200 && f.y === w.y, 'dragged straight at it');
+  assert.ok(wellSwallows(w, w.x - w.r - 5, w.y, f.r) && !wellSwallows(w, w.x - w.r - 5, w.y));
+  assert.deepEqual(f.spawn, { x: def.player.x, y: def.player.y, angle: def.player.angle });
+  // The shadow: an orbit round the well, solid `on` seconds then gone `off`.
+  const d = g.drones[0];
+  assert.ok(d.orbit && d.orbit.cx === w.x && d.orbit.cy === w.y, 'circles the well');
+  assert.ok(d.orbit.rx < w.range && d.orbit.rx > w.r + d.r, 'inside the pull, outside the horizon');
+  assert.equal(d.phased, false);
+  assert.equal(dronePhased(d.phasing, 0), false);
+  assert.equal(dronePhased(d.phasing, d.phasing.on + 0.1), true);
+  assert.equal(dronePhased(d.phasing, d.phasing.on + d.phasing.off + 0.1), false);
+  assert.equal(g.objective.drones, 1, 'downing it is the job');
+  d.phased = true;
+  const mirror = createGameState(def);
+  applySnapshot(mirror, JSON.parse(JSON.stringify(buildSnapshot(g, { st: 'playing' }))));
+  assert.equal(mirror.drones[0].phased, true, 'the phase reaches guests');
+});

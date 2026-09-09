@@ -470,6 +470,79 @@ CONDUITS.push({
   ball: { x: 460, y: 450, speed: 400, angleDeg: -35 },
 });
 
+CONDUITS.push({
+  id: 8.5,
+  after: 8,
+  conduit: true,
+  title: 'Event Horizon',
+  bossName: 'Umbra',
+  intro: 'A chamber at the edge of the void, and the void pulls. Inside the dotted ring everything drifts toward the well at the centre: the ball bends around it, you drift after it, and past the horizon nothing comes back. A shadow circles the well and is only there three seconds in five. Knock it out while it is, and light the node on the far side. The chamber breathes, top and bottom.',
+  record: 'The well is what the grid found when it looked past its own edge: a place with no walls where every straight line still bends. The shadow circling it is a first draft of the Absence.',
+  stopped: 'The shadow is gone and the node beyond the well is lit. Nullspace is what remains when even the well is taken away.',
+  width: 1600,
+  height: 900,
+  track: 'nullspace',
+  maxBallSpeed: CONDUIT_MAX_SPEED,
+  palette: {
+    floor: '#000000',
+    grid: 'rgba(120, 140, 200, 0.07)',
+    wall: '#7fe9ff',
+    boundary: '#14141f',
+    wallDark: '#000000',
+    obstacle: '#e9e9ff',
+    obstacleDark: '#101018',
+    obstacleFill: '#05050a',
+    node: '#4a4a6a',
+    nodeLit: '#7dffc4',
+    well: '#b49cff',
+  },
+  boundary: [[40, 40], [1560, 40], [1560, 860], [40, 860]],
+  obstacles: [],
+  // Two of the breathing walls Nullspace has eight of: the top and the bottom slide in 100 px and back over six seconds.
+  movers: [
+    { type: 'piston', x: 800, y: 50, length: 1520, thick: 10, axisAngle: Math.PI / 2, amp: 100, period: 6, phase: 0 },
+    { type: 'piston', x: 800, y: 850, length: 1520, thick: 10, axisAngle: -Math.PI / 2, amp: 100, period: 6, phase: 0 },
+  ],
+  // The well: `r` is the horizon, `range` where the pull begins, `pull` the ball's acceleration and `drag` a player's drift, both over distance.
+  well: { x: 800, y: 450, r: 40, range: 420, pull: 60000, drag: 45000 },
+  // The node sits beyond the well's reach, straight across from the player: no straight shot gets there.
+  nodes: [{ x: 1400, y: 450, r: 26, kind: 'plain' }],
+  drones: [shadow()],
+  objective: { drones: true },
+  player: { x: 260, y: 450, angle: 0 },
+  ball: { x: 460, y: 420, speed: 400, angleDeg: -30 },
+});
+
+/** The shadow: a first draft of the Absence. It circles the well and is solid three seconds in every five. */
+function shadow() {
+  return {
+    x: 800,
+    y: 220,
+    angle: Math.PI / 2,
+    r: 30,
+    paddleWidth: 130,
+    paddleBase: 42,
+    paddleThick: 7,
+    moveSpeed: 150,
+    turnSpeed: 4,
+    reaction: 0.3,
+    anticipation: { commit: 0.4, swing: false, error: 8 },
+    aggression: 0.1,
+    aim: 0.4,
+    absorb: 0,
+    absorbSpeed: 500,
+    threatRadius: 320,
+    blockRadius: 100,
+    safeRadius: 0,
+    leash: 110,
+    lungeExtend: 18,
+    lungeSpeed: 130,
+    orbit: { cx: 800, cy: 450, rx: 230, ry: 230, omega: 0.3, phase: -Math.PI / 2 },
+    phasing: { on: 3, off: 2 },
+    ghost: true,
+  };
+}
+
 /** Every playable room in campaign order: each level, then the conduit that follows it. */
 export const SEQUENCE = LEVELS.flatMap((lvl) => [lvl, ...CONDUITS.filter((c) => c.after === lvl.id)]);
 

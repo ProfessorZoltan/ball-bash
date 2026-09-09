@@ -128,7 +128,17 @@ after a block. `noGuide: true` switches the dotted shot guide off.
 entry takes the same fields as a boss `pulse` (`period`, `speed`,
 `maxRadius`, `thick`, `warn`, `delay`, timed from the level start) and its
 rings fling the ball exactly as the Beacon's do. Pulse rings, from bosses and
-emitters alike, now reach co-op guests in the snapshot. Conduits can also hold **drones**, Boss-brained enemies with
+emitters alike, now reach co-op guests in the snapshot. A **gravity well**
+(`well: { x, y, r, range, pull, drag }`) pulls everything inside `range`
+toward it with a 1/distance fall-off that fades out over the outer third:
+the ball accelerates by `pull / d` px/s² and a player drifts `drag / d`
+px/s, so close in the drift outruns a player's own speed. Inside the horizon
+`r` the ball is taken (a free re-serve) and a player loses a shield and
+restarts at their spawn; drones are never pulled. With a well the dotted
+guide is integrated through the field instead of cast straight, so it shows
+the bend. A drone with `phasing: { on, off }` is solid for `on` seconds from
+each serve and then intangible for `off`: drawn faint, ignored by the ball
+and the contact rule. Conduits can also hold **drones**, Boss-brained enemies with
 their own stats; a body hit knocks a drone out for the rest of the room, and
 `objective.drones` makes downing them part of the objective.
 
@@ -149,6 +159,7 @@ Conduits built so far:
 | 5½ Reliquary | Glass Cathedral | a nave ending in an apse walled off by three panes of stained glass, of which only the amber one breaks, and only to a strike of 600 px/s or more under the 750 cap; the relic node behind it must be reached before the pane heals four seconds later; two choristers loop the nave and block | `src/conduits.js` |
 | 6½ Lamplighter | The Undercroft | an unlit crypt stair where five candle nodes light their corners when struck and the exit only answers once the candles beside it burn; two lantern drones loop the dark with their light shuttered while they move and shown while they stand or block; no guide line | `src/conduits.js` |
 | 7½ Relay Mast | Signal Spire | a mast splits the room and the only lane is over its top; two floor emitters pulse half a period apart and every ring flings the ball, so a shot waits for the silence or rides a ring over; two turrets fire on the same beat; the receiver on the far side is hooded to take the ball only from above and to the left, the way a lob arrives | `src/conduits.js` |
+| 8½ Event Horizon | Nullspace | a gravity well at the centre of a chamber whose top and bottom walls breathe; inside its dotted reach the ball bends toward it and players drift after it, and the horizon takes whatever crosses it (the ball for a free re-serve, a player for a shield and a trip back to the spawn); the shot guide bends with the pull; Umbra, a shadow of the Absence, circles the well solid three seconds in five and has to be knocked out while it is; the node waits beyond the well's reach, straight across from the player, so only a slingshot or a bank reaches it | `src/conduits.js` |
 
 ## Campaign and difficulty
 
