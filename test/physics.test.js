@@ -867,3 +867,58 @@ test('event horizon: the well pulls harder up close and not at all beyond its re
   applySnapshot(mirror, JSON.parse(JSON.stringify(buildSnapshot(g, { st: 'playing' }))));
   assert.equal(mirror.drones[0].phased, true, 'the phase reaches guests');
 });
+
+test('drafting room: one of everything, the signature waits on the rest, the bay is shut and glazed, and the turret is the job', async () => {
+  const { CONDUITS, SEQUENCE } = await import('../src/conduits.js');
+  const { createGameState, objectiveDone, rebuildWalls } = await import('../src/gamestate.js');
+  const def = CONDUITS.find((c) => c.title === 'Drafting Room');
+  assert.equal(SEQUENCE[SEQUENCE.length - 2], def, 'the last stop before the Arcade');
+  assert.equal(SEQUENCE[SEQUENCE.length - 1], LEVELS[LEVELS.length - 1], 'which ends the sequence');
+  assert.equal(SEQUENCE[SEQUENCE.length - 3], LEVELS[LEVELS.length - 2], 'it follows Nullspace');
+  const g = createGameState(def);
+  const kinds = g.nodes.map((n) => n.kind);
+  for (const k of ['ricochet', 'hooded', 'switch', 'plain']) assert.ok(kinds.includes(k), `a ${k} node`);
+  assert.equal(g.doors.length, 1);
+  assert.equal(g.panes.length, 1);
+  assert.equal(g.turrets.length, 1);
+  assert.equal(g.vents.length, 2);
+  assert.ok(g.ice, 'vents need ice');
+  assert.ok(g.drones.length === 1 && g.drones[0].rail, 'a cart on a rail');
+  assert.ok(g.movers.length === 1 && g.movers[0].kind === 'spinner', 'the prism');
+  assert.ok(def.glass.breakSpeed > def.ball.speed && def.glass.breakSpeed < def.maxBallSpeed, 'the strike is earned under the cap');
+  // Everything sits inside the room and outside the solids.
+  for (const n of g.nodes) {
+    assert.ok(pointInPolygon(n.x, n.y, def.boundary), `node ${n.i} inside`);
+    for (const poly of g.solidPolys) if (!pointInPolygon(n.x, n.y, ellipseAt(n))) assert.ok(!pointInPolygon(n.x, n.y, poly), `node ${n.i} clear of solids`);
+  }
+  for (const t of g.turrets) assert.ok(pointInPolygon(t.x, t.y, def.boundary));
+  for (const v of g.vents) assert.ok(pointInPolygon(v.x, v.y, def.boundary));
+  // The switch opens the door; the strike node is inside the bay behind the door and the pane.
+  const door = g.doors[0];
+  const sw = g.nodes.find((n) => n.kind === 'switch');
+  assert.deepEqual(sw.toggles, [0]);
+  assert.ok(door.closed && g.solidPolys.includes(door.poly), 'shut to start');
+  const strike = g.nodes[3];
+  const doorX = door.poly.reduce((s, p) => s + p[0], 0) / door.poly.length;
+  const paneX = g.panes[0].poly.reduce((s, p) => s + p[0], 0) / g.panes[0].poly.length;
+  assert.ok(strike.x > paneX && paneX > doorX && doorX > def.player.x, 'door, then glass, then the node');
+  // The signature waits on the bank, the hood and the strike; the switch never counts; the turret does.
+  const sig = g.nodes[4];
+  assert.deepEqual(sig.requires, [0, 1, 3]);
+  assert.equal(g.objective.turrets, 1);
+  for (const i of [0, 1, 3, 4]) g.nodes[i].lit = true;
+  assert.equal(objectiveDone(g), false, 'the turret is still up');
+  g.turrets[0].down = true;
+  assert.equal(objectiveDone(g), true, 'switch off, everything else done');
+  door.closed = false;
+  rebuildWalls(g);
+  assert.ok(!g.solidPolys.includes(door.poly));
+  // The hood opens from below only: a ball rising into it qualifies, one arriving from the left does not.
+  const { nodeAccepts } = await import('../src/gamestate.js');
+  const hood = g.nodes[1];
+  assert.equal(nodeAccepts(hood, { nx: 0, ny: 1 }, { vx: 0, vy: -400 }, g.ball), true);
+  assert.equal(nodeAccepts(hood, { nx: -1, ny: 0 }, { vx: 400, vy: 0 }, g.ball), false);
+  function ellipseAt(n) {
+    return [[n.x - n.r - 1, n.y - n.r - 1], [n.x + n.r + 1, n.y - n.r - 1], [n.x + n.r + 1, n.y + n.r + 1], [n.x - n.r - 1, n.y + n.r + 1]];
+  }
+});

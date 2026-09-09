@@ -543,6 +543,85 @@ function shadow() {
   };
 }
 
+CONDUITS.push({
+  id: 9.5,
+  after: 9,
+  conduit: true,
+  title: 'Drafting Room',
+  bossName: 'Draughtsman',
+  intro: 'The Architect\'s drafting table, where every room before this one was drawn, and the drawing is the exam. Bank into the corner node. Come up under the hood. Throw the switch, and break the glass behind the door with a hard strike. Send the turret\'s shot back into it. Then sign the sheet at the far side, which only answers once the rest is lit. The Draughtsman runs the middle rail, and the vents keep the floor cold.',
+  record: 'Every wall in the grid was drawn here first. The Draughtsman is the Architect\'s hand: it holds the ruler, runs the rail, and has never once been asked to think.',
+  stopped: 'The sheet is signed. The Architect has seen the drawing come back with every mark in place, and opens the Last Arcade.',
+  width: 1600,
+  height: 900,
+  track: 'arcade',
+  maxBallSpeed: CONDUIT_MAX_SPEED,
+  palette: {
+    floor: '#061630',
+    grid: 'rgba(200, 230, 255, 0.10)',
+    wall: '#dff3ff',
+    wallDark: '#123a66',
+    obstacle: '#ff4fd8',
+    obstacleDark: '#3a0f30',
+    obstacleFill: '#1a0a1a',
+    node: '#5a7aa8',
+    nodeLit: '#7dffc4',
+    turret: '#ffb347',
+    shot: '#ff9f6a',
+    door: '#ff4fd8',
+    doorDark: '#3a0f30',
+    rail: '#c9b27a',
+    ice: '#cdf6ff',
+  },
+  boundary: [
+    [60, 140],
+    [140, 60],
+    [1460, 60],
+    [1540, 140],
+    [1540, 760],
+    [1460, 840],
+    [140, 840],
+    [60, 760],
+  ],
+  glass: { breakSpeed: 600, regrow: 4, speedKeep: 0.8 },
+  obstacles: [
+    // A screen left of the hooded node: it can only be reached from below.
+    rect(1200, 160, 20, 130, 0),
+    // The bay in the bottom-right corner: a roof, and a glass pane across it that only a hard strike breaks.
+    rect(1358, 620, 364, 16, 0),
+    { poly: rect(1380, 730, 16, 220, 0), color: '#ffc46b', glass: true },
+    // Lane diamonds on the player's side, as in the Arcade.
+    rect(560, 200, 44, 44, 45),
+    rect(560, 700, 44, 44, 45),
+  ],
+  // The prism at the centre of the sheet.
+  movers: [{ type: 'spinner', x: 800, y: 450, length: 160, thick: 8, omega: 0.4, angle: 0.3 }],
+  // The bay's door: shut until the switch below the rail opens it.
+  doors: [rect(1180, 730, 16, 220, 0)],
+  ice: { lay: 1.6, life: 2.5, freeze: 1.5, width: 30, patchLife: 5 },
+  vents: [
+    { x: 420, y: 300, period: 9, delay: 5 },
+    { x: 420, y: 600, period: 9, delay: 9.5 },
+  ],
+  turrets: [{ x: 800, y: 790, period: 5, delay: 4, speed: 260, life: 6 }],
+  nodes: [
+    // The bank: a corner node no straight shot from the player's side earns.
+    { x: 300, y: 140, r: 24, kind: 'ricochet' },
+    // The hood: open from below, screened from the left.
+    { x: 1300, y: 160, r: 24, kind: 'hooded', open: Math.PI / 2, arc: 100 },
+    // The switch that opens the bay door.
+    { x: 1100, y: 780, r: 20, kind: 'switch', toggles: [0] },
+    // The strike: behind the door and the glass.
+    { x: 1470, y: 730, r: 22, kind: 'plain' },
+    // The signature: the far side, once the rest is lit.
+    { x: 1440, y: 450, r: 28, kind: 'plain', requires: [0, 1, 3] },
+  ],
+  drones: [sentry(1100, 450, Math.PI, cart({ ax: 1100, ay: 220, bx: 1100, by: 620 }))],
+  objective: { turrets: true },
+  player: { x: 220, y: 450, angle: 0 },
+  ball: { x: 420, y: 450, speed: 400, angleDeg: 0 },
+});
+
 /** Every playable room in campaign order: each level, then the conduit that follows it. */
 export const SEQUENCE = LEVELS.flatMap((lvl) => [lvl, ...CONDUITS.filter((c) => c.after === lvl.id)]);
 
