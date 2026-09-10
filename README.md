@@ -381,6 +381,11 @@ which launches the game chrome-free thanks to `manifest.webmanifest`.
 * One hit on the boss's body wins the level. A hit on your body costs a
   shield and the ball re-serves behind a fresh countdown; with no shields
   left the level is lost. How many shields you get is the difficulty.
+* **The serve has to be played.** Until a shield (yours or the boss's) has
+  touched the ball since the launch, it beats no boss, knocks out no drone
+  and lights or flips no node: it bounces off them, with a red flicker on a
+  node and a HUD notice, and wall bounces do not count as playing it. A
+  body hit on you counts from the launch, so a serve cannot be waited out.
 * **Keep moving.** A human player who stays within a body diameter (44 px)
   of one spot for 8 seconds loses a shield in single player and the round in
   multiplayer. It is net displacement, so turning in place or jittering does
@@ -557,7 +562,10 @@ an incoming ball away and boosts a ball it overtakes, then fades at
 Level 9 has no obstacles: the chamber itself is eight pistons, all in phase,
 so every wall slides inward and back together. Banks off a closing wall come
 back faster and off an opening wall slower, so a rally's speed rises and falls
-with the room's breath. The Absence is drawn as a hole in the grid (`ghost`).
+with the room's breath. The Absence is drawn as a hole in the grid (`ghost`)
+and phases like its draft in the Event Horizon (`phasing: { on: 3, off: 2 }`):
+solid for three seconds from each serve, then gone for two, when the ball
+passes through it and it passes through you.
 
 Level 10 is the gauntlet: the prism at the centre, a rail column with two
 alternating sliding doors, a screen of breakable glass around the Architect,

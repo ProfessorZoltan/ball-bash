@@ -37,7 +37,10 @@ export function advanceBall(ball, walls, fighters, dt, factor = 1, hooks = {}, m
         ball.y += h.ny * h.depth;
         const sv = f.surfaceVelocityAt(h.cx, h.cy);
         const before = ball.speed;
-        if (reflect(ball, h.nx, h.ny, sv.x, sv.y, 1, factor) && hooks.onPaddle) hooks.onPaddle(f, h, before);
+        if (reflect(ball, h.nx, h.ny, sv.x, sv.y, 1, factor)) {
+          ball.played = true;
+          if (hooks.onPaddle) hooks.onPaddle(f, h, before);
+        }
         any = true;
       }
       const hb = circleVsCircle(ball.x, ball.y, ball.r, f.x, f.y, f.r);

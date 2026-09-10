@@ -965,3 +965,31 @@ test('versus conduits: the hazards stay, the targets and enemies go, three are l
   const auto = versusSpawns(CONDUITS.find((c) => !c.versus), 3);
   assert.equal(auto.length, 3);
 });
+
+test('the bare serve: a ball is unplayed from the launch until a shield touches it, and The Absence phases like Umbra', async () => {
+  const { createGameState, dronePhased } = await import('../src/gamestate.js');
+  const b = new Ball(BALL.radius);
+  b.launch(100, 300, 0, 400);
+  assert.equal(b.played, false, 'fresh off the launch');
+  // A wall does not play it.
+  const walls = polygonEdges([[0, 0], [600, 0], [600, 600], [0, 600]]);
+  for (let i = 0; i < 240 * 2; i++) advanceBall(b, walls, [], 1 / 240);
+  assert.equal(b.played, false, 'walls do not count');
+  // A shield does.
+  const f = new Fighter({ x: 300, y: 300, angle: Math.PI, paddleBase: 36, paddleWidth: 116 });
+  b.launch(200, 300, 0, 400);
+  let hit = false;
+  for (let i = 0; i < 240 && !hit; i++) advanceBall(b, walls, [f], 1 / 240, 1, { onPaddle: () => (hit = true) });
+  assert.ok(hit && b.played, 'a shield touch plays it');
+  b.launch(200, 300, 0, 400);
+  assert.equal(b.played, false, 'and the next serve starts over');
+  // The Absence: solid three seconds in five, like Umbra.
+  const nullspace = LEVELS.find((l) => l.title === 'Nullspace');
+  assert.deepEqual(nullspace.boss.phasing, { on: 3, off: 2 });
+  const g = createGameState(nullspace);
+  assert.equal(g.boss.phased, false);
+  assert.equal(dronePhased(g.boss.phasing, 3.5), true);
+  assert.equal(dronePhased(g.boss.phasing, 5.5), false);
+  const umbra = (await import('../src/conduits.js')).CONDUITS.find((c) => c.well).drones[0];
+  assert.deepEqual(umbra.phasing, nullspace.boss.phasing, 'the same clock as its draft');
+});

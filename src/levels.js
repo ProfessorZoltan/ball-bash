@@ -592,7 +592,7 @@ export const LEVELS = [
     id: 9,
     title: 'Nullspace',
     bossName: 'The Absence',
-    intro: 'An empty chamber in the void, and the chamber breathes: all eight walls slide inward and back together. Banks off a closing wall come back faster; off an opening wall, slower. The Absence is huge, quick, and barely there.',
+    intro: 'An empty chamber in the void, and the chamber breathes: all eight walls slide inward and back together. Banks off a closing wall come back faster; off an opening wall, slower. The Absence is huge, quick, and barely there: it fades out for two seconds in every five, and while it is gone nothing stops the ball, and nothing stops it.',
     record: 'What the grid uses for a wall where there is nothing to hold one up. Barely a program: a place that pushes back.',
     stopped: 'The walls stop breathing. Where the Absence was, there is only absence.',
     width: 1600,
@@ -648,6 +648,7 @@ export const LEVELS = [
       lungeExtend: 22,
       lungeSpeed: 170,
       ghost: true, // drawn as a hole in the grid, not a lit body
+      phasing: { on: 3, off: 2 }, // and only there three seconds in five, like its draft in the Event Horizon
     },
     ball: { x: 560, y: 450, speed: 450, angleDeg: 25 },
   },

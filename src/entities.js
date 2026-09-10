@@ -15,6 +15,7 @@ export class Ball {
     this.lastPaddle = null; // kind of the last fighter whose shield hit it
     this.lastTeam = null; // team of that fighter (the own-ball rule works per team)
     this.banked = false; // bounced off a wall or mover since the last shield touch (ricochet nodes)
+    this.played = false; // a shield has touched it since the launch: until then the bare serve beats nobody and lights nothing
   }
 
   get speed() {
@@ -50,6 +51,7 @@ export class Ball {
     this.lastPaddle = null;
     this.lastTeam = null;
     this.banked = false;
+    this.played = false;
     this.rx = x;
     this.ry = y;
   }

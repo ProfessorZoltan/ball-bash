@@ -58,6 +58,7 @@ function buildGame(def, pvp = false, rules = { ownBallLoss: ownBallLoss() }, coo
     guidePath: null,
     drops: 0, // frames this level that took far longer than the display's refresh interval
     lossReason: null, // 'hit' | 'camp' | 'touch' once the level is lost
+    note: null, // { text, until }: a passing HUD notice (the unplayed serve bouncing off a boss or a node)
   };
 }
 
@@ -634,6 +635,10 @@ function moveBall(dt) {
           onPvpHit(f, h);
           return true;
         }
+        if (f.kind === 'boss' && !g.ball.played) {
+          serveBounce(f, h); // the bare serve beats nobody: play it first
+          return false;
+        }
         if (f.kind === 'boss') return g.def.conduit ? onDroneHit(f, h) : onBossHit(h);
         onPlayerHit(f, h);
         return false;
@@ -692,6 +697,14 @@ function onNodeHit(node, h, before) {
   const n = speedNorm(g.ball.speed);
   g.ball.lastHitBy = 'wall';
   guideFrame = 0;
+  if (!g.ball.played) {
+    // The bare serve: an ordinary bounce, and a word about why.
+    wallFx(h.cx, h.cy, h.nx, h.ny, n, color);
+    netEvent({ e: 'wall', x: h.cx, y: h.cy, nx: h.nx, ny: h.ny, n, c: color });
+    if (!node.lit) refusedFx(node);
+    serveNote();
+    return;
+  }
   if (node.kind === 'switch') {
     // A switch flips its doors on every touch (with a moment's grace against double taps).
     wallFx(h.cx, h.cy, h.nx, h.ny, n, color);
@@ -832,6 +845,16 @@ function paddleFx(f, x, y, nx, ny, strength, big) {
 function ownBallBounce(f, h) {
   bodyBounceFx(f, h.cx, h.cy, h.nx, h.ny);
   netEvent({ e: 'body', s: f.slot, x: h.cx, y: h.cy, nx: h.nx, ny: h.ny });
+}
+
+/** The serve, untouched by any shield, reached a boss's body: it bounces off, and the HUD says why. */
+function serveBounce(f, h) {
+  ownBallBounce(f, h);
+  serveNote();
+}
+
+function serveNote() {
+  game.note = { text: "SERVE DOESN'T COUNT · PLAY IT FIRST", until: game.time + 2.5 };
 }
 
 function bodyBounceFx(f, x, y, nx, ny) {
@@ -1462,7 +1485,8 @@ function updateHud() {
   const frozen = !!me && me.frozen > 0;
   const campLeft = me ? PLAYER.campSeconds - me.campTimer : Infinity;
   const camping = !!me && state === 'playing' && !g.tutorial && me.campTimer > 0 && campLeft <= PLAYER.campWarn;
-  let status = frozen ? `FROZEN ${me.frozen.toFixed(1)}` : camping ? `MOVE · ${Math.max(0, campLeft).toFixed(1)}` : !me && g.pvp ? 'OUT · WATCHING' : '';
+  const note = g.note && g.time < g.note.until && state === 'playing' ? g.note.text : '';
+  let status = frozen ? `FROZEN ${me.frozen.toFixed(1)}` : camping ? `MOVE · ${Math.max(0, campLeft).toFixed(1)}` : !me && g.pvp ? 'OUT · WATCHING' : note;
   const lost = g.lastLoss && state === 'countdown' && g.time - g.lastLoss.at < 4 ? g.lastLoss : null;
   if (lost && lost.slot === 'b') status = `BOSS HIT · ${g.bossHits} MORE TO GO`;
   else if (lost && lost.reason === 'swallow') status = 'THE WELL TOOK THE BALL';
@@ -1478,7 +1502,7 @@ function updateHud() {
   }
   setText('hud-status', status);
   $('hud-status').style.color = last ? net.colors[last.id] : camping ? '#ff4d6d' : '';
-  $('hud-status').classList.toggle('on', frozen || camping || !!lost || state === 'roundEnd' || (!me && g.pvp));
+  $('hud-status').classList.toggle('on', frozen || camping || !!lost || state === 'roundEnd' || (!me && g.pvp) || !!note);
 }
 
 function formatTime(t) {
