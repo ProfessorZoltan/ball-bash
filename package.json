@@ -1,6 +1,6 @@
 {
   "name": "deflector",
-  "version": "0.8.1-alpha",
+  "version": "0.9.0-alpha",
   "private": true,
   "description": "Pong-inspired arena game: bank an energy ball around the room to blindside the boss.",
   "type": "module",
