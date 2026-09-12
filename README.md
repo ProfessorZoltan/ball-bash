@@ -462,6 +462,7 @@ Each level's boss is a data block in `src/levels.js`:
 | `paddleWidth`, `paddleBase` | shield size and how far it is held out |
 | `moveSpeed`, `turnSpeed` | movement and rotation limits |
 | `reaction` | seconds of perception delay; the boss also only re-plans this often |
+| `foresight` | wall bounces it can follow when forecasting (see below) |
 | `aggression` | chance it whacks an arriving ball |
 | `aim` | 0 = just block, 1 = angle the shield to return the ball at you |
 | `absorb`, `absorbSpeed` | chance it pulls its shield back to slow a hot ball |
@@ -474,6 +475,48 @@ space they cross, how close they pass to you, and whether they would rebound
 back at itself, then tilts its shield to send the ball down the best lane. In
 the last quarter second before impact it braces, holding the shield still, so
 it cannot accidentally whack the ball at speed into its own walls.
+
+### Foresight: how far ahead a boss can see
+
+A boss makes three forecasts, and all three are cut from its one `foresight`
+stat, the number of wall bounces it can follow:
+
+| Forecast | What it is for | Depth | Source |
+|---|---|---|---|
+| threat | following the incoming ball to work out where to stand | `foresight` | `findThreat` in `src/ai.js` |
+| read | following the ball to your shield and back off it (anticipation) | `foresight + 1` | `predictReturn`, same file |
+| aim | scoring its own candidate returns | `foresight - 1`, never below 1 | `chooseReturnAngle`, same file |
+
+Each leg gets the same distance allowance (`LEG_RANGE`, 800 px), so a deeper
+forecast looks further as well as through more banks. A boss with no
+`foresight` set uses `DEFAULT_FORESIGHT` (3), which gives 3 / 4 / 2 — exactly
+what every boss used before this was a stat, so conduit drones are unchanged.
+
+The ten campaign bosses now ramp, so a bank that beats the Warden is read by
+the Architect:
+
+| Level | Boss | Foresight | Source |
+|---|---|---|---|
+| 1 The Antechamber | The Warden | 1 | `LEVELS` in `src/levels.js` |
+| 2 Prism Vault | The Refractor | 2 | same |
+| 3 Coolant Tunnels | The Sump | 2 | same |
+| 4 The Hollow Reactor | Core Sentinel | 3 | same |
+| 5 Switchyard | The Shunter | 3 | same |
+| 6 Glass Cathedral | The Choirmaster | 3 | same |
+| 7 The Undercroft | The Sexton | 4 | same |
+| 8 Signal Spire | The Beacon | 4 | same |
+| 9 Nullspace | The Absence | 5 | same |
+| 10 The Last Arcade | The Architect | 5 | same |
+
+What this measurably changes is the **read**. Over 4000 random ball states per
+level, the share the boss can anticipate a return from roughly doubles across
+the ramp, from about 4% at the Warden's depth to 10-15% at the Architect's: a
+ball that reaches you by a long banked route is invisible to an early boss and
+already planned for by a late one. The threat and aim depths were measured too
+and did not move interception in a test harness, because `leash` and
+`threatRadius` decide where a boss will stand long before the forecast does.
+Planning stays cheap: the worst level (the Undercroft, 128 wall segments)
+costs about 0.6 ms for one plan, and a boss plans three to five times a second.
 
 ## Boss anticipation
 

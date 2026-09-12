@@ -11,6 +11,13 @@
 //     rebounds back at the boss. The paddle angle is then the bisector between
 //     "where the ball comes from" and that chosen direction.
 //  3. Receive: whack (lunge), absorb (pull the shield back) or just block.
+//
+// How far ahead any of that looks is the boss's `foresight`: the number of
+// wall bounces it can follow. A boss that reads one bounce is beaten by a
+// two-bank shot; one that reads five has seen the shot before it is taken.
+// The three forecasts are cut from the same number (see foresight()), so a
+// level sets one value and the whole brain sharpens with it.
+//
 //  4. Anticipate: while the ball is still on its way to the player, read the
 //     player's shield (pose, and with `swing` its motion at contact), reflect
 //     the ball off it the way the physics will, and start moving toward where
@@ -21,6 +28,30 @@ import { angleDiff, clamp } from './vec.js';
 import { BALL, SURFACE_VELOCITY_FACTOR } from './config.js';
 
 const DEG = Math.PI / 180;
+
+/** Bounces a boss reads when nothing says otherwise: the depth every boss used before foresight was a stat. */
+export const DEFAULT_FORESIGHT = 3;
+
+/** How far one leg of a forecast may run, in px. The range scales with the number of legs. */
+const LEG_RANGE = 800;
+
+/**
+ * The three depths a boss forecasts at, from its one `foresight` stat:
+ *   threat   bounces it follows the incoming ball through
+ *   read     one more, since anticipation follows the ball to a shield and back
+ *   aim      one less: choosing its own return is a shorter, more certain look
+ * At the default of 3 these are 3 / 4 / 2, which is what every boss used
+ * before this was a stat.
+ */
+export function foresight(boss) {
+  const f = Math.max(0, Math.round(boss && boss.foresight !== undefined ? boss.foresight : DEFAULT_FORESIGHT));
+  return { threat: f, read: f + 1, aim: Math.max(1, f - 1) };
+}
+
+/** A forecast's distance cap: every leg gets the same allowance. */
+function range(bounces) {
+  return LEG_RANGE * (bounces + 1);
+}
 
 /** Ring buffer of ball snapshots so the boss can look into the past. */
 export class BallHistory {
@@ -60,7 +91,8 @@ export class BallHistory {
  * otherwise the closest approach of any leg.
  */
 function findThreat(boss, seen, walls, ballR, refX = boss.x, refY = boss.y) {
-  const path = predictPath(seen.x, seen.y, seen.vx, seen.vy, walls, 3, 3200, ballR);
+  const n = foresight(boss).threat;
+  const path = predictPath(seen.x, seen.y, seen.vx, seen.vy, walls, n, range(n), ballR);
   let closest = null;
   let travelled = 0;
   for (let li = 0; li < path.length; li++) {
@@ -101,7 +133,7 @@ function paddleSegmentAt(f, pose) {
  * Returns { x, y, vx, vy, t } for the moment after contact, or null when the
  * ball will not meet the shield (then the boss falls back to waiting).
  */
-export function predictReturn(seen, now, player, segs, ballR, { swing = true, error = 0 } = {}, diag = null) {
+export function predictReturn(seen, now, player, segs, ballR, { swing = true, error = 0, bounces = DEFAULT_FORESIGHT + 1 } = {}, diag = null) {
   const why = (reason) => {
     if (diag) diag.reason = reason;
     return null;
@@ -109,7 +141,7 @@ export function predictReturn(seen, now, player, segs, ballR, { swing = true, er
   const speed = Math.hypot(seen.vx, seen.vy);
   if (speed < 1) return why('still');
   const seenAt = seen.t ?? now;
-  const path = predictPath(seen.x, seen.y, seen.vx, seen.vy, segs, 4, 3200, ballR);
+  const path = predictPath(seen.x, seen.y, seen.vx, seen.vy, segs, bounces, range(bounces), ballR);
   if (!path.length) return why('no-path');
 
   // First crossing of the ball's path with the shield presented at `pose`.
@@ -193,6 +225,7 @@ export function predictReturn(seen, now, player, segs, ballR, { swing = true, er
  */
 function chooseReturnAngle(boss, tx, ty, incoming, player, walls, eta, ballR, movers = []) {
   const humans = Array.isArray(player) ? player : [player];
+  const aimBounces = foresight(boss).aim;
   const inx = Math.cos(incoming);
   const iny = Math.sin(incoming);
   // Contact happens at the paddle, out in front of the body.
@@ -216,7 +249,7 @@ function chooseReturnAngle(boss, tx, ty, incoming, player, walls, eta, ballR, mo
     if (nl < 1e-6) continue;
     const nAngle = Math.atan2(ny / nl, nx / nl);
 
-    const path = predictPath(cx, cy, dx, dy, walls, 2, 2400, ballR);
+    const path = predictPath(cx, cy, dx, dy, walls, aimBounces, range(aimBounces), ballR);
     if (path.length === 0) continue;
     let score = 0;
 
@@ -352,7 +385,7 @@ function plan(boss, seen, humans, walls, now, ballR, movers) {
     if (ant && ant.commit > 0) {
       for (const h of humans) {
         const d = {};
-        const r = predictReturn(seen, now, h, segsIn, ballR, ant, d);
+        const r = predictReturn(seen, now, h, segsIn, ballR, { ...ant, bounces: foresight(boss).read }, d);
         if (r && (!ret || r.t < ret.t)) {
           ret = r;
           diag.reason = d.reason;

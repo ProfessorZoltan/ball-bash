@@ -99,6 +99,7 @@ export const LEVELS = [
       moveSpeed: 190,
       turnSpeed: 3.91,
       reaction: 0.3,
+      foresight: 1, // bounces it can follow (one bounce: a two-bank shot is past it)
       anticipation: { commit: 0.5, swing: false, error: 6 },
       aggression: 0.12,
       aim: 0.55,
@@ -171,6 +172,7 @@ export const LEVELS = [
       moveSpeed: 270,
       turnSpeed: 5.06,
       reaction: 0.23,
+      foresight: 2, // bounces it can follow (two)
       anticipation: { commit: 0.55, swing: false, error: 5 },
       aggression: 0.18,
       aim: 0.8,
@@ -244,6 +246,7 @@ export const LEVELS = [
       moveSpeed: 130,
       turnSpeed: 3.22,
       reaction: 0.31,
+      foresight: 2, // bounces it can follow (two)
       anticipation: { commit: 0.45, swing: false, error: 6 },
       aggression: 0.05,
       aim: 0.5,
@@ -302,6 +305,7 @@ export const LEVELS = [
       moveSpeed: 260,
       turnSpeed: 6.21,
       reaction: 0.21,
+      foresight: 3, // bounces it can follow (three: from here on it sees the bank you meant)
       anticipation: { commit: 0.6, swing: true, error: 5 },
       aggression: 0.15,
       aim: 0.7,
@@ -372,6 +376,7 @@ export const LEVELS = [
       moveSpeed: 300,
       turnSpeed: 4.14,
       reaction: 0.26,
+      foresight: 3, // bounces it can follow (three)
       anticipation: { commit: 0.65, swing: true, error: 4 },
       aggression: 0.2,
       aim: 0.6,
@@ -446,6 +451,7 @@ export const LEVELS = [
       moveSpeed: 240,
       turnSpeed: 4.83,
       reaction: 0.24,
+      foresight: 3, // bounces it can follow (three)
       anticipation: { commit: 0.7, swing: true, error: 4 },
       aggression: 0,
       aim: 0.8,
@@ -512,6 +518,7 @@ export const LEVELS = [
       moveSpeed: 220,
       turnSpeed: 4.37,
       reaction: 0.28,
+      foresight: 4, // bounces it can follow (four)
       anticipation: { commit: 0.7, swing: true, error: 4 },
       aggression: 0.1,
       aim: 0.6,
@@ -572,6 +579,7 @@ export const LEVELS = [
       moveSpeed: 230,
       turnSpeed: 4.6,
       reaction: 0.26,
+      foresight: 4, // bounces it can follow (four)
       anticipation: { commit: 0.8, swing: true, error: 3 },
       aggression: 0.1,
       aim: 0.7,
@@ -636,6 +644,7 @@ export const LEVELS = [
       moveSpeed: 330,
       turnSpeed: 6.21,
       reaction: 0.21,
+      foresight: 5, // bounces it can follow (five: almost nothing arrives unread)
       anticipation: { commit: 0.9, swing: true, error: 2 },
       aggression: 0.15,
       aim: 0.75,
@@ -714,6 +723,7 @@ export const LEVELS = [
       moveSpeed: 260,
       turnSpeed: 5.98,
       reaction: 0.23,
+      foresight: 5, // bounces it can follow (five)
       anticipation: { commit: 1.0, swing: true, error: 1 },
       aggression: 0.1,
       aim: 0.8,

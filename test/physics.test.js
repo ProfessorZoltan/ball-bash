@@ -1089,3 +1089,45 @@ test('frames in play: every seat wears its own, the shape reaches the fighters, 
   for (const lvl of LEVELS) fits(lvl, createGameState(lvl, { coop: 2, frames: allWall }));
   for (const lvl of VERSUS_LEVELS.concat(LEVELS)) fits(lvl, createGameState(lvl, { pvp: 3, frames: allWall }));
 });
+
+test('foresight: one stat sets all three forecasts, the default is the old behaviour, and the ten bosses sharpen level by level', async () => {
+  const { foresight, DEFAULT_FORESIGHT, predictReturn } = await import('../src/ai.js');
+  // The three depths hang off the one number, and the default reproduces what every boss used before.
+  assert.deepEqual(foresight({ foresight: 3 }), { threat: 3, read: 4, aim: 2 });
+  assert.deepEqual(foresight({}), foresight({ foresight: DEFAULT_FORESIGHT }), 'no stat, the default depth');
+  assert.equal(DEFAULT_FORESIGHT, 3);
+  assert.deepEqual(foresight({ foresight: 1 }), { threat: 1, read: 2, aim: 1 }, 'aim never drops below one bounce');
+  assert.deepEqual(foresight({ foresight: 0 }), { threat: 0, read: 1, aim: 1 });
+  assert.deepEqual(foresight({ foresight: 5 }), { threat: 5, read: 6, aim: 4 });
+  // Every campaign boss declares one, and it never falls as the levels go up.
+  let prev = 0;
+  for (const lvl of LEVELS) {
+    const f = lvl.boss.foresight;
+    assert.ok(Number.isInteger(f) && f >= 1, `level ${lvl.id} declares a foresight`);
+    assert.ok(f >= prev, `level ${lvl.id} reads at least as far as level ${lvl.id - 1}`);
+    prev = f;
+  }
+  assert.equal(LEVELS[0].boss.foresight, 1, 'the first boss reads one bounce');
+  assert.ok(LEVELS[LEVELS.length - 1].boss.foresight > LEVELS[0].boss.foresight, 'the last reads further than the first');
+  // It does what it says: a shallow read follows the ball through fewer banks than a deep one.
+  const room = polygonEdges([[0, 0], [1600, 0], [1600, 900], [0, 900]]);
+  const player = new Fighter({ x: 1400, y: 450, angle: Math.PI, paddleWidth: 116, paddleBase: 36, paddleThick: 6, r: 22 });
+  player.paddleOffset = 36;
+  // A ball sent up and away from the player: it has to bank three times
+  // before it can reach the shield, so only a deep read ever sees the return.
+  const opts = { swing: false, error: 0 };
+  const seen = { t: 0, x: 300, y: 200, vx: 420 * Math.cos((120 * Math.PI) / 180), vy: 420 * Math.sin((120 * Math.PI) / 180) };
+  const seen2 = { t: 0, x: 400, y: 450, vx: -420, vy: 0 };
+  const read = (s, b) => predictReturn(s, 0, player, room, 11, { ...opts, bounces: b });
+  assert.equal(read(seen, 1), null, 'one bounce is not far enough');
+  assert.equal(read(seen, 2), null, 'nor two');
+  assert.equal(read(seen, 3), null, 'nor three');
+  assert.ok(read(seen, 4) && read(seen, 4).t > 0, 'four reaches the shield');
+  assert.ok(read(seen, 6), 'and so does six');
+  // A shallower case: straight away from the player, one bank short of a read.
+  assert.equal(read(seen2, 1), null);
+  assert.ok(read(seen2, 2), 'two bounces sees it come back');
+  // The depth a boss reads at is the one its foresight gives it.
+  assert.equal(foresight(LEVELS[0].boss).read, 2, 'the first boss reads two legs ahead');
+  assert.ok(foresight(LEVELS[LEVELS.length - 1].boss).read >= 6, 'the last reads six');
+});
