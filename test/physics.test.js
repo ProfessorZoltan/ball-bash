@@ -993,3 +993,99 @@ test('the bare serve: a ball is unplayed from the launch until a shield touches 
   const umbra = (await import('../src/conduits.js')).CONDUITS.find((c) => c.well).drones[0];
   assert.deepEqual(umbra.phasing, nullspace.boss.phasing, 'the same clock as its draft');
 });
+
+test('frames: every frame spends the same cells, the standard one is the game as it was, and a tampered allocation is balanced back', async () => {
+  const { SYSTEMS, TIERS, FRAME_CELLS, STANDARD, FRAMES, allFrames, frameById, frameStats, withinBudget, cellsSpent, isLegal, normalizeCells, MAX_HULL } = await import('../src/frames.js');
+  const { PLAYER } = await import('../src/config.js');
+  assert.equal(SYSTEMS.length, 4);
+  for (const s of SYSTEMS) assert.equal(s.values.length, TIERS, `${s.key} has a value per tier`);
+  // Nobody is richer than anyone else, and nothing is off the scale.
+  for (const f of allFrames()) {
+    assert.equal(cellsSpent(f.cells), FRAME_CELLS, `${f.name} spends the budget`);
+    assert.ok(isLegal(f.cells), `${f.name} is legal`);
+    for (const s of SYSTEMS) assert.ok(f.cells[s.key] >= 0 && f.cells[s.key] < TIERS, `${f.name}: ${s.key} in range`);
+  }
+  assert.equal(FRAMES.length, 3, 'three cut frames, plus the custom one');
+  assert.equal(allFrames().length, 4, 'one per reading of the mark');
+  // The standard frame is exactly the fighter the game had before frames.
+  const std = frameStats(STANDARD);
+  assert.equal(std.radius, PLAYER.radius);
+  assert.equal(std.paddleWidth, PLAYER.paddleWidth);
+  assert.equal(std.paddleBase, PLAYER.paddleOffset);
+  assert.equal(std.moveSpeed, PLAYER.moveSpeed);
+  assert.equal(std.turnSpeed, PLAYER.turnSpeed);
+  assert.deepEqual(frameById('reflector').cells, STANDARD);
+  // The trades run the way they are meant to: cells buy speed and span, and shrink the hull.
+  const drive = SYSTEMS.find((s) => s.key === 'drive').values;
+  const hull = SYSTEMS.find((s) => s.key === 'hull').values;
+  for (let i = 1; i < TIERS; i++) {
+    assert.ok(drive[i] > drive[i - 1], 'more cells, more speed');
+    assert.ok(hull[i] < hull[i - 1], 'more cells, smaller hull');
+  }
+  assert.equal(MAX_HULL, hull[0]);
+  // The shield keeps its gap from the body on every hull, so no frame has a hole between the two.
+  for (let i = 0; i < TIERS; i++) {
+    const st = frameStats({ ...STANDARD, hull: i, drive: 2, gyro: 2, span: 8 - 2 - 2 - i < 0 ? 0 : Math.min(TIERS - 1, 8 - 2 - 2 - i) });
+    assert.equal(st.paddleBase - st.radius, PLAYER.paddleGap);
+  }
+  // An allocation that overspends (an old save, a hand-edited one, a guest's
+  // claim over the network) is trimmed; one that underspends is left alone,
+  // since spending less only costs the player who does it.
+  assert.equal(cellsSpent(withinBudget({ drive: 4, gyro: 4, span: 4, hull: 4 })), FRAME_CELLS);
+  assert.equal(cellsSpent(withinBudget({ drive: 99, gyro: -5, span: 9, hull: 9 })), FRAME_CELLS);
+  assert.deepEqual(withinBudget({ drive: 0, gyro: 0, span: 0, hull: 0 }), { drive: 0, gyro: 0, span: 0, hull: 0 });
+  assert.equal(cellsSpent(withinBudget({ drive: 1, gyro: 1, span: 1, hull: 1 })), 4, 'an underspent frame stays underspent');
+  // Trimming takes from the richest system, so an overspent frame keeps its shape as far as it can.
+  const trimmed = withinBudget({ drive: 4, gyro: 4, span: 0, hull: 0 });
+  assert.equal(cellsSpent(trimmed), FRAME_CELLS);
+  assert.deepEqual(trimmed, { drive: 4, gyro: 4, span: 0, hull: 0 });
+  // What the panel shows is what the fighter gets: no silent top-up.
+  const half = { drive: 1, gyro: 1, span: 1, hull: 1 };
+  assert.equal(frameStats(half).moveSpeed, SYSTEMS[0].values[1]);
+  assert.deepEqual(normalizeCells({}), STANDARD, 'a missing system takes the standard tier');
+  assert.equal(isLegal({ drive: 4, gyro: 4, span: 4, hull: 4 }), false);
+});
+
+test('frames in play: every seat wears its own, the shape reaches the fighters, and the ball is still sealed in', async () => {
+  const { createGameState } = await import('../src/gamestate.js');
+  const { frameById, frameStats, STANDARD, allFrames } = await import('../src/frames.js');
+  const def = LEVELS[0];
+  // Single player: the frame reaches the fighter.
+  for (const f of allFrames()) {
+    const g = createGameState(def, { frames: { a: f.cells } });
+    const st = frameStats(f.cells);
+    assert.equal(g.player.r, st.radius, `${f.name} hull`);
+    assert.equal(g.player.paddleWidth, st.paddleWidth, `${f.name} span`);
+    assert.equal(g.player.moveSpeed, st.moveSpeed, `${f.name} drive`);
+    assert.equal(g.player.turnSpeed, st.turnSpeed, `${f.name} gyro`);
+    assert.deepEqual(g.frames.a, f.cells, 'the game remembers what it built');
+    assert.equal(g.boss.r, def.boss.r, 'the boss is untouched');
+  }
+  // No frames given: the standard one, so every existing caller is unchanged.
+  assert.deepEqual(createGameState(def).frames.a, STANDARD);
+  // Versus: each seat its own, and co-op likewise.
+  const arena = VERSUS_LEVELS[0];
+  const pvp = createGameState(arena, { pvp: 3, frames: { a: frameById('deflector').cells, c: frameById('defector').cells } });
+  assert.equal(pvp.humans[0].r, 28, 'the host wears the Deflector');
+  assert.equal(pvp.humans[1].r, 19, 'the first guest the Defector');
+  assert.equal(pvp.humans[2].r, 22, 'a seat that never said wears the standard frame');
+  const coop = createGameState(def, { coop: 2, frames: { a: frameById('defector').cells, c: frameById('deflector').cells } });
+  assert.equal(coop.player.paddleWidth, 92);
+  assert.equal(coop.allies[0].paddleWidth, 140);
+  assert.equal(coop.allies[1].paddleWidth, 116);
+  // The biggest hull still fits every co-op spawn and every versus seat.
+  const wall = frameById('deflector').cells;
+  const allWall = { a: wall, c: wall, d: wall };
+  const fits = (lvl, g) => {
+    for (const f of g.humans) {
+      assert.ok(pointInPolygon(f.x, f.y, lvl.boundary), `${lvl.title}: a Deflector fits inside`);
+      for (const poly of g.solidPolys) assert.ok(!pointInPolygon(f.x, f.y, poly), `${lvl.title}: clear of solids`);
+      for (const w of g.walls) {
+        const c = closestPointOnSegment(f.x, f.y, w.ax, w.ay, w.bx, w.by);
+        assert.ok(Math.hypot(c.x - f.x, c.y - f.y) >= f.r, `${lvl.title}: not inside a wall`);
+      }
+    }
+  };
+  for (const lvl of LEVELS) fits(lvl, createGameState(lvl, { coop: 2, frames: allWall }));
+  for (const lvl of VERSUS_LEVELS.concat(LEVELS)) fits(lvl, createGameState(lvl, { pvp: 3, frames: allWall }));
+});

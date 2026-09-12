@@ -429,6 +429,36 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(-
 }
 
 .opt select { padding: 4px 8px; font-size: 12px; letter-spacing: 0.05em; min-width: 0; }
+
+/* Frame picker: four systems, eight cells. */
+.frame-card {
+  margin-top: 10px; padding: 12px 18px 14px; text-align: left;
+  background: linear-gradient(180deg, rgba(12, 20, 38, 0.85), rgba(8, 12, 26, 0.7));
+  border: 1px solid rgba(120, 200, 255, 0.18); border-left: 3px solid var(--cyan); border-radius: 10px;
+}
+.frame-card .eyebrow { margin-bottom: 8px; }
+.frame-card .opt { margin-bottom: 10px; }
+.frame-card .opt select { width: 100%; font-size: 13px; padding: 5px 8px; }
+#frame-panel { margin: 0; }
+.frame-grid { display: grid; gap: 3px; }
+.frame-row { display: flex; align-items: center; gap: 7px; font-size: 12px; line-height: 1.5; }
+.frame-row .fr-name { font-family: var(--display); font-size: 10px; letter-spacing: 0.18em; color: var(--muted); width: 4.4em; flex: none; }
+.frame-row .fr-pips { font-size: 13px; letter-spacing: 0.12em; color: rgba(180, 200, 230, 0.35); flex: none; }
+.frame-row .fr-pips .on { color: var(--cyan); }
+.frame-row .fr-val { color: #fff; font-variant-numeric: tabular-nums; margin-left: auto; white-space: nowrap; }
+.frame-row .fr-val i { color: var(--muted); font-style: normal; font-size: 10px; margin-left: 4px; }
+.fr-step {
+  font: inherit; font-size: 13px; line-height: 1; width: 20px; height: 20px; flex: none; padding: 0;
+  background: rgba(120, 200, 255, 0.10); color: var(--cyan); border: 1px solid rgba(120, 200, 255, 0.35);
+  border-radius: 5px; cursor: pointer;
+}
+.fr-step:hover:not(:disabled) { background: rgba(120, 200, 255, 0.22); }
+.fr-step:disabled { opacity: 0.28; cursor: default; }
+.frame-foot { display: flex; align-items: center; gap: 10px; margin-top: 7px; font-family: var(--display); font-size: 10px; letter-spacing: 0.2em; color: var(--muted); }
+.frame-foot .short { color: var(--orange); }
+.fr-reset { font: inherit; font-size: 10px; letter-spacing: 0.2em; margin-left: auto; padding: 3px 9px; background: none; color: var(--muted); border: 1px solid rgba(180, 200, 230, 0.28); border-radius: 5px; cursor: pointer; }
+.fr-reset:hover { color: #fff; border-color: rgba(180, 200, 230, 0.6); }
+.frame-lore { margin: 8px 0 0; font-style: italic; }
 .row.menu { gap: 8px; }
 .row.menu button { padding: 10px 14px; letter-spacing: 0.06em; }
 

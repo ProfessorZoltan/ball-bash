@@ -6,21 +6,24 @@ import { polygonEdges, pointInPolygon, closestPointOnSegment } from './physics.j
 import { angleDiff } from './vec.js';
 import { obstaclePoly, ellipse } from './levels.js';
 import { BALL, PLAYER, COOP } from './config.js';
+import { frameStats, STANDARD, MAX_HULL } from './frames.js';
 
-function playerStats(def, spawn) {
+/** A human fighter's stats: where they start, and the frame they wear. */
+function playerStats(def, spawn, cells) {
+  const f = frameStats(cells || STANDARD);
   return {
     x: spawn.x,
     y: spawn.y,
     angle: spawn.angle,
-    r: PLAYER.radius,
-    paddleWidth: PLAYER.paddleWidth,
-    paddleBase: PLAYER.paddleOffset,
-    paddleThick: PLAYER.paddleThick,
-    moveSpeed: PLAYER.moveSpeed,
-    turnSpeed: PLAYER.turnSpeed,
-    lungeExtend: PLAYER.lungeExtend,
-    lungeSpeed: PLAYER.lungeSpeed,
-    retractPull: PLAYER.retractPull,
+    r: f.radius,
+    paddleWidth: f.paddleWidth,
+    paddleBase: f.paddleBase,
+    paddleThick: f.paddleThick,
+    moveSpeed: f.moveSpeed,
+    turnSpeed: f.turnSpeed,
+    lungeExtend: f.lungeExtend,
+    lungeSpeed: f.lungeSpeed,
+    retractPull: f.retractPull,
   };
 }
 
@@ -49,7 +52,7 @@ export function bodyHitCounts(ball, fighter, rules = DEFAULT_RULES) {
 export function findAllySpawn(def, movers = [], taken = []) {
   if (def.ally && !taken.length) return { ...def.player, ...def.ally };
   const p = def.player;
-  const r = PLAYER.radius + 14;
+  const r = MAX_HULL + 14; // room for the widest hull any frame can wear
   const walls = polygonEdges(def.boundary).concat(...def.obstacles.map((o) => polygonEdges(obstaclePoly(o))));
   const clear = (x, y) => {
     if (!pointInPolygon(x, y, def.boundary)) return false;
@@ -60,7 +63,7 @@ export function findAllySpawn(def, movers = [], taken = []) {
     }
     for (const m of movers) if (Math.hypot(m.x - x, m.y - y) < (m.reach || 0) + r + 10) return false;
     for (const b of enemySpecs(def)) if (Math.hypot(b.x - x, b.y - y) < 260) return false;
-    for (const t of taken) if (Math.hypot(t.x - x, t.y - y) < 2 * PLAYER.radius + 12) return false;
+    for (const t of taken) if (Math.hypot(t.x - x, t.y - y) < 2 * MAX_HULL + 12) return false;
     return true;
   };
   const offsets = [[0, 130], [0, -130], [0, 190], [0, -190], [-90, 100], [-90, -100], [90, 100], [90, -100], [-130, 0], [130, 0], [0, 250], [0, -250], [-130, 180], [-130, -180], [130, 180], [130, -180]];
@@ -198,7 +201,7 @@ export function versusSpawns(def, n) {
  * clear of walls, obstacles and movers, facing the serve point.
  */
 export function findVersusSpawn(def, movers = [], taken = []) {
-  const r = PLAYER.radius;
+  const r = MAX_HULL;
   const walls = polygonEdges(def.boundary).concat(...def.obstacles.map((o) => polygonEdges(obstaclePoly(o))));
   // Everywhere a mover gets to over one cycle, as segments (a long piston
   // sweeps a strip, not the disc its reach would suggest).
@@ -264,7 +267,8 @@ export function rotateSpawns(spawns, round) {
  * `coop`: false, or the number of allies (true means one) playing beside the
  * host's human against the boss.
  */
-export function createGameState(def, { pvp = false, coop = false, rules = DEFAULT_RULES, spawns = null } = {}) {
+export function createGameState(def, { pvp = false, coop = false, rules = DEFAULT_RULES, spawns = null, frames = null } = {}) {
+  const frameFor = (slot) => (frames && frames[slot]) || STANDARD;
   const allyCount = coop === true ? 1 : Math.max(0, Math.min(COOP.maxAllies, Number(coop) || 0));
   const pvpCount = pvp === true ? 2 : Math.max(0, Math.min(VERSUS_IDS.length, Number(pvp) || 0));
   pvp = pvpCount > 0;
@@ -325,13 +329,13 @@ export function createGameState(def, { pvp = false, coop = false, rules = DEFAUL
     const colors = versusColors(def);
     const rivals = seats.slice(0, pvpCount).map((seat, i) => {
       const id = seat.id || VERSUS_IDS[i];
-      return new Fighter({ ...playerStats(def, seat), name: i === 0 ? 'You' : `Rival ${i}`, kind: 'player', slot: id, team: id, color: seat.color || colors[VERSUS_IDS.indexOf(id)] || colors[i] });
+      return new Fighter({ ...playerStats(def, seat, frameFor(id)), name: i === 0 ? 'You' : `Rival ${i}`, kind: 'player', slot: id, team: id, color: seat.color || colors[VERSUS_IDS.indexOf(id)] || colors[i] });
     });
     player = rivals[0];
     boss = rivals[1];
     fighters = rivals;
   } else {
-    player = new Fighter({ ...playerStats(def, def.player), name: 'You', kind: 'player', slot: 'a', team: 'us', color: def.palette.wall });
+    player = new Fighter({ ...playerStats(def, def.player, frameFor('a')), name: 'You', kind: 'player', slot: 'a', team: 'us', color: def.palette.wall });
     // One boss, or a conduit's drones (the first doubles as `boss` for code that wants one).
     drones = enemySpecs(def).map((spec, i) => new Boss({ ...spec, name: i === 0 ? def.bossName : `${def.bossName} ${i + 1}`, color: def.palette.obstacle, slot: DRONE_SLOTS[i], team: 'boss' }));
     boss = drones[0];
@@ -339,7 +343,7 @@ export function createGameState(def, { pvp = false, coop = false, rules = DEFAUL
     for (let i = 0; i < allyCount; i++) {
       const spawn = findAllySpawn(def, movers, taken);
       taken.push(spawn);
-      allies.push(new Fighter({ ...playerStats(def, spawn), name: `Ally ${i + 1}`, kind: 'player', slot: 'cd'[i], team: 'us', color: COOP.allyColors[i] }));
+      allies.push(new Fighter({ ...playerStats(def, spawn, frameFor('cd'[i])), name: `Ally ${i + 1}`, kind: 'player', slot: 'cd'[i], team: 'us', color: COOP.allyColors[i] }));
     }
     fighters = [player, ...allies, ...drones];
   }
@@ -359,7 +363,10 @@ export function createGameState(def, { pvp = false, coop = false, rules = DEFAUL
   ball.held = true;
   const staticPolys = def.obstacles.filter((o) => !o.glass).map(obstaclePoly).concat(nodePolys, turretPolys);
   const objective = { nodes: nodes.length, drones: def.objective && def.objective.drones ? drones.length : 0, turrets: def.objective && def.objective.turrets && !pvp ? turrets.length : 0 };
-  const g = { def, staticWalls, staticPolys, panes, doors, walls: [], solidPolys: [], player, ally, allies, boss, drones, nodes, turrets, emitters, shots: [], objective, fighters, humans, movers, ice, vents, well, ball, maxSpeed: def.maxBallSpeed || BALL.maxSpeed, pvp, players: pvpCount, coop: !pvp && allyCount > 0, rules: { ...DEFAULT_RULES, ...rules } };
+  // The frame each human seat wears, so the HUD and the tests can read it back.
+  const wornFrames = {};
+  for (const f of humans) wornFrames[f.slot] = frameFor(f.slot);
+  const g = { def, staticWalls, staticPolys, panes, doors, walls: [], solidPolys: [], player, ally, allies, boss, drones, nodes, turrets, emitters, shots: [], objective, fighters, humans, movers, ice, vents, well, frames: wornFrames, ball, maxSpeed: def.maxBallSpeed || BALL.maxSpeed, pvp, players: pvpCount, coop: !pvp && allyCount > 0, rules: { ...DEFAULT_RULES, ...rules } };
   rebuildWalls(g);
   return g;
 }

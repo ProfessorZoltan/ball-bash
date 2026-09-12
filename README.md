@@ -162,6 +162,52 @@ Conduits built so far:
 | 8½ Event Horizon | Nullspace | a gravity well at the centre of a chamber whose top and bottom walls breathe; inside its dotted reach the ball bends toward it and players drift after it, and the horizon takes whatever crosses it (the ball for a free re-serve, a player for a shield and a trip back to the spawn); the shot guide bends with the pull; Umbra, a shadow of the Absence, circles the well solid three seconds in five and has to be knocked out while it is; the node waits beyond the well's reach, straight across from the player, so only a slingshot or a bank reaches it | `src/conduits.js` |
 | 9½ Drafting Room | The Last Arcade | the exam: a ricochet node in the corner, a hooded node screened so it opens only from below, a switch that opens the door of a bay whose glass pane breaks only to a 600 px/s strike with a plain node behind it, a turret in the floor whose shot has to be sent back into it, a signature node on the far side that answers only once the other three are lit, a cart on the middle rail, two coolant vents and the prism at the centre | `src/conduits.js` |
 
+## Frames (the four readings)
+
+The mark has four readings, and each one is a frame you can wear. The frame is
+a single choice on the title screen (and in the multiplayer lobby) that applies
+to every mode: single player, the campaign, co-op and versus alike.
+
+Every frame is cut from the same **eight cells**, spread across four systems,
+so no frame is richer than another: a wider shield is paid for with a bigger
+body to hit, and speed is paid for out of something else. Each system has five
+tiers, costing 0 to 4 cells.
+
+| System | What it sets | 0 cells | 4 cells | Source |
+|---|---|---|---|---|
+| Drive | movement speed | 340 px/s | 520 px/s | `SYSTEMS` in `src/frames.js` |
+| Gyro | turn speed, and so how hard a swung shield whacks | 5.6 rad/s | 8.4 rad/s | same |
+| Span | the width of the shield | 92 px | 140 px | same |
+| Hull | the size of the body the ball has to find | 28 px | 16 px | same |
+
+Hull runs the other way: cells spent there make the body *smaller*, and a
+frame that spends nothing on it carries the biggest target in the game. The
+shield always sits `paddleGap` (14 px) off the body's edge, so it follows the
+hull in and out and no frame has a gap between the two.
+
+| Frame | Drive | Gyro | Span | Hull | Plays like | Source |
+|---|---|---|---|---|---|---|
+| Reflector | 2 | 2 | 2 | 2 | even in everything: the game exactly as it was before frames | `FRAMES` in `src/frames.js` |
+| Deflector | 2 | 2 | 4 | 0 | the widest shield in the game on the biggest hull: it covers lanes nothing else reaches, and it is the easiest thing in the room to hit, including by walking into the boss | same |
+| Defector | 3 | 2 | 0 | 3 | quick and hard to find, with barely a line to block with | same |
+| Vector | your own | | | | the fourth reading: spend the eight cells yourself | `vectorFrame` in `src/frames.js` |
+
+Vector is edited in place on the title screen: − and + move cells between the
+systems, the readout shows exactly what the fighter will get, and + is locked
+once all eight are spent, so the only way to buy one thing is to sell another.
+Spending fewer than eight is allowed and only costs you. An allocation that
+*over*spends, from an older save, a hand-edited one, or a guest's claim over
+the network, is trimmed back to the budget before it reaches the arena
+(`withinBudget`), so nobody can field more than eight cells.
+
+Nothing else about a frame changes: the thrust, the pull-in, the shield
+thickness and every rule are the same for all of them, and AI bosses have
+their own stats entirely. In multiplayer each player wears their own frame;
+guests announce theirs when they join the lobby, the host's `setup` message
+carries the whole table, and both sides build identical fighters from it. The
+HUD names the frame you are wearing, and the host's lobby lists what each
+guest has picked.
+
 ## Campaign and difficulty
 
 **Campaign** plays the ten levels in order on one shield pool. Every body hit
@@ -640,6 +686,7 @@ src/ai.js                  boss perception delay, path prediction, brace/absorb
 src/ice.js                 ice trail hazard (Coolant Tunnels)
 src/levels.js              level data, the roster and the tutorial's training hall
 src/conduits.js            the conduits between levels and the campaign sequence
+src/frames.js              the four frames, the eight cells and what they buy
 src/lore.js                worldbuilding: the bulletin, the record's chapters, status words
 src/input.js               keyboard, mouse, touch -> one intent object
 src/render.js              Canvas 2D neon renderer with 2.5D wall extrusion

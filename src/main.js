@@ -5,6 +5,7 @@ import { BallHistory, bossIntent, moverSegmentsAt } from './ai.js';
 import { LEVELS, VERSUS_LEVELS, ROSTER, TUTORIAL_LEVEL } from './levels.js';
 import { SEQUENCE, VERSUS_CONDUITS, levelLabel, shortId, campaignNextIndex } from './conduits.js';
 import { LORE } from './lore.js';
+import { SYSTEMS, TIERS, FRAME_CELLS, STANDARD, DEFAULT_FRAME, CUSTOM_ID, allFrames, frameById, withinBudget, cellsSpent, systemValue } from './frames.js';
 import { createGameState, rebuildWalls as rebuildWallsState, bodyHitCounts, tickCamp, versusSpawns, rotateSpawns, versusColors, VERSUS_IDS, nodeAccepts, objectiveDone, constrainToRail, wellField, wellDrag, wellSwallows, dronePhased } from './gamestate.js';
 import { NetClient, relayConfig, saveRelay } from './net.js';
 import { buildSnapshot, applySnapshot } from './netstate.js';
@@ -38,8 +39,8 @@ let fps = 60;
 
 // ------------------------------------------------------------------ setup
 
-function buildGame(def, pvp = false, rules = { ownBallLoss: ownBallLoss() }, coop = false, spawns = null) {
-  const g = createGameState(def, { pvp, coop, rules, spawns });
+function buildGame(def, pvp = false, rules = { ownBallLoss: ownBallLoss() }, coop = false, spawns = null, frames = null) {
+  const g = createGameState(def, { pvp, coop, rules, spawns, frames: frames || soloFrames() });
   const bossHits = g.coop ? g.humans.length * COOP.bossHitsPerHuman : 1;
   return {
     ...g,
@@ -1472,7 +1473,9 @@ function updateHud() {
     } else if (g.coop) setText('hud-boss', `${g.def.bossName.toUpperCase()} ${'◆'.repeat(Math.max(0, g.bossHits))}${'◇'.repeat(Math.max(0, g.maxBossHits - g.bossHits))}`);
   }
   const mode = campaign ? campaign.mode : g.coop && net.coopCampaign ? net.coopMode : null;
-  const tags = [g.coop ? `CO-OP · ${[net.names.host, ...net.roster.map((r) => r.name)].join(' & ').toUpperCase()}` : '', mode ? `${mode.toUpperCase()} CAMPAIGN` : '', g.difficulty ? g.difficulty.name.toUpperCase() : '', g.rules.ownBallLoss ? '' : 'SAFE OWN BALL', g.def.conduit ? 'HALF SPEED' : '', g.def.noGuide ? 'NO GUIDE' : ''].filter(Boolean);
+  const mine = localFighter();
+  const frameTag = mine ? frameName(g.frames && g.frames[mine.slot]).toUpperCase() : '';
+  const tags = [frameTag, g.coop ? `CO-OP · ${[net.names.host, ...net.roster.map((r) => r.name)].join(' & ').toUpperCase()}` : '', mode ? `${mode.toUpperCase()} CAMPAIGN` : '', g.difficulty ? g.difficulty.name.toUpperCase() : '', g.rules.ownBallLoss ? '' : 'SAFE OWN BALL', g.def.conduit ? 'HALF SPEED' : '', g.def.noGuide ? 'NO GUIDE' : ''].filter(Boolean);
   setText('hud-rule', tags.map((t) => `· ${t}`).join(' '));
   const s = g.ball.held && state !== 'cleared' ? 0 : g.ball.speed;
   setText('hud-speed', `${Math.round(s)} px/s`);
@@ -1605,6 +1608,159 @@ function setDifficultySetting(id) {
   } catch (_) {
     // storage unavailable; the choice lasts for this page load only
   }
+}
+
+// --------------------------------------------------------------- frames
+
+const FRAME_KEY = 'deflector.frame';
+const VECTOR_KEY = 'deflector.vector';
+
+/** The custom frame's allocation, as saved (always balanced back to the budget). */
+function customCells() {
+  try {
+    return withinBudget(JSON.parse(localStorage.getItem(VECTOR_KEY) || 'null') || STANDARD);
+  } catch (_) {
+    return withinBudget(STANDARD);
+  }
+}
+
+function setCustomCells(cells) {
+  try {
+    localStorage.setItem(VECTOR_KEY, JSON.stringify(withinBudget(cells)));
+  } catch (_) {
+    // storage unavailable: the allocation lasts for this page load only
+  }
+}
+
+/** The frame this player wears, in every mode. */
+function frameSetting() {
+  let id = DEFAULT_FRAME;
+  try {
+    id = localStorage.getItem(FRAME_KEY) || DEFAULT_FRAME;
+  } catch (_) {
+    // storage unavailable: the standard frame
+  }
+  return frameById(id, customCells()) || frameById(DEFAULT_FRAME);
+}
+
+function setFrameSetting(id) {
+  try {
+    localStorage.setItem(FRAME_KEY, id);
+  } catch (_) {
+    // storage unavailable: the choice lasts for this page load only
+  }
+}
+
+/** The local player's allocation, and the frames map a single-player game is built with. */
+function localCells() {
+  return frameSetting().cells;
+}
+
+function soloFrames() {
+  return { a: localCells() };
+}
+
+/** The name to show for an allocation: the cut frame that matches it, or Vector. */
+function frameName(cells) {
+  const c = withinBudget(cells || STANDARD);
+  const match = allFrames(c).find((f) => SYSTEMS.every((s) => f.cells[s.key] === c[s.key]));
+  return match ? match.name : 'Vector';
+}
+
+function frameCardHtml() {
+  const frame = frameSetting();
+  const opts = allFrames(customCells())
+    .map((f) => `<option value="${f.id}" ${f.id === frame.id ? 'selected' : ''}>${f.name} · ${f.blurb}</option>`)
+    .join('');
+  return `
+    <div class="frame-card" title="The mark has four readings, and each one is a frame. Every frame is cut from the same ${FRAME_CELLS} cells, so none is richer than another. Whichever you wear, you wear in every mode.">
+      <div class="eyebrow">YOUR FRAME</div>
+      <div class="opt"><select id="opt-frame" class="sel">${opts}</select></div>
+      <div id="frame-panel">${framePanelHtml(frame)}</div>
+    </div>`;
+}
+
+function framePanelHtml(frame) {
+  const cells = frame.cells;
+  const spent = cellsSpent(cells);
+  const rows = SYSTEMS.map((s) => {
+    const n = cells[s.key];
+    const pips = `<span class="on">${'\u25ae'.repeat(n)}</span>${'\u25af'.repeat(TIERS - 1 - n)}`;
+    const steps = frame.custom
+      ? `<button class="fr-step" data-sys="${s.key}" data-step="-1" ${n === 0 ? 'disabled' : ''} title="Take a cell back">\u2212</button>`
+      : '';
+    const plus = frame.custom
+      ? `<button class="fr-step" data-sys="${s.key}" data-step="1" ${n >= TIERS - 1 || spent >= FRAME_CELLS ? 'disabled' : ''} title="${spent >= FRAME_CELLS ? 'No cells left: take one back from another system first' : 'Spend a cell here'}">+</button>`
+      : '';
+    return `<div class="frame-row" title="${s.name}: ${s.blurb}">${steps}<span class="fr-name">${s.name}</span><span class="fr-pips">${pips}</span>${plus}<span class="fr-val">${systemValue(s, cells)}<i>${s.unit}</i></span></div>`;
+  }).join('');
+  const footer = frame.custom
+    ? `<div class="frame-foot"><span class="${spent === FRAME_CELLS ? '' : 'short'}" title="${spent === FRAME_CELLS ? 'The whole budget is spent.' : 'Cells left over. They do nothing where they are: spend them.'}">CELLS ${spent} / ${FRAME_CELLS}</span><button id="frame-reset" class="fr-reset" title="Back to an even frame">Even it out</button></div>`
+    : `<div class="frame-foot"><span>CELLS ${spent} / ${FRAME_CELLS}</span></div>`;
+  return `<div class="frame-grid">${rows}</div>${footer}<p class="small muted frame-lore">${frame.lore}</p>`;
+}
+
+function bindFrameCard() {
+  const sel = $('opt-frame');
+  if (!sel) return;
+  sel.onchange = () => {
+    setFrameSetting(sel.value);
+    refreshFramePanel();
+  };
+  bindFrameSteps();
+}
+
+function refreshFramePanel() {
+  const panel = $('frame-panel');
+  if (!panel) return;
+  panel.innerHTML = framePanelHtml(frameSetting());
+  bindFrameSteps();
+}
+
+function bindFrameSteps() {
+  for (const b of document.querySelectorAll('#frame-panel .fr-step')) {
+    b.onclick = () => {
+      const cells = { ...customCells() };
+      cells[b.dataset.sys] += Number(b.dataset.step);
+      // Spending is capped by the budget; taking a cell back always works.
+      if (Number(b.dataset.step) > 0 && cellsSpent(cells) > FRAME_CELLS) return;
+      setCustomCells(cells);
+      setFrameSetting(CUSTOM_ID);
+      const sel = $('opt-frame');
+      if (sel) sel.value = CUSTOM_ID;
+      refreshFramePanel();
+    };
+  }
+  const reset = $('frame-reset');
+  if (reset) {
+    reset.onclick = () => {
+      setCustomCells(STANDARD);
+      refreshFramePanel();
+    };
+  }
+}
+
+/** The frame picker for the lobby: the same choice, in a multiplayer field. */
+function frameFieldHtml(id = 'mp-frame') {
+  const frame = frameSetting();
+  const opts = allFrames(customCells())
+    .map((f) => `<option value="${f.id}" ${f.id === frame.id ? 'selected' : ''}>${f.name}</option>`)
+    .join('');
+  return `<label class="mp-field" title="Your frame, the same one the title screen sets. Every frame spends the same ${FRAME_CELLS} cells.">Frame <select id="${id}">${opts}</select></label>`;
+}
+
+function bindFrameField(id = 'mp-frame') {
+  const el = $(id);
+  if (!el) return;
+  el.onchange = () => {
+    setFrameSetting(el.value);
+    sendFrame();
+  };
+}
+
+/** Guest: tell the host which frame to build for this seat. Relays pass it through untouched. */
+function sendFrame() {
+  if (net.client && net.client.connected && net.client.role === 'guest') net.client.send({ t: 'frame', id: net.client.id || 'c', cells: localCells() });
 }
 
 function difficultySelectHtml() {
@@ -1895,7 +2051,8 @@ const net = {
   seq: 0,
   remoteSeqs: {}, // host: latest input sequence acted on, per guest id
   inputs: [], // guest: [{ seq, dt, intent }] not yet acknowledged by the host
-  roster: [], // guests in the room: [{ id, name }] (host: everyone who joined; guest: the others)
+  roster: [], // guests in the room: [{ id, name, cells }] (host: everyone who joined; guest: the others)
+  frames: {}, // the frame each seat wears this match, by slot
   smooth: { x: 0, y: 0 },
   client: null,
   mode: null, // null | 'host' | 'guest'
@@ -1931,6 +2088,7 @@ function netReset() {
   net.seq = 0;
   net.remoteSeqs = {};
   net.roster = [];
+  net.frames = {};
   net.inputs = [];
   net.smooth = { x: 0, y: 0 };
   net.events = [];
@@ -1945,6 +2103,20 @@ function netReset() {
 
 /** Everything versus can be played on: its own arenas first, then the campaign levels. */
 const VERSUS_ARENAS = VERSUS_LEVELS.concat(LEVELS, VERSUS_CONDUITS);
+
+/** Host: the frame every seat wears, its own from the title screen and each guest's from the lobby. */
+function rosterFrames() {
+  const out = { a: localCells() };
+  for (const r of net.roster) out[r.id] = withinBudget(r.cells || STANDARD);
+  return out;
+}
+
+/** The frames a match was set up with, falling back to the standard frame for any seat that never said. */
+function netFrames() {
+  const out = {};
+  for (const [slot, cells] of Object.entries(net.frames || {})) out[slot] = withinBudget(cells);
+  return out;
+}
 
 function versusLevel(index) {
   return VERSUS_ARENAS[index] || VERSUS_ARENAS[0];
@@ -2030,7 +2202,7 @@ async function openLobby(prefillCode = '') {
     <div class="eyebrow">${online ? 'MULTIPLAYER · ONLINE' : 'MULTIPLAYER · SAME WI-FI'}</div>
     <h1>Up to three players, one room code</h1>
     <p class="small muted">${online ? `Both players open this page anywhere; the relay at <b>${relay.label}</b> connects you.` : `Both players open this page on the same network${urls.length ? `: <b>${urls.join('</b> or <b>')}</b>` : ''}.${urls.length ? ` A friend with the desktop app can instead enter <b>${lanInfo.addresses[0]}:${lanInfo.port}</b> under Relay below.` : ''}`} One hosts and gets a code, the others join with it. Versus is every player for themselves on its own arenas, last one standing; co-op is all of you against the boss.</p>
-    <div class="row"><label class="mp-field">Your name <input id="mp-name" maxlength="16" value="${savedName().replace(/"/g, '')}" placeholder="Player" /></label></div>
+    <div class="row"><label class="mp-field">Your name <input id="mp-name" maxlength="16" value="${savedName().replace(/"/g, '')}" placeholder="Player" /></label>${frameFieldHtml()}</div>
     <div class="row">
       <button id="mp-host" class="primary">Host a match</button>
       <label class="mp-field">Code <input id="mp-code" maxlength="4" value="${prefillCode.replace(/[^A-Z0-9]/g, '')}" placeholder="XXXX" style="width:5em;text-transform:uppercase" /></label>
@@ -2053,6 +2225,7 @@ async function openLobby(prefillCode = '') {
     await openLobby();
     lobbyStatus(lanInfo ? `<span class="small">Relay: ${lanInfo.online ? `<b>${relayConfig().label}</b> · ${lanInfo.rooms} room${lanInfo.rooms === 1 ? '' : 's'} open` : 'this page\'s LAN server'}</span>` : '<span class="mp-error">That relay did not answer. Check the address (it needs /health to respond).</span>');
   };
+  bindFrameField();
   $('mp-host').onclick = () => hostRoom();
   $('mp-join').onclick = () => joinRoom($('mp-code').value);
   $('mp-code').onkeydown = (e) => {
@@ -2082,6 +2255,13 @@ async function connectClient() {
     if (net.mode) showNetNotice('Connection lost', 'The link to the other player dropped.');
   });
   client.on('setup', onSetup);
+  client.on('frame', (msg) => {
+    // A guest's frame, sent on joining and whenever they change it in the lobby.
+    if (net.client.role !== 'host') return;
+    const entry = net.roster.find((r) => r.id === (msg.id || 'c'));
+    if (entry) entry.cells = withinBudget(msg.cells); // a guest can never claim more than the budget
+    if (!net.mode) renderHostLobby(net.client);
+  });
   client.on('result', onCoopResult);
   client.on('s', (msg) => {
     if (net.mode !== 'guest') return;
@@ -2143,7 +2323,7 @@ function renderHostLobby(client) {
     `);
     return;
   }
-  const names = net.roster.map((r) => `<b>${esc(r.name)}</b>`).join(' and ');
+  const names = net.roster.map((r) => `<b>${esc(r.name)}</b> <span class="small muted">(${frameName(r.cells)})</span>`).join(' and ');
   const many = net.roster.length > 1;
   const people = net.roster.length + 1;
   const prevMode = $('mp-mode') ? $('mp-mode').value : 'versus';
@@ -2205,6 +2385,7 @@ async function joinRoom(code) {
     client.on('joined', (msg) => {
       net.names.guest = name;
       net.names.host = msg.peerName;
+      sendFrame();
       renderGuestLobby();
     });
     client.on('peer', () => {
@@ -2243,7 +2424,8 @@ function startNetRound() {
   net.localSlot = 'a';
   net.remoteIntents = {};
   net.events = [];
-  net.client.send({ t: 'setup', level: net.levelIndex, round: net.round, shields: net.shields, max: net.maxShields, out: net.out, last: net.last, players: net.players, names: net.names, rules: net.rules });
+  net.frames = rosterFrames();
+  net.client.send({ t: 'setup', level: net.levelIndex, round: net.round, shields: net.shields, max: net.maxShields, out: net.out, last: net.last, players: net.players, names: net.names, rules: net.rules, frames: net.frames });
   beginNetRound();
 }
 
@@ -2259,6 +2441,7 @@ function onSetup(msg) {
     net.levelIndex = msg.level;
     net.names = msg.names;
     net.rules = { ownBallLoss: !msg.rules || msg.rules.ownBallLoss !== false };
+    net.frames = msg.frames || {};
     net.pending = null;
     net.ballBase = null;
     campaign = null; // the host owns the campaign; this side mirrors it
@@ -2274,6 +2457,7 @@ function onSetup(msg) {
   net.out = msg.out || {};
   net.last = msg.last || null;
   net.rules = { ownBallLoss: !msg.rules || msg.rules.ownBallLoss !== false };
+  net.frames = msg.frames || {};
   net.localSlot = net.client.id || 'c';
   net.pending = null;
   net.ballBase = null;
@@ -2296,7 +2480,7 @@ function beginNetRound() {
   net.colors = {};
   for (const p of net.players) net.colors[p.id] = colors[VERSUS_IDS.indexOf(p.id)] || colors[net.players.indexOf(p)];
   const seats = rotateSpawns(versusSpawns(def, n), net.round).map((sp, i) => ({ ...sp, id: alive[i].id, color: net.colors[alive[i].id] }));
-  game = buildGame(def, n, net.rules, false, seats);
+  game = buildGame(def, n, net.rules, false, seats, netFrames());
   for (const f of game.fighters) f.name = playerName(f.slot) + (net.localSlot === f.slot ? ' (you)' : '');
   game.local = localFighter();
   renderer.setLevel(def);
@@ -2345,7 +2529,8 @@ function coopStartLevel(index) {
   if (net.roster[0]) net.names.guest = net.roster[0].name;
   const diff = campaign ? difficultyById(campaign.difficulty) : difficultySetting();
   const shields = campaign ? campaign.shields : diff.shields;
-  net.client.send({ t: 'setup', coop: true, level: index, names: net.names, roster: net.roster, rules: net.rules, difficulty: diff.id, campaign: !!campaign, mode: campaign ? campaign.mode : null, shields: shields === Infinity ? 'inf' : shields });
+  net.frames = rosterFrames();
+  net.client.send({ t: 'setup', coop: true, level: index, names: net.names, roster: net.roster, rules: net.rules, difficulty: diff.id, campaign: !!campaign, mode: campaign ? campaign.mode : null, shields: shields === Infinity ? 'inf' : shields, frames: net.frames });
   beginCoopLevel(diff, shields === Infinity ? 'inf' : shields);
 }
 
@@ -2355,7 +2540,7 @@ function beginCoopLevel(diff, shields) {
   const sameTrack = game && game.def === def && audio.track;
   levelIndex = net.levelIndex;
   resetFrameWatch();
-  game = buildGame(def, false, net.rules, Math.max(1, net.roster.length));
+  game = buildGame(def, false, net.rules, Math.max(1, net.roster.length), null, netFrames());
   game.difficulty = diff;
   game.maxLives = diff.shields;
   game.lives = shields === 'inf' ? Infinity : Number(shields);
@@ -2798,6 +2983,7 @@ function showTitle() {
           <p class="intro">${def.intro}</p>
           ${def.record ? `<p class="record"><b>RECORD</b>${def.record}</p>` : ''}
         </div>
+        ${frameCardHtml()}
       </div>
       <div>
         <h3>Levels</h3>
@@ -2832,6 +3018,7 @@ function showTitle() {
   `);
   $('btn-start').onclick = begin;
   bindCampaignButtons();
+  bindFrameCard();
   bindDifficultySelect();
   bindQualitySelect();
   $('btn-record').onclick = (e) => {

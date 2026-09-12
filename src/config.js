@@ -39,10 +39,15 @@ export const BALL = {
 // ball up), `away` when it is retreating (it slows the ball down).
 export const SURFACE_VELOCITY_FACTOR = { toward: 0.7, away: 1.0 };
 
+// The human fighter. `radius`, `paddleWidth`, `paddleOffset`, `moveSpeed` and
+// `turnSpeed` are the standard frame's (Reflector's) values, kept here because
+// the rest of the game measures itself against them; a frame overrides them
+// (see src/frames.js). Everything else applies to every frame alike.
 export const PLAYER = {
   radius: 22,
   paddleWidth: 116,
   paddleOffset: 36,
+  paddleGap: 14, // px between the body's edge and the shield: the shield sits this far off any hull
   paddleThick: 6,
   moveSpeed: 430, // px/s
   turnSpeed: 7.0, // rad/s
