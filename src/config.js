@@ -38,6 +38,35 @@ export const BALL = {
   stuckSeconds: 20,
 };
 
+/**
+ * Versus ball speed. The host picks a pace; it multiplies whatever cap the
+ * arena would use in the campaign, so a normal arena's 1500 px/s and a
+ * conduit's 750 both scale from their own baseline and Standard is exactly
+ * the game as it plays elsewhere.
+ *
+ * The fastest setting is limited by the physics, not by taste: at 240 Hz a
+ * ball must not cross more than its own radius in one step or it can pass
+ * through a wall between two frames. That puts the hard ceiling at
+ * radius / PHYSICS_DT = 2640 px/s, and SPEED_CEILING keeps a margin under it.
+ */
+export const SPEED_CEILING = 2250; // px/s: 9.4 px per step, 85% of the ball's radius
+
+export const VERSUS_SPEEDS = [
+  { id: 'strategic', name: 'Strategic', mult: 0.5, blurb: 'half pace: every shot is a decision' },
+  { id: 'measured', name: 'Measured', mult: 0.75, blurb: 'a shade slower than the campaign' },
+  { id: 'standard', name: 'Standard', mult: 1, blurb: 'the campaign\'s own limit' },
+  { id: 'quick', name: 'Quick', mult: 1.25, blurb: 'faster than anything in the campaign' },
+  { id: 'chaotic', name: 'Chaotic', mult: 1.5, blurb: 'as fast as the physics allows' },
+];
+export const DEFAULT_VERSUS_SPEED = 'standard';
+
+/** The cap a versus match runs at: the arena's own, scaled by the host's pace and held under the ceiling. */
+export function versusMaxSpeed(def, id = DEFAULT_VERSUS_SPEED) {
+  const pace = VERSUS_SPEEDS.find((s) => s.id === id) || VERSUS_SPEEDS.find((s) => s.id === DEFAULT_VERSUS_SPEED);
+  const base = (def && def.maxBallSpeed) || BALL.maxSpeed;
+  return Math.min(SPEED_CEILING, Math.max(BALL.minSpeed * 2, Math.round(base * pace.mult)));
+}
+
 // How much of a moving surface's velocity transfers to the ball.
 // 1.0 is the physically exact result for an infinitely massive moving wall.
 // `toward` applies when the surface is closing on the ball (it speeds the

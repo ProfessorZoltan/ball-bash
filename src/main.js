@@ -1,6 +1,6 @@
 // Game bootstrap: state machine, fixed-step physics loop, collision dispatch,
 // HUD/overlay wiring. Everything heavy lives in the modules it imports.
-import { GAME_MARK, GAME_NAME, GAME_TAGLINE, GAME_VERSION, MARK_READINGS, PHYSICS_DT, BALL, PLAYER, SURFACE_VELOCITY_FACTOR, COUNTDOWN_SECONDS, DIFFICULTIES, DEFAULT_DIFFICULTY, COOP, RELAY_PROTOCOL } from './config.js';
+import { GAME_MARK, GAME_NAME, GAME_TAGLINE, GAME_VERSION, MARK_READINGS, PHYSICS_DT, BALL, PLAYER, SURFACE_VELOCITY_FACTOR, COUNTDOWN_SECONDS, DIFFICULTIES, DEFAULT_DIFFICULTY, COOP, RELAY_PROTOCOL, VERSUS_SPEEDS, DEFAULT_VERSUS_SPEED, versusMaxSpeed } from './config.js';
 import { BallHistory, bossIntent, moverSegmentsAt } from './ai.js';
 import { LEVELS, VERSUS_LEVELS, ROSTER, TUTORIAL_LEVEL } from './levels.js';
 import { SEQUENCE, VERSUS_CONDUITS, levelLabel, shortId, campaignNextIndex } from './conduits.js';
@@ -39,8 +39,8 @@ let fps = 60;
 
 // ------------------------------------------------------------------ setup
 
-function buildGame(def, pvp = false, rules = { ownBallLoss: ownBallLoss() }, coop = false, spawns = null, frames = null) {
-  const g = createGameState(def, { pvp, coop, rules, spawns, frames: frames || soloFrames() });
+function buildGame(def, pvp = false, rules = { ownBallLoss: ownBallLoss() }, coop = false, spawns = null, frames = null, maxSpeed = null) {
+  const g = createGameState(def, { pvp, coop, rules, spawns, frames: frames || soloFrames(), maxSpeed });
   const bossHits = g.coop ? g.humans.length * COOP.bossHitsPerHuman : 1;
   return {
     ...g,
@@ -1588,7 +1588,9 @@ function updateHud() {
   const mode = campaign ? campaign.mode : g.coop && net.coopCampaign ? net.coopMode : null;
   const mine = localFighter();
   const frameTag = mine ? frameName(g.frames && g.frames[mine.slot]).toUpperCase() : '';
-  const tags = [frameTag, g.coop ? `CO-OP · ${[net.names.host, ...net.roster.map((r) => r.name)].join(' & ').toUpperCase()}` : '', mode ? `${mode.toUpperCase()} CAMPAIGN` : '', g.difficulty ? g.difficulty.name.toUpperCase() : '', g.rules.ownBallLoss ? '' : 'SAFE OWN BALL', g.def.conduit ? 'HALF SPEED' : '', g.def.noGuide ? 'NO GUIDE' : ''].filter(Boolean);
+  // In versus the host sets the pace, so the HUD names it whenever it is not the campaign's own.
+  const pace = g.pvp && net.speed !== DEFAULT_VERSUS_SPEED ? (VERSUS_SPEEDS.find((sp) => sp.id === net.speed) || {}).name : '';
+  const tags = [frameTag, pace ? `${pace.toUpperCase()} · ${Math.round(g.maxSpeed)} PX/S` : '', g.coop ? `CO-OP · ${[net.names.host, ...net.roster.map((r) => r.name)].join(' & ').toUpperCase()}` : '', mode ? `${mode.toUpperCase()} CAMPAIGN` : '', g.difficulty ? g.difficulty.name.toUpperCase() : '', g.rules.ownBallLoss ? '' : 'SAFE OWN BALL', g.def.conduit && !g.pvp ? 'HALF SPEED' : '', g.def.noGuide ? 'NO GUIDE' : ''].filter(Boolean);
   setText('hud-rule', tags.map((t) => `· ${t}`).join(' '));
   const s = g.ball.held && state !== 'cleared' ? 0 : g.ball.speed;
   setText('hud-speed', `${Math.round(s)} px/s`);
@@ -2183,6 +2185,7 @@ const net = {
   players: [], // versus seats in order: [{ id, name }] (the host is 'a', guests keep their relay ids)
   shields: {}, // versus: shields left per player id; 0 means eliminated
   maxShields: DEFAULT_VERSUS_SHIELDS,
+  speed: DEFAULT_VERSUS_SPEED, // versus: the pace the host picked, an id in VERSUS_SPEEDS
   out: {}, // versus: player id -> the round they were eliminated in
   last: null, // versus: the latest loss, { id, reason: 'hit' | 'own' | 'camp' | 'shot' | 'well', by, out }
   names: { host: 'Host', guest: 'Guest' },
@@ -2269,6 +2272,31 @@ function shieldPips(id) {
   const left = net.shields[id] || 0;
   if (left <= 0) return 'OUT';
   return '◆'.repeat(left) + '◇'.repeat(Math.max(0, net.maxShields - left));
+}
+
+const VERSUS_SPEED_KEY = 'deflector.versusSpeed';
+
+/** The pace the host last picked for a versus match. */
+function versusSpeedSetting() {
+  try {
+    const id = localStorage.getItem(VERSUS_SPEED_KEY);
+    return VERSUS_SPEEDS.some((s) => s.id === id) ? id : DEFAULT_VERSUS_SPEED;
+  } catch (_) {
+    return DEFAULT_VERSUS_SPEED;
+  }
+}
+
+function setVersusSpeedSetting(id) {
+  try {
+    localStorage.setItem(VERSUS_SPEED_KEY, id);
+  } catch (_) {
+    // storage unavailable: the choice lasts for this match
+  }
+}
+
+/** The cap this versus match runs at, from the host's pace and the arena's own limit. */
+function netMaxSpeed(def) {
+  return versusMaxSpeed(def, net.speed || DEFAULT_VERSUS_SPEED);
 }
 
 function versusShieldsSetting() {
@@ -2469,7 +2497,8 @@ function renderHostLobby(client) {
         <div class="mp-code">${client.code}</div>
         <p>${names} joined${net.roster.length < COOP.maxAllies ? ` · room for ${COOP.maxAllies - net.roster.length} more` : ' · the room is full'}.</p>
         <div class="row"><label class="mp-field">Mode <select id="mp-mode"><option value="versus">Versus · ${people} players, last one standing</option><option value="coop">Co-op · ${people} of you against the boss</option></select></label></div>
-        <div class="row" id="mp-versus-opts"><label class="mp-field">Arena <select id="mp-level">${arenaOptions}</select></label><label class="mp-field">Shields each <select id="mp-shields">${VERSUS_SHIELDS.map((n) => `<option value="${n}" ${n === versusShieldsSetting() ? 'selected' : ''}>${n}</option>`).join('')}</select></label></div>
+        <div class="row" id="mp-versus-opts"><label class="mp-field">Arena <select id="mp-level">${arenaOptions}</select></label><label class="mp-field">Shields each <select id="mp-shields">${VERSUS_SHIELDS.map((n) => `<option value="${n}" ${n === versusShieldsSetting() ? 'selected' : ''}>${n}</option>`).join('')}</select></label><label class="mp-field" title="How fast the ball is allowed to get. Every setting scales the arena's own campaign limit, so Standard plays exactly as the campaign does.">Ball speed <select id="mp-speed">${VERSUS_SPEEDS.map((sp) => `<option value="${sp.id}" ${sp.id === versusSpeedSetting() ? 'selected' : ''}>${sp.name} · ${sp.blurb}</option>`).join('')}</select></label></div>
+        <p class="small muted" id="mp-speed-note"></p>
         <p class="small muted" id="mp-versus-note">Every player for themselves. A body hit, an own ball or standing still costs that player a shield and resets everyone; with no shields left they are out. The last one standing wins.</p>
         <div class="row" id="mp-coop-opts" hidden>
           <label class="mp-field">Play <select id="mp-coop-play"><option value="level">One level</option><option value="campaign">New short campaign</option><option value="full">New full campaign (with conduits)</option>${saved ? `<option value="resume">${spentCampaign(saved) ? 'Continue' : 'Resume'} ${saved.mode} campaign · ${levelLabel(SEQUENCE[saved.levelIndex])}${spentCampaign(saved) ? ` · continue ${(saved.continues || 0) + 1}` : ''}</option>` : ''}</select></label>
@@ -2482,10 +2511,24 @@ function renderHostLobby(client) {
       bindOwnBallToggle();
       $('mp-mode').value = prevMode;
       if ($('mp-level').querySelector(`option[value="${prevLevel}"]`)) $('mp-level').value = prevLevel;
+      const syncSpeed = () => {
+        const def = versusLevel(Number($('mp-level').value));
+        const id = $('mp-speed').value;
+        const cap = versusMaxSpeed(def, id);
+        const base = versusMaxSpeed(def, DEFAULT_VERSUS_SPEED);
+        setVersusSpeedSetting(id);
+        // Written straight to the element: setText caches by id for the HUD,
+        // and this panel is rebuilt whenever someone joins or changes frame.
+        $('mp-speed-note').textContent = `${def.title}: the ball tops out at ${cap} px/s${cap === base ? ', the campaign limit for this arena' : ` instead of ${base}`}.`;
+      };
+      $('mp-speed').onchange = syncSpeed;
+      $('mp-level').onchange = syncSpeed;
+      syncSpeed();
       const syncMode = () => {
         const coop = $('mp-mode').value === 'coop';
         $('mp-versus-opts').hidden = coop;
         $('mp-versus-note').hidden = coop;
+        $('mp-speed-note').hidden = coop;
         $('mp-coop-opts').hidden = !coop;
         $('mp-coop-note').hidden = !coop;
         $('mp-coop-level').parentElement.hidden = coop && $('mp-coop-play').value !== 'level';
@@ -2501,7 +2544,8 @@ function renderHostLobby(client) {
           } catch (_) {
             // storage unavailable: the choice lasts for this match
           }
-          return startNetMatch(Number($('mp-level').value), shields);
+          setVersusSpeedSetting($('mp-speed').value);
+          return startNetMatch(Number($('mp-level').value), shields, $('mp-speed').value);
         }
         const play = $('mp-coop-play').value;
         startCoop({ campaign: play !== 'level', resume: play === 'resume', mode: play === 'full' ? 'full' : 'short', levelIdx: Number($('mp-coop-level').value) });
@@ -2542,8 +2586,9 @@ async function joinRoom(code) {
 }
 
 /** Host: begin a versus match on the chosen arena with everyone in the room. */
-function startNetMatch(levelIdx, shields = net.maxShields) {
+function startNetMatch(levelIdx, shields = net.maxShields, speed = net.speed) {
   net.mode = 'host';
+  net.speed = VERSUS_SPEEDS.some((s) => s.id === speed) ? speed : DEFAULT_VERSUS_SPEED;
   if (net.roster[0]) net.names.guest = net.roster[0].name;
   net.levelIndex = levelIdx;
   net.rules = { ownBallLoss: ownBallLoss() };
@@ -2564,7 +2609,7 @@ function startNetRound() {
   net.remoteIntents = {};
   net.events = [];
   net.frames = rosterFrames();
-  net.client.send({ t: 'setup', level: net.levelIndex, round: net.round, shields: net.shields, max: net.maxShields, out: net.out, last: net.last, players: net.players, names: net.names, rules: net.rules, frames: net.frames });
+  net.client.send({ t: 'setup', level: net.levelIndex, round: net.round, shields: net.shields, max: net.maxShields, out: net.out, last: net.last, players: net.players, names: net.names, rules: net.rules, frames: net.frames, speed: net.speed });
   beginNetRound();
 }
 
@@ -2592,6 +2637,7 @@ function onSetup(msg) {
   net.names = msg.names;
   net.players = Array.isArray(msg.players) && msg.players.length ? msg.players : [{ id: 'a', name: msg.names.host }, { id: 'c', name: msg.names.guest }];
   net.maxShields = msg.max || DEFAULT_VERSUS_SHIELDS;
+  net.speed = VERSUS_SPEEDS.some((s) => s.id === msg.speed) ? msg.speed : DEFAULT_VERSUS_SPEED;
   net.shields = msg.shields || Object.fromEntries(net.players.map((p) => [p.id, net.maxShields]));
   net.out = msg.out || {};
   net.last = msg.last || null;
@@ -2619,10 +2665,11 @@ function beginNetRound() {
   net.colors = {};
   for (const p of net.players) net.colors[p.id] = colors[VERSUS_IDS.indexOf(p.id)] || colors[net.players.indexOf(p)];
   const seats = rotateSpawns(versusSpawns(def, n), net.round).map((sp, i) => ({ ...sp, id: alive[i].id, color: net.colors[alive[i].id] }));
-  game = buildGame(def, n, net.rules, false, seats, netFrames());
+  // The ball's colour ramp follows the match's own cap, not the arena's.
+  game = buildGame(def, n, net.rules, false, seats, netFrames(), netMaxSpeed(def));
   for (const f of game.fighters) f.name = playerName(f.slot) + (net.localSlot === f.slot ? ' (you)' : '');
   game.local = localFighter();
-  renderer.setLevel(def);
+  renderer.setLevel(def, game.maxSpeed);
   renderer.resize();
   simTime = 0;
   acc = 0;

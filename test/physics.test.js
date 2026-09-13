@@ -1330,3 +1330,76 @@ test('campaign continues: a spent run refills and is counted, a live one is only
   assert.equal(resume(easy).continues, 0);
   assert.equal(diffById('easy').shields, Infinity);
 });
+
+test('versus ball speed: the host scales the arena\'s own cap, and no setting can tunnel the ball', async () => {
+  const { VERSUS_SPEEDS, DEFAULT_VERSUS_SPEED, SPEED_CEILING, versusMaxSpeed, BALL, PHYSICS_DT } = await import('../src/config.js');
+  const { createGameState } = await import('../src/gamestate.js');
+  const { CONDUITS } = await import('../src/conduits.js');
+  assert.ok(VERSUS_SPEEDS.length >= 3, 'a range to pick from');
+  assert.ok(VERSUS_SPEEDS.some((s) => s.id === DEFAULT_VERSUS_SPEED));
+  // Standard is the campaign exactly, on a normal arena and on a conduit alike.
+  const arena = VERSUS_LEVELS[0];
+  const conduit = CONDUITS.find((c) => c.versus);
+  assert.equal(versusMaxSpeed(arena, 'standard'), BALL.maxSpeed);
+  assert.equal(versusMaxSpeed(conduit, 'standard'), conduit.maxBallSpeed);
+  assert.equal(versusMaxSpeed(arena), BALL.maxSpeed, 'no pace given is Standard');
+  // Each setting scales that arena's own baseline, so both start from their own.
+  for (const sp of VERSUS_SPEEDS) {
+    for (const def of [arena, conduit]) {
+      const cap = versusMaxSpeed(def, sp.id);
+      const base = def.maxBallSpeed || BALL.maxSpeed;
+      assert.equal(cap, Math.min(SPEED_CEILING, Math.round(base * sp.mult)), `${def.title} at ${sp.id}`);
+      assert.ok(cap > BALL.minSpeed, `${def.title} at ${sp.id} is above the floor`);
+      // The physics limit: a ball must never cross its own radius in one step.
+      assert.ok(cap * PHYSICS_DT < BALL.radius, `${sp.id} on ${def.title} moves ${(cap * PHYSICS_DT).toFixed(1)} px a step, under the ${BALL.radius} px radius`);
+    }
+  }
+  assert.ok(SPEED_CEILING * PHYSICS_DT < BALL.radius, 'the ceiling itself is safe');
+  // Slower and faster really are, in order.
+  const caps = VERSUS_SPEEDS.map((sp) => versusMaxSpeed(arena, sp.id));
+  for (let i = 1; i < caps.length; i++) assert.ok(caps[i] > caps[i - 1], 'the list runs slow to fast');
+  assert.ok(caps[0] < BALL.maxSpeed && caps[caps.length - 1] > BALL.maxSpeed, 'it brackets the campaign');
+  // An unknown id (an older host, a hand-edited setting) falls back to Standard.
+  assert.equal(versusMaxSpeed(arena, 'nonsense'), versusMaxSpeed(arena, DEFAULT_VERSUS_SPEED));
+  // The cap reaches the game state, and nothing else does.
+  const slow = createGameState(arena, { pvp: 2, maxSpeed: versusMaxSpeed(arena, 'strategic') });
+  assert.equal(slow.maxSpeed, versusMaxSpeed(arena, 'strategic'));
+  assert.equal(createGameState(arena, { pvp: 2 }).maxSpeed, BALL.maxSpeed, 'no override is the arena\'s own');
+  assert.equal(createGameState(conduit, { pvp: 2 }).maxSpeed, conduit.maxBallSpeed);
+  // And the ball is held to it.
+  slow.ball.launch(arena.ball.x, arena.ball.y, 0, 5000);
+  slow.ball.clampSpeed(BALL.minSpeed, slow.maxSpeed);
+  assert.ok(Math.abs(slow.ball.speed - slow.maxSpeed) < 1e-6);
+});
+
+for (const def of VERSUS_LEVELS) {
+  test(`versus arena ${def.title} is sealed at the Chaotic cap, not just the campaign's`, async () => {
+    const { createGameState } = await import('../src/gamestate.js');
+    const { SPEED_CEILING } = await import('../src/config.js');
+    // The fastest the host can set is well above anything the campaign runs
+    // at, which is exactly when a ball could start slipping through a wall.
+    const g = createGameState(def, { pvp: 2, maxSpeed: SPEED_CEILING });
+    assert.equal(g.maxSpeed, SPEED_CEILING);
+    const ball = g.ball;
+    let seed = 4242;
+    const rnd = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
+    let bounces = 0;
+    for (let run = 0; run < 5; run++) {
+      ball.launch(def.ball.x, def.ball.y, rnd() * Math.PI * 2, SPEED_CEILING);
+      for (let i = 0; i < 240 * 20; i++) {
+        for (const m of g.movers) m.update(1 / 240);
+        for (const f of g.humans) {
+          f.update(1 / 240, { mx: rnd() * 2 - 1, my: rnd() * 2 - 1, turn: rnd() * 2 - 1, lunge: rnd() < 0.02 });
+          f.finalizeStep(1 / 240);
+        }
+        advanceBall(ball, g.walls, g.fighters, 1 / 240, 1, { onWall: () => bounces++, onMover: () => bounces++, onBody: () => false }, g.movers, g.solidPolys);
+        separateFightersFromBall(ball, g.fighters);
+        ball.clampSpeed(BALL.minSpeed, g.maxSpeed);
+        assert.ok(pointInPolygon(ball.x, ball.y, def.boundary), `ball escaped ${def.title} at ${SPEED_CEILING} px/s, step ${i}: ${Math.round(ball.x)},${Math.round(ball.y)}`);
+        for (const poly of g.solidPolys) assert.ok(!pointInPolygon(ball.x, ball.y, poly), `ball inside an obstacle at step ${i}`);
+        assert.ok(ball.speed <= SPEED_CEILING + 1e-6);
+      }
+    }
+    assert.ok(bounces > 200, `only ${bounces} bounces`);
+  });
+}

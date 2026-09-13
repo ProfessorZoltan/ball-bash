@@ -36,9 +36,10 @@ export class Renderer {
     return this.low ? 0 : radius;
   }
 
-  setLevel(level) {
+  /** `maxSpeed` overrides the level's own cap, so the ball's colour ramp matches a versus match's pace. */
+  setLevel(level, maxSpeed = null) {
     this.level = level;
-    this.maxSpeed = level && level.maxBallSpeed ? level.maxBallSpeed : BALL.maxSpeed;
+    this.maxSpeed = maxSpeed || (level && level.maxBallSpeed) || BALL.maxSpeed;
     this.staticLayer = null;
   }
 

@@ -395,6 +395,35 @@ Each versus conduit lists its own seats under `spawns` for two and three
 players; a level or conduit without a seat list gets fair seats worked out at
 match time, never inside a well's reach or on a turret.
 
+### Ball speed
+
+The host also sets the pace. Every setting scales the cap the chosen arena
+would use in the campaign, so **Standard** is the campaign exactly, on a
+normal arena and on a conduit alike, and the others move from each arena's own
+baseline:
+
+| Pace | Multiplier | On a versus arena | On a conduit arena | Source |
+|---|---|---|---|---|
+| Strategic | 0.5 | 750 px/s | 375 px/s | `VERSUS_SPEEDS` in `src/config.js` |
+| Measured | 0.75 | 1125 px/s | 563 px/s | same |
+| Standard | 1 | 1500 px/s | 750 px/s | same |
+| Quick | 1.25 | 1875 px/s | 938 px/s | same |
+| Chaotic | 1.5 | 2250 px/s | 1125 px/s | same |
+
+The lobby names the resulting number for the arena in front of you, and the
+HUD carries the pace and the cap through the match whenever it is not
+Standard. The choice is remembered in the host's browser and travels to the
+guests in the setup message, so everyone plays at the same limit and the
+ball's colour ramp reads against it.
+
+Chaotic stops where it does because of the physics, not taste. At the fixed
+240 Hz step a ball that crosses more than its own radius between two frames
+can pass through a wall, which puts the hard limit at 2640 px/s;
+`SPEED_CEILING` is 2250, about 85% of that, and every pace is clamped to it.
+Each versus arena is fired at with the ball at that ceiling in
+`test/physics.test.js` for a hundred simulated seconds to prove its walls
+still hold.
+
 Rules: every player starts with the same number of shields (the host picks 1,
 2, 3 or 5 in the lobby; 3 is the default). A body hit, an own ball (with the
 own-ball rule on), standing still, a turret's shot or a gravity well costs
