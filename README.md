@@ -59,16 +59,19 @@ same game in its own window, with two things a browser cannot give it:
 Settings, campaign progress and the tutorial flag are saved by the app
 (`%APPDATA%\deflector-desktop`), separately from any browser.
 
-The builds are not code-signed, so SmartScreen shows "Windows protected your
-PC" the first time: click **More info**, then **Run anyway**. Signing needs a
-paid certificate; it is the one thing a Steam or Microsoft Store release would
-add here.
+The builds are not code-signed. On Windows, SmartScreen shows "Windows
+protected your PC" the first time: click **More info**, then **Run anyway**.
+The macOS `.dmg` is unsigned and unnotarized too, so Gatekeeper refuses it on
+a double-click: right-click the app and choose **Open** instead. Signing needs
+a paid certificate on either platform; it is the one thing a Steam, Microsoft
+Store or Mac App Store release would add here.
 
 **Cutting a release.** Bump `GAME_VERSION` in `src/config.js` and the version
 in `desktop/package.json`, commit, then push a tag; the
-[Windows release workflow](.github/workflows/release-windows.yml) builds both
-`.exe` files on a Windows runner and attaches them to a GitHub Release (a tag
-with a `-` in it, like an alpha, is marked pre-release):
+[desktop release workflow](.github/workflows/release-desktop.yml) builds both
+`.exe` files on a Windows runner and a `.dmg` on a macOS runner, and attaches
+all of them to one GitHub Release (a tag with a `-` in it, like an alpha, is
+marked pre-release):
 
 ```bash
 git tag v1.0.0-alpha
@@ -912,8 +915,8 @@ src/audio/tracks.js        per-level track definitions
 test/physics.test.js       node --test suite
 server.js                  zero-dependency static server + LAN relay
 relay/                     the same relay as a Cloudflare Worker for online play
-desktop/                   Electron wrapper for the Windows build (bundles server.js)
-.github/workflows/         relay deploy and Windows release automation
+desktop/                   Electron wrapper for the Windows and macOS builds (bundles server.js)
+.github/workflows/         relay deploy and desktop release automation
 ```
 
 ## Mobile roadmap
