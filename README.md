@@ -265,8 +265,41 @@ host at a spot chosen to be clear of walls, obstacles, movers and each other
 (`findAllySpawn`, or a level's `ally` override for the first). Versus stays a
 two-player mode, so the lobby only offers it while one friend is in the room.
 End-of-level screens and the campaign's continue, restart and summary choices
-belong to the host; the guests see the same screen and wait. If anyone drops
-out mid-match the match ends for everyone.
+belong to the host; the guests see the same screen and wait.
+
+### The room outlives the match
+
+A room is not a match. From the moment it is made or joined it stays open on
+the same four-letter code until somebody actually leaves it, and a finished
+match drops everyone back into it rather than to the main menu. From the room
+the host can pick a different arena, switch between versus and co-op, change
+the shields or the own-ball rule and start again with the same people; every
+player can change their frame while they wait. The pickers come back on
+whatever was played last.
+
+The end-of-match screen gives the host **Rematch** (the same arena again),
+**Change the match** (back to the room) and **Leave the room**; guests get the
+last of those and a line saying what the host is choosing. If a guest
+disconnects, the match ends and the host and everyone still connected go back
+to the room, which keeps its code so the same player can rejoin. Only the host
+disconnecting closes the room.
+
+In the code this is the split between `endMatch`, which clears everything
+about the match just played and keeps the connection, the roster, the names
+and the frames, and `netReset`, which is the only thing that drops the socket.
+`net.room` says a room is live; `net.mode` says a match is running inside it.
+
+### Leaving a live match takes two presses
+
+During a multiplayer match no single key or button drops you out. `Esc`, `P`,
+gamepad **Start** and gamepad **B** arm the exit and raise a banner; a second
+press within three seconds acts on it, and doing nothing for three seconds
+cancels it. The match keeps running behind the banner, because no one player
+can pause a live match, and the banner says so. What the second press does
+depends on which side you are: the host ends the match and everyone lands back
+in the room, while a guest walking out of a live match walks out of the room,
+and the banner names which before you commit. Single player is unchanged:
+`Esc` still pauses immediately.
 
 ## Versus arenas (every player for themselves)
 

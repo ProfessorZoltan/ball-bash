@@ -985,6 +985,7 @@ function frame(now) {
       }
       if (countdown <= 0) launchBall();
     }
+    if (net.leaveAt) tickLeaveConfirm(now);
     if (game.tutorial && state === 'playing') tutorialTick(dt);
     if (state === 'roundEnd' && net.mode === 'host') {
       endTimer -= dt;
@@ -1325,7 +1326,8 @@ function handleGlobalKeys() {
     $('hud-mute').textContent = audio.muted ? 'MUTED [M]' : 'SOUND ON [M]';
   }
   if (input.consumePress('p') || input.consumePress('Escape')) {
-    if (net.mode) leaveMatch();
+    // In a live match one press only arms the exit; it takes a second one.
+    if (net.mode) requestLeave();
     else if (state === 'playing') pause();
     else if (state === 'paused') resume();
     else if (state === 'jukebox') leaveJukebox();
@@ -2055,7 +2057,13 @@ const net = {
   frames: {}, // the frame each seat wears this match, by slot
   smooth: { x: 0, y: 0 },
   client: null,
+  // The room outlives the match. `room` is true from the moment a room is
+  // made or joined until someone actually leaves it; `mode` is only set while
+  // a match is being played. Between matches the players stay connected in
+  // the room lobby and can change arena, mode and frames.
+  room: false,
   mode: null, // null | 'host' | 'guest'
+  leaveAt: 0, // while > 0, a leave has been armed and needs a second press before this time
   localSlot: 'a',
   remoteIntents: {}, // host: latest intent per guest id
   events: [],
@@ -2075,20 +2083,18 @@ const net = {
   frame: 0,
 };
 
-function netReset() {
-  if (net.client) {
-    net.client.leave();
-    net.client.close();
-  }
-  net.client = null;
+/**
+ * End the match but stay in the room: everything about the match that just
+ * finished is cleared, and the connection, the roster, the names and the
+ * frames are kept so the same players can start another one.
+ */
+function endMatch() {
   net.mode = null;
   net.coop = false;
   net.coopCampaign = false;
   net.remoteIntents = {};
   net.seq = 0;
   net.remoteSeqs = {};
-  net.roster = [];
-  net.frames = {};
   net.inputs = [];
   net.smooth = { x: 0, y: 0 };
   net.events = [];
@@ -2099,6 +2105,21 @@ function netReset() {
   net.last = null;
   net.pending = null;
   net.ballBase = null;
+  net.leaveAt = 0;
+  disarmLeave();
+}
+
+/** Leave the room for good: end the match, then drop the connection. */
+function netReset() {
+  endMatch();
+  if (net.client) {
+    net.client.leave();
+    net.client.close();
+  }
+  net.client = null;
+  net.room = false;
+  net.roster = [];
+  net.frames = {};
 }
 
 /** Everything versus can be played on: its own arenas first, then the campaign levels. */
@@ -2207,7 +2228,7 @@ async function openLobby(prefillCode = '') {
       <button id="mp-host" class="primary">Host a match</button>
       <label class="mp-field">Code <input id="mp-code" maxlength="4" value="${prefillCode.replace(/[^A-Z0-9]/g, '')}" placeholder="XXXX" style="width:5em;text-transform:uppercase" /></label>
       <button id="mp-join">Join</button>
-      <button id="btn-menu">Main menu</button>
+      <button id="btn-menu">${exitLabel()}</button>
     </div>
     <div id="mp-status" class="mp-status"></div>
     <details class="mp-adv"><summary>Relay</summary>
@@ -2217,7 +2238,7 @@ async function openLobby(prefillCode = '') {
   `);
   if (lanInfo && lanInfo.unreachable) lobbyStatus(`<span class="small">The relay at <b>${lanInfo.unreachable}</b> did not answer, so this is same-network play through ${IS_DESKTOP ? 'the app\'s built-in server' : 'this page\'s server'}.</span>`);
   if (online && (lanInfo.v || 1) < RELAY_PROTOCOL) lobbyStatus(`<span class="mp-error">This relay is out of date (protocol ${lanInfo.v || 1}, the game needs ${RELAY_PROTOCOL}). Redeploy it: see "Online multiplayer" in the README.</span>`);
-  $('btn-menu').onclick = goToMenu;
+  $('btn-menu').onclick = exitAction();
   $('mp-relay-set').onclick = async () => {
     saveRelay($('mp-relay').value);
     netReset();
@@ -2255,6 +2276,7 @@ async function connectClient() {
     if (net.mode) showNetNotice('Connection lost', 'The link to the other player dropped.');
   });
   client.on('setup', onSetup);
+  client.on('lobby', onLobbyMsg);
   client.on('frame', (msg) => {
     // A guest's frame, sent on joining and whenever they change it in the lobby.
     if (net.client.role !== 'host') return;
@@ -2285,6 +2307,7 @@ async function hostRoom() {
   try {
     const client = await connectClient();
     client.on('created', (msg) => {
+      net.room = true;
       net.names.host = name;
       const urls = lanInfo && lanInfo.online ? [`${location.origin}${location.pathname}?room=${msg.code}`] : lanInfo ? lanInfo.addresses.map((a) => `http://${a}:${lanInfo.port}/?relay=local&room=${msg.code}`) : [];
       lobbyStatus(`
@@ -2326,7 +2349,9 @@ function renderHostLobby(client) {
   const names = net.roster.map((r) => `<b>${esc(r.name)}</b> <span class="small muted">(${frameName(r.cells)})</span>`).join(' and ');
   const many = net.roster.length > 1;
   const people = net.roster.length + 1;
-  const prevMode = $('mp-mode') ? $('mp-mode').value : 'versus';
+  const prevMode = $('mp-mode') ? $('mp-mode').value : net.coop ? 'coop' : 'versus';
+  // Between matches the pickers come back on whatever was played last.
+  const prevLevel = $('mp-level') ? $('mp-level').value : String(net.levelIndex || 0);
   {
       lobbyStatus(`
         <div class="mp-code">${client.code}</div>
@@ -2344,6 +2369,7 @@ function renderHostLobby(client) {
       `);
       bindOwnBallToggle();
       $('mp-mode').value = prevMode;
+      if ($('mp-level').querySelector(`option[value="${prevLevel}"]`)) $('mp-level').value = prevLevel;
       const syncMode = () => {
         const coop = $('mp-mode').value === 'coop';
         $('mp-versus-opts').hidden = coop;
@@ -2383,6 +2409,7 @@ async function joinRoom(code) {
       lobbyStatus(`<div class="mp-code">${client.code}</div><p>Joined <b>${esc(net.names.host)}</b>'s room${others.length ? ` with ${others.join(' and ')}` : ''}. Waiting for ${esc(net.names.host)} to start…</p>`);
     };
     client.on('joined', (msg) => {
+      net.room = true;
       net.names.guest = name;
       net.names.host = msg.peerName;
       sendFrame();
@@ -2587,9 +2614,9 @@ function onCoopResult(msg) {
     <h1>${esc(msg.title)}</h1>
     <p class="muted">${esc(msg.text)}</p>
     ${msg.note ? `<p class="small muted record-note">${esc(msg.note)}</p>` : ''}
-    <div class="row"><span class="small muted">Waiting for ${esc(net.names.host)} to choose what is next…</span><button id="btn-menu">Main menu</button></div>
+    <div class="row"><span class="small muted">Waiting for ${esc(net.names.host)} to choose what is next…</span><button id="btn-menu">Leave the room</button></div>
   `);
-  $('btn-menu').onclick = leaveMatch;
+  $('btn-menu').onclick = leaveRoom;
 }
 
 /** Host: a body was hit in versus; that player loses a shield. */
@@ -2873,38 +2900,191 @@ function showNetMatchEnd() {
   const you = winner === net.localSlot;
   const left = net.shields[winner] || 0;
   const fallen = order.slice(1).map((id) => `${tint(id, esc(playerName(id)))} out in round ${net.out[id] || net.round}`).join(' · ');
+  const host = net.mode === 'host';
   showOverlay(`
     <div class="eyebrow">${you ? 'VICTORY' : 'DEFEAT'}</div>
     <h1>${tint(winner, esc(playerName(winner)))} is the last one standing</h1>
     <p class="muted">${left} shield${left === 1 ? '' : 's'} left${fallen ? ` · ${fallen}` : ''}</p>
     <p class="muted">${versusLevel(net.levelIndex).title} · ${net.round} rounds</p>
+    <p class="small muted">The room stays open. Nobody leaves it until they choose to.</p>
     <div class="row">
-      ${net.mode === 'host' ? '<button id="btn-rematch" class="primary">Rematch</button>' : '<span class="small muted">Waiting for the host to start a rematch…</span>'}
-      <button id="btn-menu">Main menu</button>
+      ${host ? '<button id="btn-rematch" class="primary">Rematch · same arena</button><button id="btn-change">Change the match</button>' : `<span class="small muted">Waiting for ${esc(net.names.host)} to pick the next match…</span>`}
+      <button id="btn-menu">Leave the room</button>
     </div>
   `);
-  $('btn-menu').onclick = leaveMatch;
-  if (net.mode === 'host') $('btn-rematch').onclick = () => startNetMatch(net.levelIndex);
+  $('btn-menu').onclick = leaveRoom;
+  if (host) {
+    $('btn-rematch').onclick = () => startNetMatch(net.levelIndex);
+    $('btn-change').onclick = () => returnToRoom();
+  }
 }
 
-function showNetNotice(title, text) {
+function showNetNotice(title, text, keepRoom = false) {
   setInGame(false);
+  disarmLeave();
   showOverlay(`
     <h1>${title}</h1>
     <p class="muted">${text}</p>
-    <div class="row"><button id="btn-menu" class="primary">Main menu</button></div>
+    <div class="row"><button id="btn-menu" class="primary">${keepRoom ? 'Back to the room' : 'Main menu'}</button></div>
   `);
-  $('btn-menu').onclick = leaveMatch;
+  $('btn-menu').onclick = keepRoom ? () => backToRoom() : goToMenu;
 }
 
+/**
+ * Someone dropped. If it was the host the room is gone and everyone goes to
+ * the menu; if it was a guest the room survives, so the host ends the match
+ * and brings whoever is left back to the room lobby.
+ */
 function onPeerLeft(msg) {
-  if (!net.mode) return; // in the lobby the room handlers update the list
+  const id = msg && msg.id;
   const who = msg && msg.name ? msg.name : 'Your friend';
-  showNetNotice(`${who} left`, msg && msg.id === 'a' ? 'The host disconnected, so the match is over.' : 'A player disconnected, so the match is over.');
+  if (id === 'a') {
+    net.room = false; // the host's room went with them
+    if (net.mode) showNetNotice(`${who} left`, 'The host disconnected, so the room is closed.');
+    return;
+  }
+  net.roster = net.roster.filter((r) => r.id !== id);
+  if (!net.mode) return; // between matches the room's own handlers redraw the list
+  if (net.mode === 'host') {
+    // The room is still the host's. End the match and wait in the lobby, with
+    // the code up for whoever wants to come back.
+    returnToRoom(net.roster.length ? `${esc(who)} left, so the match ended. Pick another one.` : `${esc(who)} left, so the match ended. The room is still open on this code.`);
+    return;
+  }
+  // The host broadcasts a return to the room on any disconnect, so this
+  // notice is only what a guest sees in the moment before that lands.
+  showNetNotice(`${who} left`, `The match ended. Waiting for ${esc(net.names.host)} to pick the next one…`, true);
 }
 
+/**
+ * Leaving a live match takes two presses. The first arms it and shows a
+ * banner; a second within the window leaves. The match keeps running while
+ * the banner is up, because in multiplayer no one player can pause it, so
+ * the banner says so rather than hiding the arena behind an overlay.
+ */
+const LEAVE_CONFIRM_MS = 3000;
+
+function armLeave() {
+  net.leaveAt = performance.now() + LEAVE_CONFIRM_MS;
+  // The host ends the match for everyone and the room survives it; a guest
+  // walking out of a live match walks out of the room.
+  const host = net.mode === 'host';
+  const what = host ? 'End the match?' : net.room ? 'Leave the room?' : 'Leave the match?';
+  const sub = host ? 'Everyone goes back to the room.' : net.room ? 'You will drop out of the room as well.' : '';
+  const el = $('confirm');
+  el.innerHTML = `${what} <b>Press again to confirm</b><span class="sub">The match is still running. Do nothing and you stay in.${sub ? ` ${sub}` : ''}</span>`;
+  el.hidden = false;
+}
+
+function disarmLeave() {
+  net.leaveAt = 0;
+  const el = $('confirm');
+  if (el) el.hidden = true;
+}
+
+/** Called every frame: the armed window closes on its own. */
+function tickLeaveConfirm(now) {
+  if (net.leaveAt && now > net.leaveAt) disarmLeave();
+}
+
+/** A key or pad button asked to leave a live match: arm it, or act on an armed one. */
+function requestLeave() {
+  if (net.leaveAt) {
+    disarmLeave();
+    leaveMatch();
+    return;
+  }
+  armLeave();
+}
+
+/** Leave the match. In a room that outlives it, that means going back to the room, not to the menu. */
 function leaveMatch() {
+  if (net.room && net.client && net.client.connected) return net.mode === 'host' ? returnToRoom() : leaveRoom();
   goToMenu();
+}
+
+/** Leave the room for good: this is the only thing that drops the connection. */
+function leaveRoom() {
+  goToMenu();
+}
+
+// --------------------------------------------------- the room between matches
+
+/** The overlay a room lives in between matches; renderHostLobby and renderGuestRoom fill in #mp-status. */
+function roomShell(note = '') {
+  state = 'title';
+  setInGame(false);
+  $('hud').hidden = true;
+  $('countdown').hidden = true;
+  $('tutor').hidden = true;
+  disarmLeave();
+  game = null;
+  const people = [net.names.host].concat(net.roster.map((r) => r.name)).filter(Boolean);
+  showOverlay(`
+    <div class="eyebrow">THE ROOM</div>
+    <h1>Still together</h1>
+    <p class="small muted">${esc(people.join(', '))} ${people.length > 1 ? 'are' : 'is'} in this room. It stays open between matches: change the arena, the mode or your frame and go again. Nobody drops out until they leave.</p>
+    ${note ? `<p class="small">${note}</p>` : ''}
+    <div id="mp-status" class="mp-status"></div>
+    <div class="row"><button id="btn-leave-room">Leave the room</button></div>
+  `);
+  $('btn-leave-room').onclick = leaveRoom;
+}
+
+/** Host: end the match and bring everyone back to the room lobby. */
+function returnToRoom(note = '') {
+  const client = net.client;
+  if (!client || !client.connected) return goToMenu();
+  if (net.mode === 'host') client.send({ t: 'lobby', host: net.names.host, roster: net.roster.map((r) => ({ id: r.id, name: r.name })), note });
+  endMatch();
+  audio.stopTrack(0.6);
+  roomShell(note);
+  renderHostLobby(client);
+}
+
+/** Guest: the host ended the match; wait in the room for the next one. */
+function onLobbyMsg(msg) {
+  if (!net.room) return;
+  if (msg && msg.host) net.names.host = msg.host;
+  if (msg && Array.isArray(msg.roster)) net.roster = msg.roster;
+  endMatch();
+  audio.stopTrack(0.6);
+  roomShell(msg && msg.note ? esc(msg.note) : '');
+  renderGuestRoom();
+}
+
+/**
+ * Go back to the room without leaving it: the host ends the match for
+ * everyone, a guest simply waits for the host's next pick.
+ */
+function backToRoom(note = '') {
+  if (!net.room || !net.client || !net.client.connected) return goToMenu();
+  if (net.client.role === 'host') return returnToRoom(note);
+  endMatch();
+  audio.stopTrack(0.6);
+  roomShell(note);
+  renderGuestRoom();
+}
+
+/** The label for the button that gets you out of an end screen, and what it does. */
+function exitLabel() {
+  return net.room ? 'Back to the room' : 'Main menu';
+}
+
+function exitAction() {
+  return net.room ? () => backToRoom() : goToMenu;
+}
+
+/** Guest's half of the room: the frame picker and a wait. */
+function renderGuestRoom(status = '') {
+  const code = net.client && net.client.code ? `<div class="mp-code">${net.client.code}</div>` : '';
+  lobbyStatus(`
+    ${code}
+    ${status ? `<p class="small">${status}</p>` : ''}
+    <p>Waiting for <b>${esc(net.names.host)}</b> to pick the next match…</p>
+    <div class="row">${frameFieldHtml('mp-frame-room')}</div>
+  `);
+  bindFrameField('mp-frame-room');
 }
 
 // ---------------------------------------------------------- title mark
@@ -3150,10 +3330,10 @@ function showCampaignCleared(def, next, nextIdx, last) {
         <tr><td>Shields lost</td><td>${done.lost}</td></tr>
         <tr><td>Shields left</td><td>${shields}</td></tr>
       </table>
-      <div class="row"><button id="btn-campaign" class="primary">New campaign</button><button id="btn-menu">Main menu</button></div>
+      <div class="row"><button id="btn-campaign" class="primary">New campaign</button><button id="btn-menu">${exitLabel()}</button></div>
     `);
     $('btn-campaign').onclick = () => startCampaign(null, done.mode || 'short');
-    $('btn-menu').onclick = goToMenu;
+    $('btn-menu').onclick = exitAction();
     return;
   }
   campaign.levelIndex = nextIdx;
@@ -3168,11 +3348,11 @@ function showCampaignCleared(def, next, nextIdx, last) {
       <tr><td>Top ball speed</td><td>${Math.round(game.topSpeed)} px/s</td></tr>
       <tr><td>Shields</td><td>${shields}</td></tr>
     </table>
-    <div class="row"><button id="btn-next" class="primary">Continue · ${levelLabel(next)} · ${next.title}</button><button id="btn-menu">Main menu</button></div>
+    <div class="row"><button id="btn-next" class="primary">Continue · ${levelLabel(next)} · ${next.title}</button><button id="btn-menu">${exitLabel()}</button></div>
     <p class="small muted">Your campaign is saved; Main menu keeps it for later.</p>
   `);
   $('btn-next').onclick = () => startLevel(nextIdx);
-  $('btn-menu').onclick = goToMenu;
+  $('btn-menu').onclick = exitAction();
 }
 
 function showCampaignOver(def) {
@@ -3186,10 +3366,10 @@ function showCampaignOver(def) {
     <h1>${def.bossName} holds ${def.title}</h1>
     <p class="muted">${game.lossReason === 'camp' ? `You stayed within a body length of one spot for ${PLAYER.campSeconds} seconds, and that cost the last shield.` : game.lossReason === 'touch' ? 'You touched the boss, and that cost the last shield.' : `That was the last of your ${diff.shields === Infinity ? '' : diff.shields + ' '}shields.`} You reached ${levelLabel(def).toLowerCase()} on ${diff.name} in ${formatTime(reached.time)}.</p>
     <p class="small muted record-note">${LORE.failed(def.title)}</p>
-    <div class="row"><button id="btn-campaign" class="primary">Restart campaign</button><button id="btn-menu">Main menu</button></div>
+    <div class="row"><button id="btn-campaign" class="primary">Restart campaign</button><button id="btn-menu">${exitLabel()}</button></div>
   `);
   $('btn-campaign').onclick = () => startCampaign(null, reached.mode || 'short');
-  $('btn-menu').onclick = goToMenu;
+  $('btn-menu').onclick = exitAction();
 }
 
 /** "LEVEL 3 CLEARED · THE SUMP STOPPED", or for a conduit "CONDUIT 3½ LIT". */
@@ -3218,12 +3398,12 @@ function showCleared() {
     <div class="row">
       <button id="btn-replay" class="primary">Play again</button>
       ${next ? `<button id="btn-next" class="primary">${levelLabel(next)} · ${next.title}</button>` : ''}
-      <button id="btn-menu">Main menu</button>
+      <button id="btn-menu">${exitLabel()}</button>
     </div>
   `);
   $('btn-replay').onclick = () => startLevel(levelIndex);
   if (nextIdx >= 0) $('btn-next').onclick = () => startLevel(nextIdx);
-  $('btn-menu').onclick = goToMenu;
+  $('btn-menu').onclick = exitAction();
 }
 
 /** The words for how a level was lost: the overlay's eyebrow and its explanation. */
@@ -3246,10 +3426,10 @@ function showFailed() {
     <h1>${def.bossName} holds ${def.title}</h1>
     <p class="muted">${words.text} You lasted ${formatTime(game.time)}.</p>
     <p class="small muted record-note">${LORE.failed(def.title)}</p>
-    <div class="row"><button id="btn-retry" class="primary">Retry</button><button id="btn-menu">Main menu</button></div>
+    <div class="row"><button id="btn-retry" class="primary">Retry</button><button id="btn-menu">${exitLabel()}</button></div>
   `);
   $('btn-retry').onclick = () => startLevel(levelIndex);
-  $('btn-menu').onclick = goToMenu;
+  $('btn-menu').onclick = exitAction();
 }
 
 // ------------------------------------------------------------------ boot
