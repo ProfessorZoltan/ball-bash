@@ -1,13 +1,16 @@
-# Builds the Windows desktop version (desktop/) and attaches it to a GitHub
-# Release whenever a version tag is pushed:
+# Builds the desktop version (desktop/) for Windows and macOS and attaches
+# both to a GitHub Release whenever a version tag is pushed:
 #
 #   git tag v0.3.0-alpha
 #   git push origin v0.3.0-alpha
 #
 # The tag sets the app version; a tag with a "-" in it (alpha, beta, rc) is
 # published as a pre-release. "Run workflow" on the Actions tab builds the
-# installer without publishing (download it from the run's artifacts).
-name: Windows release
+# installers without publishing (download them from the run's artifacts).
+#
+# The macOS .dmg is unsigned and not notarized (no Apple Developer cert), so
+# Gatekeeper will warn on first launch; users need to right-click > Open.
+name: Desktop release
 
 on:
   push:
@@ -18,8 +21,26 @@ permissions:
   contents: write
 
 jobs:
-  windows:
-    runs-on: windows-latest
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+            build-flag: --win
+            artifact-glob: desktop/dist/*.exe
+            release-files: |
+              desktop/dist/*.exe
+              desktop/dist/*.blockmap
+          - os: macos-latest
+            platform: mac
+            build-flag: --mac
+            artifact-glob: desktop/dist/*.dmg
+            release-files: |
+              desktop/dist/*.dmg
+              desktop/dist/*.blockmap
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -52,14 +73,14 @@ jobs:
         run: npm ci
         working-directory: desktop
 
-      - name: Build installer and portable exe
-        run: npm run build
+      - name: Build installer
+        run: npx electron-builder ${{ matrix.build-flag }} --publish never
         working-directory: desktop
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Deflector-windows-${{ steps.ver.outputs.version }}
-          path: desktop/dist/*.exe
+          name: Deflector-${{ matrix.platform }}-${{ steps.ver.outputs.version }}
+          path: ${{ matrix.artifact-glob }}
           if-no-files-found: error
 
       - name: Publish the release
@@ -69,6 +90,4 @@ jobs:
           name: Deflector ${{ steps.ver.outputs.version }}
           prerelease: ${{ contains(steps.ver.outputs.version, '-') }}
           generate_release_notes: true
-          files: |
-            desktop/dist/*.exe
-            desktop/dist/*.blockmap
+          files: ${{ matrix.release-files }}
