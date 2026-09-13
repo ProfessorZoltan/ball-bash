@@ -243,11 +243,36 @@ guest has picked.
 ## Campaign and difficulty
 
 **Campaign** plays the ten levels in order on one shield pool. Every body hit
-or stand-still costs a shield; when the pool is empty the campaign is over.
-Progress (level reached, shields left, time, shields lost) is saved in the
-browser after every level and every lost shield, so the title screen offers
-**Continue campaign · Level n** until it is finished or lost. **Play level n**
+or stand-still costs a shield; when the pool is empty the run is over.
+Progress (level reached, shields left, time, shields lost, continues used) is
+saved in the browser after every level and every lost shield, so the title
+screen offers **Resume · Level n** to pick a run back up. **Play level n**
 plays the selected level on its own with a fresh pool.
+
+### Continues
+
+A run that loses its last shield is not thrown away. The save is kept, spent,
+at the level it ended on, and the campaign-over screen offers **Continue** as
+well as Restart: the pool refills, the level starts again, and the run keeps
+its elapsed time and everything it has already lost. Leaving to the menu keeps
+the offer, and the title screen and the co-op lobby both say **Continue**
+rather than Resume for a spent run, with the number the next one will be.
+
+Resuming a run whose pool is empty is what counts a continue, wherever it is
+resumed from, so there is one rule and no way to take a continue without it
+being recorded (`resumeCampaign` in `src/main.js`). The count rides with the
+run to the end and is the last line of the completion table:
+
+| Line | What it says | Source |
+|---|---|---|
+| Difficulty, Total time, Shields lost, Shields left | the run as before | `showCampaignCleared` in `src/main.js` |
+| Continues used | how many times the run ran out and was taken up again, or "start to finish on one pool" at zero | same |
+
+The campaign-over screen carries the same figures, so the cost of the run is
+visible while deciding whether to continue it. Completing a campaign clears
+the save, and so does starting a fresh one. All of it works the same in co-op,
+where the host owns the run: the host gets the Continue button and the guests
+see the same screen and wait.
 
 The difficulty select on the title screen sets the pool for both modes and is
 locked in when a campaign starts:

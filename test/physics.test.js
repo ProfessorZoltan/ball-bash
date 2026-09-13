@@ -1293,3 +1293,40 @@ test('a door never shuts a player away from the ball, and a re-serve puts anyone
     }
   }
 });
+
+test('campaign continues: a spent run refills and is counted, a live one is only resumed', async () => {
+  // The rule the game uses, kept in step with resumeCampaign in src/main.js.
+  const { DIFFICULTIES } = await import('../src/config.js');
+  const diffById = (id) => DIFFICULTIES.find((d) => d.id === id);
+  const resume = (saved) => {
+    const diff = diffById(saved.difficulty);
+    if (saved.shields > 0) return { ...saved };
+    return { ...saved, shields: diff.shields, continues: (saved.continues || 0) + 1 };
+  };
+  const run = { difficulty: 'hard', shields: 2, levelIndex: 6, time: 812.5, lost: 4, continues: 1, mode: 'full' };
+  // Shields left: picked up where it was, nothing counted.
+  assert.deepEqual(resume(run), run);
+  // Spent: the pool refills, the level stays, the run keeps what it has spent.
+  const spent = { ...run, shields: 0 };
+  const back = resume(spent);
+  assert.equal(back.shields, diffById('hard').shields, 'a full pool');
+  assert.equal(back.continues, 2, 'and the continue is counted');
+  assert.equal(back.levelIndex, 6, 'at the level it ended on');
+  assert.equal(back.time, 812.5, 'the run keeps its time');
+  assert.equal(back.lost, 4, 'and its losses');
+  assert.equal(back.mode, 'full');
+  // Counting is cumulative however many times it happens.
+  let r = { difficulty: 'punishing', shields: 0, levelIndex: 0, time: 0, lost: 1, continues: 0, mode: 'short' };
+  for (let i = 1; i <= 5; i++) {
+    r = resume(r);
+    assert.equal(r.continues, i);
+    r = { ...r, shields: 0 };
+  }
+  // A save from before continues existed starts at zero rather than undefined.
+  const old = { difficulty: 'normal', shields: 0, levelIndex: 2, time: 100, lost: 3, mode: 'short' };
+  assert.equal(resume({ ...old, continues: Number(old.continues) || 0 }).continues, 1);
+  // On Easy the pool never empties, so a run there can never take one.
+  const easy = { difficulty: 'easy', shields: Infinity, levelIndex: 0, time: 0, lost: 0, continues: 0, mode: 'short' };
+  assert.equal(resume(easy).continues, 0);
+  assert.equal(diffById('easy').shields, Infinity);
+});

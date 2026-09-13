@@ -2472,7 +2472,7 @@ function renderHostLobby(client) {
         <div class="row" id="mp-versus-opts"><label class="mp-field">Arena <select id="mp-level">${arenaOptions}</select></label><label class="mp-field">Shields each <select id="mp-shields">${VERSUS_SHIELDS.map((n) => `<option value="${n}" ${n === versusShieldsSetting() ? 'selected' : ''}>${n}</option>`).join('')}</select></label></div>
         <p class="small muted" id="mp-versus-note">Every player for themselves. A body hit, an own ball or standing still costs that player a shield and resets everyone; with no shields left they are out. The last one standing wins.</p>
         <div class="row" id="mp-coop-opts" hidden>
-          <label class="mp-field">Play <select id="mp-coop-play"><option value="level">One level</option><option value="campaign">New short campaign</option><option value="full">New full campaign (with conduits)</option>${saved ? `<option value="resume">Continue ${saved.mode} campaign · ${levelLabel(SEQUENCE[saved.levelIndex])}</option>` : ''}</select></label>
+          <label class="mp-field">Play <select id="mp-coop-play"><option value="level">One level</option><option value="campaign">New short campaign</option><option value="full">New full campaign (with conduits)</option>${saved ? `<option value="resume">${spentCampaign(saved) ? 'Continue' : 'Resume'} ${saved.mode} campaign · ${levelLabel(SEQUENCE[saved.levelIndex])}${spentCampaign(saved) ? ` · continue ${(saved.continues || 0) + 1}` : ''}</option>` : ''}</select></label>
           <label class="mp-field">Level <select id="mp-coop-level">${coopOptions}</select></label>
         </div>
         <p class="small muted" id="mp-coop-note" hidden>Co-op shares one pool of shields (${diff.name}: ${diff.blurb}, set on the title screen) and the boss takes ${people * COOP.bossHitsPerHuman} hits.</p>
@@ -2651,7 +2651,7 @@ function startCoop(opts) {
   if (opts.campaign) {
     const saved = opts.resume ? loadCampaign() : null;
     const diff = saved ? difficultyById(saved.difficulty) : difficultySetting();
-    campaign = saved ? { ...saved } : { difficulty: diff.id, shields: diff.shields, levelIndex: 0, time: 0, lost: 0, mode: opts.mode || 'short' };
+    campaign = saved ? resumeCampaign(saved) : freshCampaign(diff, opts.mode || 'short');
     saveCampaign();
     coopStartLevel(campaign.levelIndex);
   } else {
@@ -3360,7 +3360,7 @@ function loadCampaign() {
       c.mode = 'short';
     }
     if (!SEQUENCE[c.levelIndex]) return null;
-    return { ...c, shields: c.shields === 'inf' ? Infinity : Number(c.shields) };
+    return { ...c, continues: Number(c.continues) || 0, shields: c.shields === 'inf' ? Infinity : Number(c.shields) };
   } catch (_) {
     return null;
   }
@@ -3388,10 +3388,31 @@ function clearCampaign() {
  * for a first-time player. `mode` is 'short' (the ten levels) or 'full' (the
  * levels with the conduits between them).
  */
+/**
+ * A campaign taken up again. One with shields left is simply resumed; one
+ * whose pool ran out is *continued*: the pool refills, the level you lost on
+ * stays where it is, and the continue is counted. The count rides with the
+ * campaign to its end screen, so a run says what it cost.
+ */
+function resumeCampaign(saved) {
+  const diff = difficultyById(saved.difficulty);
+  if (saved.shields > 0) return { ...saved };
+  return { ...saved, shields: diff.shields, continues: (saved.continues || 0) + 1 };
+}
+
+/** Is this save a spent campaign, waiting on a continue rather than a resume? */
+function spentCampaign(saved) {
+  return !!saved && !(saved.shields > 0);
+}
+
+function freshCampaign(diff, mode) {
+  return { difficulty: diff.id, shields: diff.shields, levelIndex: 0, time: 0, lost: 0, continues: 0, mode };
+}
+
 async function startCampaign(saved = null, mode = 'short') {
   await audio.init();
   const diff = saved ? difficultyById(saved.difficulty) : difficultySetting();
-  campaign = saved ? { ...saved } : { difficulty: diff.id, shields: diff.shields, levelIndex: 0, time: 0, lost: 0, mode };
+  campaign = saved ? resumeCampaign(saved) : freshCampaign(diff, mode);
   saveCampaign();
   if (net.mode === 'host' && net.coop) return coopStartLevel(campaign.levelIndex);
   const go = () => startLevel(campaign.levelIndex);
@@ -3404,7 +3425,12 @@ function campaignButtonsHtml() {
   const fresh = `<button id="btn-campaign" ${saved ? '' : 'class="primary"'} title="The ten levels in order">Short campaign</button><button id="btn-campaign-full" title="The ten levels with the nine conduits between them: half-speed aim tests">Full campaign</button>`;
   if (saved) {
     const lvl = SEQUENCE[saved.levelIndex];
-    return `<button id="btn-continue" class="primary" title="Continue the saved ${saved.mode} campaign">Continue · ${levelLabel(lvl)}</button>${fresh}`;
+    const spent = spentCampaign(saved);
+    const used = saved.continues || 0;
+    const title = spent
+      ? `Take up the ${saved.mode} campaign again at ${levelLabel(lvl).toLowerCase()} with a full pool of shields. Continues used so far: ${used}.`
+      : `Continue the saved ${saved.mode} campaign`;
+    return `<button id="btn-continue" class="primary" title="${title}">${spent ? 'Continue' : 'Resume'} · ${levelLabel(lvl)}${spent && used ? ` · ${used} used` : ''}</button>${fresh}`;
   }
   return fresh;
 }
@@ -3430,7 +3456,8 @@ function showCampaignCleared(def, next, nextIdx, last) {
     clearCampaign();
     const done = { ...campaign };
     campaign = null;
-    coopResult('campaign-complete', `${done.mode === 'full' ? 'FULL ' : ''}CAMPAIGN COMPLETE · ${diff.name.toUpperCase()}`, 'The arcade is yours', `${def.stopped || `${def.bossName} is down.`} Total time ${formatTime(done.time)}, shields lost ${done.lost}.`);
+    const used = done.continues || 0;
+    coopResult('campaign-complete', `${done.mode === 'full' ? 'FULL ' : ''}CAMPAIGN COMPLETE · ${diff.name.toUpperCase()}`, 'The arcade is yours', `${def.stopped || `${def.bossName} is down.`} Total time ${formatTime(done.time)}, shields lost ${done.lost}, continues ${used}${used ? '' : ' — start to finish on one pool'}.`);
     showOverlay(`
       <div class="eyebrow">${done.mode === 'full' ? 'FULL ' : ''}CAMPAIGN COMPLETE · ${diff.name.toUpperCase()}</div>
       <h1>The arcade is yours</h1>
@@ -3440,10 +3467,14 @@ function showCampaignCleared(def, next, nextIdx, last) {
         <tr><td>Total time</td><td>${formatTime(done.time)}</td></tr>
         <tr><td>Shields lost</td><td>${done.lost}</td></tr>
         <tr><td>Shields left</td><td>${shields}</td></tr>
+        <tr><td>Continues used</td><td>${used}${used ? '' : ' · start to finish on one pool'}</td></tr>
       </table>
       <div class="row"><button id="btn-campaign" class="primary">New campaign</button><button id="btn-menu">${exitLabel()}</button></div>
     `);
-    $('btn-campaign').onclick = () => startCampaign(null, done.mode || 'short');
+    $('btn-campaign').onclick = () => {
+      clearCampaign();
+      startCampaign(null, done.mode || 'short');
+    };
     $('btn-menu').onclick = exitAction();
     return;
   }
@@ -3468,18 +3499,34 @@ function showCampaignCleared(def, next, nextIdx, last) {
 
 function showCampaignOver(def) {
   const diff = difficultyById(campaign.difficulty);
-  const reached = { ...campaign, time: campaign.time + game.time };
-  clearCampaign();
+  // The run is kept, spent, at the level it ended on: taking it up again is a
+  // continue, and the next one is numbered before it is offered.
+  campaign.time += game.time;
+  saveCampaign();
+  const reached = { ...campaign };
   campaign = null;
-  coopResult('campaign-over', 'CAMPAIGN OVER · NO SHIELDS LEFT', `${def.bossName} holds ${def.title}`, `You reached ${levelLabel(def).toLowerCase()} on ${diff.name} in ${formatTime(reached.time)}.`, LORE.failed(def.title));
+  const used = reached.continues || 0;
+  const cost = used ? ` This run has taken ${used} continue${used === 1 ? '' : 's'} so far; the next makes ${used + 1}.` : ' Continuing costs nothing but a mark on the run: the count goes on the end screen.';
+  coopResult('campaign-over', 'CAMPAIGN OVER · NO SHIELDS LEFT', `${def.bossName} holds ${def.title}`, `You reached ${levelLabel(def).toLowerCase()} on ${diff.name} in ${formatTime(reached.time)}.${cost}`, LORE.failed(def.title));
   showOverlay(`
     <div class="eyebrow">CAMPAIGN OVER · NO SHIELDS LEFT</div>
     <h1>${def.bossName} holds ${def.title}</h1>
     <p class="muted">${game.lossReason === 'camp' ? `You stayed within a body length of one spot for ${PLAYER.campSeconds} seconds, and that cost the last shield.` : game.lossReason === 'touch' ? 'You touched the boss, and that cost the last shield.' : `That was the last of your ${diff.shields === Infinity ? '' : diff.shields + ' '}shields.`} You reached ${levelLabel(def).toLowerCase()} on ${diff.name} in ${formatTime(reached.time)}.</p>
+    <table class="stats">
+      <tr><td>Reached</td><td>${levelLabel(def)} · ${def.title}</td></tr>
+      <tr><td>Time so far</td><td>${formatTime(reached.time)}</td></tr>
+      <tr><td>Shields lost</td><td>${reached.lost}</td></tr>
+      <tr><td>Continues used</td><td>${used}</td></tr>
+    </table>
     <p class="small muted record-note">${LORE.failed(def.title)}</p>
-    <div class="row"><button id="btn-campaign" class="primary">Restart campaign</button><button id="btn-menu">${exitLabel()}</button></div>
+    <div class="row"><button id="btn-continue" class="primary" title="Start ${levelLabel(def).toLowerCase()} again with a full pool of shields. The run keeps its time and its losses, and the continue is counted.">Continue · ${levelLabel(def)} · continue ${used + 1}</button><button id="btn-campaign">Restart campaign</button><button id="btn-menu">${exitLabel()}</button></div>
+    <p class="small muted">A continue keeps the run going from here with a fresh pool of shields. The end screen counts how many it took.</p>
   `);
-  $('btn-campaign').onclick = () => startCampaign(null, reached.mode || 'short');
+  $('btn-continue').onclick = () => startCampaign(loadCampaign());
+  $('btn-campaign').onclick = () => {
+    clearCampaign();
+    startCampaign(null, reached.mode || 'short');
+  };
   $('btn-menu').onclick = exitAction();
 }
 
