@@ -1131,3 +1131,107 @@ test('foresight: one stat sets all three forecasts, the default is the old behav
   assert.equal(foresight(LEVELS[0].boss).read, 2, 'the first boss reads two legs ahead');
   assert.ok(foresight(LEVELS[LEVELS.length - 1].boss).read >= 6, 'the last reads six');
 });
+
+test('a fighter crushed between a moving slab and the rock is never buried in it', async () => {
+  const { createGameState } = await import('../src/gamestate.js');
+  const { resolveCircleVsSegments, ejectFromPolygon, clampInsidePolygon } = await import('../src/physics.js');
+  const { PHYSICS_DT } = await import('../src/config.js');
+  // Coolant Tunnels: the lower piston slides down to within a body's width of
+  // the south rock. A player holding into that gap used to end up inside the
+  // rock and stay there; the settle order plus the two recoveries prevent it.
+  const lvl = LEVELS.find((l) => l.title === 'Coolant Tunnels');
+  const settle = (f, g) => {
+    resolveCircleVsSegments(f, g.walls);
+    for (const m of g.movers) resolveCircleVsSegments(f, m.segments().map((sg) => ({ ...sg, thick: m.thick })));
+    resolveCircleVsSegments(f, g.walls);
+    for (const poly of g.solidPolys) if (ejectFromPolygon(f, poly)) break;
+    clampInsidePolygon(f, g.def.boundary);
+  };
+  for (const [sx, sy] of [[900, 632], [880, 630], [900, 628], [860, 625], [930, 636], [900, 700]]) {
+    const g = createGameState(lvl);
+    const f = g.player;
+    f.x = sx;
+    f.y = sy;
+    for (let i = 0; i < 240 * 15; i++) {
+      for (const m of g.movers) m.update(PHYSICS_DT);
+      f.update(PHYSICS_DT, { mx: 0, my: 1, turn: 0 }); // leaning into the gap the whole time
+      settle(f, g);
+      f.finalizeStep(PHYSICS_DT);
+      assert.ok(pointInPolygon(f.x, f.y, lvl.boundary), `left the room from ${sx},${sy} at step ${i}: ${Math.round(f.x)},${Math.round(f.y)}`);
+      for (const poly of g.solidPolys) assert.ok(!pointInPolygon(f.x, f.y, poly), `buried in the rock from ${sx},${sy} at step ${i}: ${Math.round(f.x)},${Math.round(f.y)}`);
+    }
+  }
+});
+
+test('clampInsidePolygon puts a fighter back in the room, and slabSide tells the two sides of a pane apart', async () => {
+  const { clampInsidePolygon, slabSide } = await import('../src/physics.js');
+  const room = [[0, 0], [1000, 0], [1000, 600], [0, 600]];
+  const f = { x: 500, y: 300, r: 22 };
+  assert.equal(clampInsidePolygon(f, room), false, 'already inside: left alone');
+  assert.deepEqual([f.x, f.y], [500, 300]);
+  const out = { x: 1040, y: 300, r: 22 };
+  assert.equal(clampInsidePolygon(out, room), true);
+  assert.ok(pointInPolygon(out.x, out.y, room), 'brought back inside');
+  assert.ok(out.x < 1000 && out.x > 1000 - 30, `just inside the near edge: ${out.x}`);
+  const corner = { x: -50, y: -50, r: 22 };
+  clampInsidePolygon(corner, room);
+  assert.ok(pointInPolygon(corner.x, corner.y, room), 'a corner works too');
+  // A tall thin pane: its two sides are left and right, not up and down.
+  const { rect } = await import('../src/levels.js');
+  const pane = rect(1300, 450, 16, 167, 0);
+  assert.equal(slabSide(pane, 1400, 450), slabSide(pane, 1400, 200), 'both right of it');
+  assert.notEqual(slabSide(pane, 1400, 450), slabSide(pane, 1200, 450), 'opposite sides');
+  assert.equal(slabSide(pane, 1300, 450), 0, 'on the line');
+  const flat = rect(800, 600, 300, 16, 0); // a wide, short slab: its sides are up and down
+  assert.notEqual(slabSide(flat, 800, 500), slabSide(flat, 800, 700));
+  assert.equal(slabSide(flat, 700, 500), slabSide(flat, 900, 500));
+});
+
+test('no conduit can seal the ball away: every pane that could close over it is guarded, and the watchdog backs it up', async () => {
+  const { CONDUITS } = await import('../src/conduits.js');
+  const { createGameState } = await import('../src/gamestate.js');
+  const { slabSide } = await import('../src/physics.js');
+  const { BALL } = await import('../src/config.js');
+  assert.ok(BALL.stuckSeconds > 0 && BALL.stuckSeconds < 60, 'the watchdog fires in a sane time');
+  // The guard the game uses, reproduced here over each glass conduit.
+  const sealsBallAway = (poly, ball, humans) => {
+    const side = slabSide(poly, ball.x, ball.y);
+    if (!side) return false;
+    return humans.every((h) => slabSide(poly, h.x, h.y) !== side);
+  };
+  for (const def of CONDUITS.filter((c) => (c.obstacles || []).some((o) => o.glass))) {
+    const g = createGameState(def);
+    const breakable = g.panes.filter((p) => !p.unbreakable);
+    assert.ok(breakable.length, `${def.title} has a pane that opens`);
+    // A ball that broke through is sealed by a pane healing behind it, and no
+    // human can break glass, so the guard has to see that as sealed.
+    for (const pane of breakable) {
+      const cx = pane.poly.reduce((s, p) => s + p[0], 0) / pane.poly.length;
+      const cy = pane.poly.reduce((s, p) => s + p[1], 0) / pane.poly.length;
+      const mine = slabSide(pane.poly, def.player.x, def.player.y);
+      const probes = [{ x: cx + 60, y: cy }, { x: cx - 60, y: cy }];
+      const behind = probes.find((q) => slabSide(pane.poly, q.x, q.y) !== mine);
+      const infront = probes.find((q) => slabSide(pane.poly, q.x, q.y) === mine);
+      assert.ok(behind && infront, `${def.title}: the pane has two sides`);
+      assert.ok(sealsBallAway(pane.poly, behind, g.humans), `${def.title}: a ball past the pane reads as sealed`);
+      assert.equal(sealsBallAway(pane.poly, infront, g.humans), false, `${def.title}: a ball on the player's side is not`);
+    }
+    // Once it is through, it cannot break back out: a shatter costs it speed,
+    // and even a ball that broke in at the room's cap comes out at no more
+    // than the break speed. The guard, not a second strike, is what frees it.
+    assert.ok(def.glass.breakSpeed >= def.maxBallSpeed * def.glass.speedKeep - 1e-6, `${def.title}: a ball that broke in cannot break back out`);
+  }
+  // A switch can only be reached from the side its door is not on, so a door
+  // cannot be closed over the ball; the panes are the only sealing walls.
+  for (const def of CONDUITS.filter((c) => c.doors && c.doors.length)) {
+    const g = createGameState(def);
+    for (const n of g.nodes) {
+      if (n.kind !== 'switch') continue;
+      for (const i of n.toggles) {
+        const door = g.doors[i];
+        assert.notEqual(slabSide(door.poly, n.x, n.y), 0, `${def.title}: switch ${n.i} is not on door ${i}'s line`);
+        assert.equal(slabSide(door.poly, n.x, n.y), slabSide(door.poly, def.player.x, def.player.y), `${def.title}: switch ${n.i} sits on the player's side of door ${i}, so the ball cannot shut itself in`);
+      }
+    }
+  }
+});

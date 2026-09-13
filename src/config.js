@@ -31,6 +31,11 @@ export const BALL = {
   minSpeed: 150, // px/s - the ball never stalls below this
   maxSpeed: 1500, // px/s - hard cap so it can never tunnel through a wall
   trailLength: 22,
+  // Safety net: if no shield has touched the ball for this long it is brought
+  // back to the serve point for free. Nothing in a real rally comes close, so
+  // reaching it means the ball is somewhere it cannot be played from: sealed
+  // behind glass or a door, or wedged in geometry.
+  stuckSeconds: 20,
 };
 
 // How much of a moving surface's velocity transfers to the ball.

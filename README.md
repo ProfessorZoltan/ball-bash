@@ -142,6 +142,27 @@ and the contact rule. Conduits can also hold **drones**, Boss-brained enemies wi
 their own stats; a body hit knocks a drone out for the rest of the room, and
 `objective.drones` makes downing them part of the objective.
 
+### Nothing can seal the ball away
+
+Glass panes and switch-operated doors are the only walls that appear after
+play starts, so they are the only way a room could become unplayable: no human
+can break glass, and once a ball has shattered a pane it leaves at
+`speedKeep` of the speed that broke it, which is below the break speed, so a
+ball sealed behind healing glass could never get itself out.
+
+Two things prevent it. A broken pane **does not heal while the ball is on its
+far side** from every human; it waits until the ball comes back out
+(`sealsBallAway` in `src/main.js`, a side test on the slab). Doors need no
+such guard because only the ball flips a switch and every switch sits on the
+player's side of the door it works, so the ball cannot shut itself in; a test
+asserts that for every switch in the game.
+
+Behind both sits a watchdog. If no shield has touched the ball for
+`BALL.stuckSeconds` (20), it is brought back to the serve point for free,
+costing nobody a shield, with a HUD notice. Nothing in a real rally comes
+close to 20 seconds, so reaching it means the ball is somewhere it cannot be
+played from, whatever the cause.
+
 **Short campaign** plays the ten levels. **Full campaign** plays the levels
 with the conduits between them. Both draw on the same shield pool, and losing
 the last shield in a conduit ends the campaign like any level. Conduits are
@@ -457,6 +478,15 @@ which launches the game chrome-free thanks to `manifest.webmanifest`.
   and never tunnels through a wall. Physics runs at a fixed 240 Hz.
 * Every arena is a closed polygon; `test/physics.test.js` fires the ball at the
   maximum speed for two simulated minutes and asserts it never leaves the room.
+* **Nothing can be crushed out of the room.** A fighter is settled against the
+  static walls, then the movers, then the static walls again, so the wall and
+  not a moving slab has the last word: someone caught between a piston and the
+  rock slides along the rock instead of being driven into it. Two recoveries
+  back that up, for the case where a slab closes on a fighter already flat
+  against a wall: one whose centre still ends up inside a solid is pushed out
+  through the nearest face (`ejectFromPolygon`), and one driven out through
+  the room's own wall is brought back inside (`clampInsidePolygon`). All of it
+  lives in `settleFighter` in `src/main.js`.
 * One hit on the boss's body wins the level. A hit on your body costs a
   shield and the ball re-serves behind a fresh countdown; with no shields
   left the level is lost. How many shields you get is the difficulty.

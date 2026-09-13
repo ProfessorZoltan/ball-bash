@@ -289,6 +289,72 @@ export function predictPath(x, y, vx, vy, segs, bounces = 2, maxDist = 2500, rad
 }
 
 /**
+ * The mirror of ejectFromPolygon: if the point (c.x, c.y) has left `poly`,
+ * put it back just inside the nearest edge. A fighter crushed between a
+ * moving slab and the rock can be driven out through the room's own wall;
+ * this is what brings it back. Returns true if it moved.
+ */
+export function clampInsidePolygon(c, poly) {
+  if (pointInPolygon(c.x, c.y, poly)) return false;
+  let best = null;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i];
+    const b = poly[(i + 1) % poly.length];
+    const q = closestPointOnSegment(c.x, c.y, a[0], a[1], b[0], b[1]);
+    const d = Math.hypot(c.x - q.x, c.y - q.y);
+    if (!best || d < best.d) {
+      const ex = b[0] - a[0];
+      const ey = b[1] - a[1];
+      const el = Math.hypot(ex, ey) || 1;
+      best = { d, q, nx: -ey / el, ny: ex / el };
+    }
+  }
+  // Step off that edge along whichever normal lands back inside the room.
+  const step = (c.r || 0) + 0.5;
+  for (const s of [1, -1]) {
+    const x = best.q.x + best.nx * step * s;
+    const y = best.q.y + best.ny * step * s;
+    if (pointInPolygon(x, y, poly)) {
+      c.x = x;
+      c.y = y;
+      return true;
+    }
+  }
+  c.x = best.q.x;
+  c.y = best.q.y;
+  return true;
+}
+
+/**
+ * Which side of a thin slab (a glass pane, a door) a point lies on: the sign
+ * of its offset along the slab's thin axis, or 0 on the line itself. The long
+ * axis is taken as the slab's longest edge, so the normal is its thickness.
+ */
+export function slabSide(poly, x, y) {
+  let cx = 0;
+  let cy = 0;
+  for (const p of poly) {
+    cx += p[0];
+    cy += p[1];
+  }
+  cx /= poly.length;
+  cy /= poly.length;
+  let best = null;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i];
+    const b = poly[(i + 1) % poly.length];
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const len = Math.hypot(dx, dy);
+    if (!best || len > best.len) best = { dx, dy, len };
+  }
+  if (!best || best.len < 1e-6) return 0;
+  const nx = -best.dy / best.len;
+  const ny = best.dx / best.len;
+  return Math.sign((x - cx) * nx + (y - cy) * ny);
+}
+
+/**
  * predictPath for a ball in a field: `accel(x, y)` returns {ax, ay} in px/s²
  * (or null where there is none) and `speed` is the [min, max] the ball is
  * clamped to. The path is integrated in short steps, each cast against the

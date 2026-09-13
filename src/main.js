@@ -14,7 +14,7 @@ import { Renderer } from './render.js';
 import { Effects } from './fx.js';
 import { AudioEngine } from './audio/engine.js';
 import { TRACKS } from './audio/tracks.js';
-import { circleVsCircle, circleVsCapsule, pointInPolygon, resolveCircleVsSegments, predictPath, predictCurvedPath } from './physics.js';
+import { circleVsCircle, circleVsCapsule, pointInPolygon, resolveCircleVsSegments, predictPath, predictCurvedPath, ejectFromPolygon, clampInsidePolygon, slabSide } from './physics.js';
 import { advanceBall, separateFightersFromBall, fightersTouch, advanceShot, Shot } from './sim.js';
 import { clamp, rand, wrapAngle } from './vec.js';
 
@@ -58,6 +58,7 @@ function buildGame(def, pvp = false, rules = { ownBallLoss: ownBallLoss() }, coo
     paddleHits: 0,
     guidePath: null,
     drops: 0, // frames this level that took far longer than the display's refresh interval
+    lastPlayed: 0, // when a shield last touched the ball; the stuck-ball watchdog reads it
     lossReason: null, // 'hit' | 'camp' | 'touch' once the level is lost
     note: null, // { text, until }: a passing HUD notice (the unplayed serve bouncing off a boss or a node)
   };
@@ -112,6 +113,7 @@ function launchBall() {
   }
   game.history.reset();
   game.history.push(simTime, game.ball);
+  game.lastPlayed = simTime;
   for (const f of game.fighters) f.resetCamp();
   state = 'playing';
   $('countdown').hidden = true;
@@ -167,8 +169,7 @@ function step(dt) {
     f.update(dt, intents[f.slot]);
     if (wasIdle && f.lungeState === 'out') onWhack();
     if (g.well && state === 'playing') wellDrag(g.well, f, dt);
-    resolveCircleVsSegments(f, g.walls);
-    pushOutOfMovers(f);
+    settleFighter(f);
   }
 
   // The AI enemies: the level's boss (with its patrol and abilities) or a
@@ -189,8 +190,7 @@ function step(dt) {
       d.update(dt, intents[d.slot] || ZERO_INTENT);
       if (wasIdle && d.lungeState === 'out') onWhack();
       if (d.rail) constrainToRail(d, d.rail);
-      resolveCircleVsSegments(d, g.walls);
-      pushOutOfMovers(d);
+      settleFighter(d);
       if (d.rail) constrainToRail(d, d.rail);
     }
   }
@@ -256,6 +256,9 @@ function step(dt) {
   }
 
   if (g.panes.length) updateGlass();
+
+  // Watchdog: a ball nobody can reach comes back on its own.
+  if (state === 'playing' && !g.ball.held && !g.tutorial && simTime - g.lastPlayed > BALL.stuckSeconds) recoverBall();
 
   // Keep-moving rule: human players only, never in the tutorial.
   if (state === 'playing' && !g.ball.held && !g.tutorial) {
@@ -522,7 +525,11 @@ function updateGlass() {
     const blocked = [g.ball, ...activeFighters()].some((c) =>
       pane.segs.some((sg) => circleVsCapsule(c.x, c.y, c.r + 4, sg.ax, sg.ay, sg.bx, sg.by, 0)),
     );
-    if (blocked) {
+    // A pane never closes with the ball on its far side: no human can break
+    // glass, so healing over a ball that went through would leave the room
+    // unplayable. It waits until the ball comes back out.
+    const shut = sealsBallAway(pane.poly);
+    if (blocked || shut) {
       pane.regrowAt = simTime + 0.5;
       continue;
     }
@@ -535,6 +542,33 @@ function updateGlass() {
     changed = true;
   }
   if (changed) rebuildWalls();
+}
+
+/**
+ * Would closing this slab (a glass pane, a door) put the ball on the other
+ * side of it from every human? Panes and doors are the only walls in the game
+ * that appear after play starts, and only the ball can open them again, so
+ * closing one over the ball is the one way a room can become unplayable.
+ */
+function sealsBallAway(poly) {
+  const g = game;
+  if (g.ball.held) return false;
+  const side = slabSide(poly, g.ball.x, g.ball.y);
+  if (!side) return false;
+  return g.humans.every((h) => slabSide(poly, h.x, h.y) !== side);
+}
+
+/**
+ * The ball has not been played by any shield for a long time. In a real rally
+ * that never happens, so it means the ball is somewhere it cannot be reached:
+ * bring it back to the serve point for free, costing nobody a shield.
+ */
+function recoverBall() {
+  const g = game;
+  g.fx.ring(g.ball.x, g.ball.y, '#ffffff', 140, 0.5);
+  g.note = { text: 'BALL RECOVERED · OUT OF REACH', until: g.time + 3 };
+  audio.sfxReglaze();
+  reserve('stuck', null);
 }
 
 function paneCentre(pane) {
@@ -593,6 +627,28 @@ function pushOutOfMovers(f) {
     const segs = m.segments().map((sg) => ({ ...sg, thick: m.thick }));
     resolveCircleVsSegments(f, segs);
   }
+}
+
+/**
+ * Put a fighter back where it is allowed to be, after its own movement and
+ * after anything that pushed it.
+ *
+ * The order matters. A moving slab is resolved between two passes of the
+ * static walls so the wall, not the slab, has the last word: a fighter caught
+ * between a piston and the rock then slides along the rock instead of being
+ * driven into it. The last two steps are the recovery for when that is not
+ * enough (a slab closing on a fighter already against a wall can still bury
+ * it): a fighter whose centre ends up inside a solid is pushed back out
+ * through the nearest face, and one driven out through the room's own wall is
+ * brought back inside the boundary.
+ */
+function settleFighter(f) {
+  const g = game;
+  resolveCircleVsSegments(f, g.walls);
+  pushOutOfMovers(f);
+  resolveCircleVsSegments(f, g.walls);
+  for (const poly of g.solidPolys) if (ejectFromPolygon(f, poly)) break;
+  clampInsidePolygon(f, g.def.boundary);
 }
 
 function separateCircles(a, b) {
@@ -818,6 +874,7 @@ function onPaddleHit(f, h, before) {
   g.ball.lastPaddle = f.kind;
   g.ball.lastTeam = f.team;
   g.ball.banked = false;
+  g.lastPlayed = simTime; // the watchdog's clock: any shield touch resets it
   if (!isBoss) g.paddleHits++;
   if (g.tutorial && !isBoss) tutorialPaddle(before, after);
   // The ice trail follows the boss's blocks; in PvP, either player's.
@@ -940,6 +997,7 @@ function reserve(reason, slot) {
   g.history.reset();
   g.guidePath = null;
   g.lastLoss = { reason, slot, at: g.time };
+  g.lastPlayed = g.time;
   countdown = COUNTDOWN_SECONDS;
   countdownTick = COUNTDOWN_SECONDS + 1;
   state = 'countdown';
@@ -1495,6 +1553,7 @@ function updateHud() {
   const lost = g.lastLoss && state === 'countdown' && g.time - g.lastLoss.at < 4 ? g.lastLoss : null;
   if (lost && lost.slot === 'b') status = `BOSS HIT · ${g.bossHits} MORE TO GO`;
   else if (lost && lost.reason === 'swallow') status = 'THE WELL TOOK THE BALL';
+  else if (lost && lost.reason === 'stuck') status = 'BALL RECOVERED · IT WAS OUT OF REACH';
   else if (lost) {
     const who = g.coop ? `${(fighterBySlot(lost.slot) || me || g.player).name.replace(/ \(you\)$/, '').toUpperCase()} ` : '';
     status = `${who}${lost.reason === 'camp' ? 'STOOD STILL' : lost.reason === 'touch' ? 'TOUCHED THE BOSS' : lost.reason === 'shot' ? 'SHOT' : lost.reason === 'well' ? 'FELL INTO THE WELL' : 'HIT'} · ${g.lives === Infinity ? 'UNLIMITED SHIELDS' : `${g.lives} SHIELD${g.lives === 1 ? '' : 'S'} LEFT`}`;
@@ -2757,8 +2816,7 @@ function guestAdvance(f, dt, intent) {
   const g = game;
   f.update(dt, intent);
   if (g.well && state === 'playing') wellDrag(g.well, f, dt);
-  resolveCircleVsSegments(f, g.walls);
-  pushOutOfMovers(f);
+  settleFighter(f);
   f.finalizeStep(dt);
 }
 
