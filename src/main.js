@@ -440,6 +440,14 @@ function onFell(f) {
     pvpLoss(f, 'well'); // the round ends and everyone is reseated
     return;
   }
+  returnToSpawn(f);
+  f.invuln = COUNTDOWN_SECONDS + PLAYER.invulnTime;
+  loseShield('well', f);
+}
+
+/** Put a fighter back where it started, with no interpolated streak across the room. */
+function returnToSpawn(f) {
+  if (!f.spawn) return;
   f.x = f.spawn.x;
   f.y = f.spawn.y;
   f.angle = f.spawn.angle;
@@ -447,10 +455,27 @@ function onFell(f) {
   f.vy = 0;
   f.prevX = f.x;
   f.prevY = f.y;
-  f.markRender(); // no interpolated streak from the well to the spawn
+  f.markRender();
   f.resetCamp();
-  f.invuln = COUNTDOWN_SECONDS + PLAYER.invulnTime;
-  loseShield('well', f);
+}
+
+/**
+ * Is this fighter shut away from the ball? Doors and unbroken panes are the
+ * only walls that appear after play starts, so they are the only way a
+ * fighter can end up somewhere the ball can never be played from. The test is
+ * the side of the slab each is on: exact for a door that spans its wall (the
+ * Signal Box's yard doors do), and a fair approximation for one that closes a
+ * corner, which is why the watchdog below does not rely on it.
+ */
+function cutOffFromBall(f) {
+  const g = game;
+  const slabs = (g.doors || []).filter((d) => d.closed).map((d) => d.poly).concat(g.panes.filter((p) => !p.broken).map((p) => p.poly));
+  for (const poly of slabs) {
+    const mine = slabSide(poly, f.x, f.y);
+    const ball = slabSide(poly, g.ball.x, g.ball.y);
+    if (mine && ball && mine !== ball) return true;
+  }
+  return false;
 }
 
 function fellFx(f) {
@@ -550,6 +575,17 @@ function updateGlass() {
  * that appear after play starts, and only the ball can open them again, so
  * closing one over the ball is the one way a room can become unplayable.
  */
+/** Would closing this door put a human on the far side of it from the ball? */
+function wouldStrand(door) {
+  const g = game;
+  const ball = slabSide(door.poly, g.ball.x, g.ball.y);
+  if (!ball) return false;
+  return g.humans.some((h) => {
+    const mine = slabSide(door.poly, h.x, h.y);
+    return mine && mine !== ball;
+  });
+}
+
 function sealsBallAway(poly) {
   const g = game;
   if (g.ball.held) return false;
@@ -568,7 +604,10 @@ function recoverBall() {
   g.fx.ring(g.ball.x, g.ball.y, '#ffffff', 140, 0.5);
   g.note = { text: 'BALL RECOVERED · OUT OF REACH', until: g.time + 3 };
   audio.sfxReglaze();
-  reserve('stuck', null);
+  // Everyone goes back to their spawn too: whatever put the ball out of reach
+  // may have stranded a player as well, and after this long the only safe
+  // thing is to put the whole room back to how the serve starts.
+  reserve('stuck', null, true);
 }
 
 function paneCentre(pane) {
@@ -789,8 +828,18 @@ function onNodeHit(node, h, before) {
 /** Toggle a switch node and every door it is wired to. */
 function flipSwitch(node) {
   const g = game;
+  // Closing a door that would leave a player on the far side from the ball
+  // makes the room unplayable: only the ball works a switch, and it would be
+  // on the wrong side of the door to work this one again. Such a door stays
+  // open, and the switch flickers to say the route did not take.
+  const wired = (node.toggles || []).filter((i) => g.doors[i]);
+  const refused = wired.filter((i) => !g.doors[i].closed && wouldStrand(g.doors[i]));
+  if (refused.length) refusedFx(node);
+  // A switch whose every door was refused did nothing, so it does not light
+  // either: the route pips keep telling the truth about the doors.
+  if (wired.length && refused.length === wired.length) return;
   node.lit = !node.lit;
-  for (const i of node.toggles || []) if (g.doors[i]) g.doors[i].closed = !g.doors[i].closed;
+  for (const i of wired) if (!refused.includes(i)) g.doors[i].closed = !g.doors[i].closed;
   rebuildWallsState(g);
   guideFrame = 0;
   const color = node.lit ? g.def.palette.nodeLit || '#7dffc4' : g.def.palette.node || '#6e7fa8';
@@ -984,7 +1033,7 @@ function loseShield(reason, who = game.player) {
 }
 
 /** Hold the ball at its serve point and run a fresh countdown; `reason` and `slot` feed the HUD notice. */
-function reserve(reason, slot) {
+function reserve(reason, slot, all = false) {
   const g = game;
   const def = g.def;
   g.ball.held = true;
@@ -998,6 +1047,10 @@ function reserve(reason, slot) {
   g.guidePath = null;
   g.lastLoss = { reason, slot, at: g.time };
   g.lastPlayed = g.time;
+  // The ball goes back to its serve point, which may now be behind a door
+  // that shut while a player was on the far side of it. Anyone the serve has
+  // been put out of reach of starts the serve where they started the level.
+  for (const f of g.humans) if (all || cutOffFromBall(f)) returnToSpawn(f);
   countdown = COUNTDOWN_SECONDS;
   countdownTick = COUNTDOWN_SECONDS + 1;
   state = 'countdown';

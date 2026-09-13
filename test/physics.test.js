@@ -1235,3 +1235,61 @@ test('no conduit can seal the ball away: every pane that could close over it is 
     }
   }
 });
+
+test('a door never shuts a player away from the ball, and a re-serve puts anyone it stranded back', async () => {
+  const { CONDUITS } = await import('../src/conduits.js');
+  const { createGameState } = await import('../src/gamestate.js');
+  const { slabSide } = await import('../src/physics.js');
+  const def = CONDUITS.find((c) => c.title === 'Signal Box');
+  const g = createGameState(def);
+  // The guards, reproduced here over the real level.
+  const wouldStrand = (door, ball, humans) => {
+    const side = slabSide(door.poly, ball.x, ball.y);
+    if (!side) return false;
+    return humans.some((h) => slabSide(door.poly, h.x, h.y) * side < 0);
+  };
+  const cutOff = (f, ball, doors) => doors.filter((d) => d.closed).some((d) => slabSide(d.poly, f.x, f.y) * slabSide(d.poly, ball.x, ball.y) < 0);
+  // The yard doors span their wall from floor to ceiling, so the side of the
+  // door really is the side of the room: the two stubs plus the door cover it.
+  for (const i of [0, 1]) {
+    const door = g.doors[i];
+    const cx = door.poly.reduce((s, p) => s + p[0], 0) / door.poly.length;
+    const spans = def.obstacles.filter((o) => Math.abs(o.reduce((s, p) => s + p[0], 0) / o.length - cx) < 1);
+    assert.equal(spans.length, 2, `door ${i} has a stub above and below it`);
+    const ys = spans.concat([door.poly]).flatMap((poly) => poly.map((p) => p[1]));
+    assert.ok(Math.min(...ys) <= 60 + 1 && Math.max(...ys) >= 840 - 1, `door ${i} and its stubs reach both walls`);
+  }
+  // The player walks into the far yard, the ball stays behind the door it came through.
+  const player = g.player;
+  player.x = 1300;
+  player.y = 450;
+  const ball = { x: 330, y: 450 };
+  assert.equal(wouldStrand(g.doors[0], ball, [player]), true, 'shutting yard one would strand them');
+  assert.equal(wouldStrand(g.doors[1], ball, [player]), true, 'and so would yard two');
+  // With the ball on their own side it is a legal, ordinary flip.
+  assert.equal(wouldStrand(g.doors[0], { x: 1200, y: 450 }, [player]), false);
+  // A re-serve while two doors stand between them sees them as cut off.
+  g.doors[0].closed = true;
+  g.doors[1].closed = true;
+  assert.equal(cutOff(player, { x: def.ball.x, y: def.ball.y }, g.doors), true, 'the serve is out of reach');
+  assert.equal(cutOff({ x: def.player.x, y: def.player.y }, { x: def.ball.x, y: def.ball.y }, g.doors), false, 'the spawn never is');
+  // Which is why the spawn is the place to put them back: it is on the ball's
+  // side of every door in every level that has them.
+  for (const lvl of CONDUITS.filter((c) => c.doors && c.doors.length)) {
+    const gg = createGameState(lvl);
+    for (const d of gg.doors) {
+      const a = slabSide(d.poly, lvl.player.x, lvl.player.y);
+      const b = slabSide(d.poly, lvl.ball.x, lvl.ball.y);
+      assert.ok(!a || !b || a === b, `${lvl.title}: the spawn and the serve start on one side of every door`);
+    }
+  }
+  // And every switch is reachable from the spawn side of the door it works,
+  // so the ball can always undo a route it set.
+  for (const lvl of CONDUITS.filter((c) => c.doors && c.doors.length)) {
+    const gg = createGameState(lvl);
+    for (const n of gg.nodes) {
+      if (n.kind !== 'switch') continue;
+      for (const i of n.toggles) assert.equal(slabSide(gg.doors[i].poly, n.x, n.y), slabSide(gg.doors[i].poly, lvl.player.x, lvl.player.y), `${lvl.title}: switch ${n.i} is on the spawn side of door ${i}`);
+    }
+  }
+});

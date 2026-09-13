@@ -150,18 +150,29 @@ can break glass, and once a ball has shattered a pane it leaves at
 `speedKeep` of the speed that broke it, which is below the break speed, so a
 ball sealed behind healing glass could never get itself out.
 
-Two things prevent it. A broken pane **does not heal while the ball is on its
-far side** from every human; it waits until the ball comes back out
-(`sealsBallAway` in `src/main.js`, a side test on the slab). Doors need no
-such guard because only the ball flips a switch and every switch sits on the
-player's side of the door it works, so the ball cannot shut itself in; a test
-asserts that for every switch in the game.
+It can happen the other way round too. Only the ball works a switch, and
+every switch sits on the spawn side of the door it opens, so the ball cannot
+shut *itself* in (a test asserts that). But a player can walk through an open
+door and be shut in behind it, or lose a shield in a far yard and have the
+ball re-serve behind two closed doors: either way the ball is somewhere that
+player can no longer reach.
 
-Behind both sits a watchdog. If no shield has touched the ball for
-`BALL.stuckSeconds` (20), it is brought back to the serve point for free,
-costing nobody a shield, with a HUD notice. Nothing in a real rally comes
-close to 20 seconds, so reaching it means the ball is somewhere it cannot be
-played from, whatever the cause.
+Three guards, all built on which side of a slab something is:
+
+| Guard | What it does | Source |
+|---|---|---|
+| A broken pane waits | it does not heal while the ball is on its far side from every human | `sealsBallAway` in `src/main.js` |
+| A switch refuses | it will not close a door that would leave a human on the far side from the ball; the door stays open and the switch flickers | `wouldStrand`, same file |
+| A re-serve un-strands | anyone a closed door or an unbroken pane has put out of reach of the new serve starts it back at their spawn | `cutOffFromBall`, same file |
+
+The side test is exact for a door that spans its wall, as the Signal Box's
+yard doors do, and an approximation for one that closes off a corner, so a
+watchdog sits behind all three. If no shield has touched the ball for
+`BALL.stuckSeconds` (20), the ball comes back to the serve point for free,
+costing nobody a shield, **and every player goes back to their spawn**, with a
+HUD notice. Nothing in a real rally comes close to 20 seconds, so reaching it
+means the room is in a state the guards did not anticipate, and the only safe
+answer is to put all of it back to how a serve starts.
 
 **Short campaign** plays the ten levels. **Full campaign** plays the levels
 with the conduits between them. Both draw on the same shield pool, and losing
