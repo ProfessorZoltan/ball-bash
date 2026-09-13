@@ -395,6 +395,42 @@ Each versus conduit lists its own seats under `spawns` for two and three
 players; a level or conduit without a seat list gets fair seats worked out at
 match time, never inside a well's reach or on a turret.
 
+### Volley (no ball, every shield loaded)
+
+A third mode in the lobby, on any versus arena. There is no ball at all.
+Every fighter carries a **charge** in its own colour at the centre of its
+shield and fires it with the **thrust**, never by turning. A charge in anyone
+else's colour costs a shield on the body, and the round resets like any other
+loss; your own colour cannot hurt you.
+
+| Rule | What it means | Source |
+|---|---|---|
+| One charge each | it lives three seconds and the next forms as it dies, so nobody ever has two in the air | `VOLLEY` in `src/config.js` |
+| The thrust fires it | rotating only turns the shield, so swinging at a charge never spends yours | `fireCharge` in `src/main.js` |
+| Reload runs from firing | three seconds whatever the charge meets, so shooting a nearby wall is not a free reload | same |
+| Walls turn it back | walls, doors and moving parts bounce a charge instead of ending it | `stepVolley`, same file |
+| One speed, always | it flies at the middle of the arena's range and every bounce turns it without changing that | `volleySpeed`, `holdPace` |
+| Deflection is aim | a shield turns a charge away without taking it over: it keeps its colour, its owner and its clock | `stepVolley` |
+| Your own is harmless | it bounces off your body and flies on | same |
+| The carried charge is drawn only | it is never part of the physics, so it cannot widen your shield | `drawCharges` in `src/render.js` |
+
+Because a shield never takes a charge over, deflecting is a way to aim
+somebody else's shot rather than a way to be safe from it. With three players
+that is a weapon; with two it mostly buys you an angle, and dodging matters
+more.
+
+The keep-moving rule still applies, which is what stops a player camping a
+corner and sniping. The HUD's ball readout becomes your charge: **LOADED**
+with the speed it will fly at, or the seconds left on the reload, with the bar
+running as it fills.
+
+A charge holds exactly one speed for its whole life. That is not only for
+feel: a charge that bounced off a moving body used to gain speed every step
+until it crossed more than its own radius in a physics step and passed
+straight through the wall of the room. Renormalising after every bounce makes
+that impossible, and a test drives a fighter into a charge at full speed for
+six simulated seconds to prove it.
+
 ### Ball speed
 
 The host also sets the pace. Every setting scales the cap the chosen arena

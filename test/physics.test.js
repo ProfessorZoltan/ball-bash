@@ -1403,3 +1403,166 @@ for (const def of VERSUS_LEVELS) {
     assert.ok(bounces > 200, `only ${bounces} bounces`);
   });
 }
+
+test('volley: a charge is one per fighter, flies at mid range, and advanceShot can let it past the shield that threw it', async () => {
+  const { VOLLEY, volleySpeed, BALL } = await import('../src/config.js');
+  const { Shot, advanceShot } = await import('../src/sim.js');
+  const { createGameState } = await import('../src/gamestate.js');
+  // Mid of the arena's range, so the pace setting moves it with everything else.
+  assert.equal(volleySpeed(1500), Math.round((BALL.minSpeed + 1500) / 2));
+  assert.equal(volleySpeed(750), Math.round((BALL.minSpeed + 750) / 2));
+  assert.ok(volleySpeed(1500) > volleySpeed(750), 'a slower arena throws a slower charge');
+  // The life and the reload are the same number, which is what keeps a
+  // fighter to exactly one charge in the air.
+  assert.ok(VOLLEY.life > 0);
+  // Everyone starts a Volley round armed; nobody is armed in ordinary versus.
+  const arena = VERSUS_LEVELS[0];
+  const v = createGameState(arena, { pvp: 3, volley: true });
+  assert.equal(v.volley, true);
+  for (const f of v.humans) assert.equal(f.charged, true, `${f.slot} starts loaded`);
+  const plain = createGameState(arena, { pvp: 3 });
+  assert.equal(plain.volley, false);
+  for (const f of plain.humans) assert.equal(f.charged, false);
+  assert.equal(createGameState(arena, { pvp: 2 }).volley, false, 'never without the flag');
+  assert.equal(createGameState(LEVELS[0], { volley: true }).volley, false, 'a solo game is not Volley');
+  // A charge fired from a shield would meet that shield on its way out, so
+  // advanceShot can be told to ignore one fighter for the first few steps.
+  const f = v.humans[0];
+  f.x = 400;
+  f.y = 400;
+  f.angle = 0;
+  f.paddleOffset = f.paddleBase;
+  const muzzle = f.paddleBase + f.paddleThick / 2 + VOLLEY.radius + VOLLEY.muzzle;
+  assert.ok(muzzle > f.paddleBase + f.paddleThick / 2 + VOLLEY.radius, 'a charge leaves clear of its own shield');
+  // Aimed back at its own shield it would be turned; with the owner skipped it passes.
+  const back = new Shot(f.x + muzzle, f.y, -600, 0, VOLLEY.radius, 0, -1);
+  let blocked = null;
+  for (let i = 0; i < 60 && !blocked; i++) blocked = advanceShot(back, [], [f], 1 / 240);
+  assert.ok(blocked && blocked.kind === 'paddle', 'without the grace its own shield turns it');
+  const past = new Shot(f.x + muzzle, f.y, -600, 0, VOLLEY.radius, 0, -1);
+  for (let i = 0; i < 60; i++) assert.equal(advanceShot(past, [], [f], 1 / 240, [], f), null, 'with the grace it passes straight through');
+  assert.ok(past.x < f.x, 'and comes out the other side');
+  // A mover hit now says which mover, so a charge can take its motion.
+  const { createMover } = await import('../src/entities.js');
+  const m = createMover({ type: 'spinner', x: 500, y: 400, length: 200, thick: 8, omega: 0.5, angle: 0 });
+  const intoMover = new Shot(500, 300, 0, 900, VOLLEY.radius, 0, -1);
+  let hit = null;
+  for (let i = 0; i < 60 && !hit; i++) hit = advanceShot(intoMover, [], [], 1 / 240, [m]);
+  assert.ok(hit && hit.kind === 'wall' && hit.m === m, 'the mover comes back with the hit');
+});
+
+test('volley: a charge keeps its owner and its clock through bounces, and only a rival body ends it', async () => {
+  const { VOLLEY } = await import('../src/config.js');
+  const { Shot, advanceShot } = await import('../src/sim.js');
+  const { reflect, polygonEdges } = await import('../src/physics.js');
+  const { Fighter } = await import('../src/entities.js');
+  // The rule stepVolley applies, run here over a plain room.
+  const room = polygonEdges([[0, 0], [1000, 0], [1000, 600], [0, 600]]);
+  const mine = new Fighter({ x: 200, y: 500, angle: 0, slot: 'a', r: 22, paddleWidth: 116, paddleBase: 36, paddleThick: 6 });
+  const rival = new Fighter({ x: 800, y: 300, angle: Math.PI, slot: 'c', r: 22, paddleWidth: 116, paddleBase: 36, paddleThick: 6 });
+  mine.paddleOffset = 36;
+  rival.paddleOffset = 36;
+  const step = (shot, fighters) => {
+    const hit = advanceShot(shot, room, fighters, 1 / 240);
+    if (!hit) return null;
+    if (hit.kind === 'paddle') return 'paddle'; // already reflected, owner untouched
+    if (hit.kind === 'body') {
+      if (hit.f.slot === shot.owner) {
+        shot.x += hit.h.nx * hit.h.depth;
+        shot.y += hit.h.ny * hit.h.depth;
+        reflect(shot, hit.h.nx, hit.h.ny, hit.f.svx, hit.f.svy);
+        return 'own-body';
+      }
+      return 'rival-body';
+    }
+    shot.x += hit.h.nx * hit.h.depth;
+    shot.y += hit.h.ny * hit.h.depth;
+    reflect(shot, hit.h.nx, hit.h.ny);
+    return 'wall';
+  };
+  // Straight up into the ceiling: it comes back, still owned by a, same clock.
+  const shot = new Shot(200, 300, 0, -800, VOLLEY.radius, 0, -1);
+  shot.owner = 'a';
+  let walls = 0;
+  for (let i = 0; i < 240 * 2; i++) if (step(shot, []) === 'wall') walls++;
+  assert.ok(walls >= 2, `it bounced ${walls} times instead of dying on the first wall`);
+  assert.equal(shot.owner, 'a', 'a bounce never changes whose colour it is');
+  assert.equal(shot.born, 0, 'and never extends its life');
+  assert.ok(Math.abs(Math.hypot(shot.vx, shot.vy) - 800) < 1e-6, 'walls keep its speed');
+  // Its own thrower cannot be hurt by it: it bounces off them and flies on.
+  // Their shield is turned away, so the body is what the charge meets.
+  mine.angle = Math.PI;
+  const back = new Shot(mine.x + 120, mine.y, -700, 0, VOLLEY.radius, 0, -1);
+  back.owner = 'a';
+  let sawOwn = false;
+  for (let i = 0; i < 240 && !sawOwn; i++) {
+    const r = step(back, [mine]);
+    if (r === 'own-body') sawOwn = true;
+    assert.notEqual(r, 'rival-body');
+  }
+  assert.ok(sawOwn, 'it met its own thrower');
+  assert.ok(back.vx > 0, 'and was turned around rather than stopped');
+  // A rival is a different matter.
+  const at = new Shot(rival.x - 120, rival.y, 700, 0, VOLLEY.radius, 0, -1);
+  at.owner = 'a';
+  rival.angle = 0; // shield turned away, so the body is what it meets
+  let end = null;
+  for (let i = 0; i < 240 && !end; i++) {
+    const r = step(at, [rival]);
+    if (r === 'rival-body') end = r;
+  }
+  assert.equal(end, 'rival-body', "a rival's body ends it");
+  // A shield turns it without taking it over.
+  const atShield = new Shot(rival.x - 120, rival.y, 700, 0, VOLLEY.radius, 0, -1);
+  atShield.owner = 'a';
+  rival.angle = Math.PI; // shield facing the charge
+  let turned = false;
+  for (let i = 0; i < 240 && !turned; i++) turned = step(atShield, [rival]) === 'paddle';
+  assert.ok(turned, 'the shield turned it');
+  assert.equal(atShield.owner, 'a', 'and it is still the thrower\'s colour, so it can still hurt the deflector');
+  assert.equal(atShield.born, 0, 'with its clock untouched');
+  assert.ok(atShield.vx < 0, 'sent back the way it came');
+});
+
+test('volley: a charge holds one speed, so nothing can pump it fast enough to leave the room', async () => {
+  const { VOLLEY, volleySpeed, SPEED_CEILING, PHYSICS_DT, BALL } = await import('../src/config.js');
+  const { Shot, advanceShot } = await import('../src/sim.js');
+  const { reflect, polygonEdges } = await import('../src/physics.js');
+  const { Fighter } = await import('../src/entities.js');
+  // The rule: every bounce turns a charge and renormalises it to its launch
+  // speed. Without it a charge bouncing off a moving body gains speed each
+  // step and eventually crosses more than its own radius per step, which is
+  // how it escaped the room before.
+  const hold = (shot) => {
+    const sp = Math.hypot(shot.vx, shot.vy);
+    if (!shot.pace || sp < 1e-6) return;
+    shot.vx *= shot.pace / sp;
+    shot.vy *= shot.pace / sp;
+  };
+  const room = polygonEdges([[0, 0], [1000, 0], [1000, 600], [0, 600]]);
+  const pace = volleySpeed(BALL.maxSpeed);
+  const shot = new Shot(500, 300, pace, 0, VOLLEY.radius, 0, -1);
+  shot.owner = 'a';
+  shot.pace = pace;
+  // A fighter charging at it as hard as the game allows, over and over.
+  const bully = new Fighter({ x: 520, y: 300, angle: 0, slot: 'c', r: 28, paddleWidth: 140, paddleBase: 42, paddleThick: 6 });
+  bully.paddleOffset = 42;
+  for (let i = 0; i < 240 * 6; i++) {
+    bully.svx = i % 2 ? 520 : -520; // slamming back and forth at more than any frame can move
+    bully.svy = 0;
+    const hit = advanceShot(shot, room, [bully], PHYSICS_DT);
+    if (hit) {
+      if (hit.kind === 'paddle') hold(shot);
+      else {
+        shot.x += hit.h.nx * hit.h.depth;
+        shot.y += hit.h.ny * hit.h.depth;
+        reflect(shot, hit.h.nx, hit.h.ny);
+        hold(shot);
+      }
+    }
+    const sp = Math.hypot(shot.vx, shot.vy);
+    assert.ok(Math.abs(sp - pace) < 1e-6, `step ${i}: the charge is at ${Math.round(sp)} instead of ${pace}`);
+    assert.ok(sp * PHYSICS_DT < shot.r, 'and so can never cross its own radius in a step');
+  }
+  assert.ok(pace < SPEED_CEILING, 'a charge is slower than the fastest ball the game allows');
+});

@@ -138,10 +138,11 @@ export class Renderer {
     for (const d of game.drones || []) if (d.rail) this.drawRail(d.rail, level.palette);
     if (game.nodes && game.nodes.length) this.drawNodes(game.nodes, level.palette, time);
     if (game.turrets && game.turrets.length) this.drawTurrets(game.turrets, level.palette, game.time || 0);
-    if (game.shots && game.shots.length) this.drawShots(game.shots, level.palette, game.player ? game.player.color : '#ffffff');
+    if (game.shots && game.shots.length) this.drawShots(game.shots, level.palette, game.player ? game.player.color : '#ffffff', game.volley ? (slot) => (game.fighters.find((f) => f.slot === slot) || {}).color : null);
+    if (game.volley) this.drawCharges(game.fighters || [], game.time || 0, time);
     this.drawRings(game.fx);
     for (const f of game.fighters || [game.boss, game.player]) if (!f.down) this.drawFighter(f, time, f.color);
-    this.drawBall(game.ball, state);
+    if (!game.volley) this.drawBall(game.ball, state); // Volley has no ball to draw
     this.drawParticles(game.fx);
 
     if (level.dark) this.drawDarkness(game, level, state, time, shx, shy);
@@ -556,6 +557,53 @@ export class Renderer {
     ctx.restore();
   }
 
+  /**
+   * The charge each fighter carries in Volley: an orb of its own colour at the
+   * centre of the shield, with the reload closing round it while it is spent.
+   * It is drawn only, never part of the physics.
+   */
+  drawCharges(fighters, now, time) {
+    const ctx = this.ctx;
+    for (const f of fighters) {
+      if (f.down || f.kind !== 'player') continue;
+      const fx = Math.cos(f.angle);
+      const fy = Math.sin(f.angle);
+      const x = f.x + fx * f.paddleOffset;
+      const y = f.y + fy * f.paddleOffset;
+      ctx.save();
+      if (f.charged) {
+        const pulse = 1 + 0.08 * Math.sin(time * 7 + f.x);
+        const r = 9 * pulse;
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fillStyle = f.color;
+        ctx.shadowColor = f.color;
+        ctx.shadowBlur = this.blur(18);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.beginPath();
+        ctx.arc(x, y, r * 0.42, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+      } else {
+        // Reloading: an arc that closes as the next charge forms.
+        const left = Math.max(0, (f.chargeAt || 0) - now);
+        const k = 1 - Math.min(1, left / 3);
+        ctx.globalAlpha = 0.5;
+        ctx.strokeStyle = f.color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(x, y, 9, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * k);
+        ctx.stroke();
+        ctx.globalAlpha = 0.18;
+        ctx.beginPath();
+        ctx.arc(x, y, 9, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+
   drawEmitter(e, palette) {
     const ctx = this.ctx;
     const color = palette.emitter || palette.obstacle;
@@ -674,11 +722,12 @@ export class Renderer {
   }
 
   /** Energy shots: small hot orbs; one you have deflected wears your colour. */
-  drawShots(shots, palette, ownColor) {
+  /** Turret shots wear the level's shot colour; a Volley charge wears the colour of whoever threw it. */
+  drawShots(shots, palette, ownColor, byOwner = null) {
     const ctx = this.ctx;
     const color = palette.shot || '#ff9f6a';
     for (const p of shots) {
-      const c = p.deflected ? ownColor : color;
+      const c = (p.owner && byOwner && byOwner(p.owner)) || (p.deflected ? ownColor : color);
       ctx.save();
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);

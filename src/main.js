@@ -1,6 +1,6 @@
 // Game bootstrap: state machine, fixed-step physics loop, collision dispatch,
 // HUD/overlay wiring. Everything heavy lives in the modules it imports.
-import { GAME_MARK, GAME_NAME, GAME_TAGLINE, GAME_VERSION, MARK_READINGS, PHYSICS_DT, BALL, PLAYER, SURFACE_VELOCITY_FACTOR, COUNTDOWN_SECONDS, DIFFICULTIES, DEFAULT_DIFFICULTY, COOP, RELAY_PROTOCOL, VERSUS_SPEEDS, DEFAULT_VERSUS_SPEED, versusMaxSpeed } from './config.js';
+import { GAME_MARK, GAME_NAME, GAME_TAGLINE, GAME_VERSION, MARK_READINGS, PHYSICS_DT, BALL, PLAYER, SURFACE_VELOCITY_FACTOR, COUNTDOWN_SECONDS, DIFFICULTIES, DEFAULT_DIFFICULTY, COOP, RELAY_PROTOCOL, VERSUS_SPEEDS, DEFAULT_VERSUS_SPEED, versusMaxSpeed, VOLLEY, volleySpeed } from './config.js';
 import { BallHistory, bossIntent, moverSegmentsAt } from './ai.js';
 import { LEVELS, VERSUS_LEVELS, ROSTER, TUTORIAL_LEVEL } from './levels.js';
 import { SEQUENCE, VERSUS_CONDUITS, levelLabel, shortId, campaignNextIndex } from './conduits.js';
@@ -14,7 +14,7 @@ import { Renderer } from './render.js';
 import { Effects } from './fx.js';
 import { AudioEngine } from './audio/engine.js';
 import { TRACKS } from './audio/tracks.js';
-import { circleVsCircle, circleVsCapsule, pointInPolygon, resolveCircleVsSegments, predictPath, predictCurvedPath, ejectFromPolygon, clampInsidePolygon, slabSide } from './physics.js';
+import { circleVsCircle, circleVsCapsule, pointInPolygon, resolveCircleVsSegments, predictPath, predictCurvedPath, ejectFromPolygon, clampInsidePolygon, slabSide, reflect } from './physics.js';
 import { advanceBall, separateFightersFromBall, fightersTouch, advanceShot, Shot } from './sim.js';
 import { clamp, rand, wrapAngle } from './vec.js';
 
@@ -39,8 +39,8 @@ let fps = 60;
 
 // ------------------------------------------------------------------ setup
 
-function buildGame(def, pvp = false, rules = { ownBallLoss: ownBallLoss() }, coop = false, spawns = null, frames = null, maxSpeed = null) {
-  const g = createGameState(def, { pvp, coop, rules, spawns, frames: frames || soloFrames(), maxSpeed });
+function buildGame(def, pvp = false, rules = { ownBallLoss: ownBallLoss() }, coop = false, spawns = null, frames = null, maxSpeed = null, volley = false) {
+  const g = createGameState(def, { pvp, coop, volley, rules, spawns, frames: frames || soloFrames(), maxSpeed });
   const bossHits = g.coop ? g.humans.length * COOP.bossHitsPerHuman : 1;
   return {
     ...g,
@@ -96,6 +96,19 @@ function startLevel(index) {
 
 function launchBall() {
   const def = game.def;
+  if (game.volley) {
+    // Volley has no ball. The round opens with everyone armed instead.
+    game.ball.held = true;
+    game.shots.length = 0;
+    for (const f of game.humans) armCharge(f, simTime);
+    for (const f of game.fighters) f.resetCamp();
+    game.lastPlayed = simTime;
+    state = 'playing';
+    $('countdown').hidden = true;
+    audio.sfxCount(true);
+    netEvent({ e: 'count', f: 1 });
+    return;
+  }
   const a = ((def.ball.angleDeg + rand(-14, 14)) * Math.PI) / 180;
   game.ball.launch(def.ball.x, def.ball.y, a, def.ball.speed);
   game.ball.banked = false;
@@ -167,7 +180,11 @@ function step(dt) {
   for (const f of g.humans) {
     const wasIdle = f.lungeState === 'idle';
     f.update(dt, intents[f.slot]);
-    if (wasIdle && f.lungeState === 'out') onWhack();
+    if (wasIdle && f.lungeState === 'out') {
+      onWhack();
+      // Volley: the thrust is also the trigger. Rotating the shield never fires.
+      if (g.volley && state === 'playing') fireCharge(f);
+    }
     if (g.well && state === 'playing') wellDrag(g.well, f, dt);
     settleFighter(f);
   }
@@ -241,6 +258,10 @@ function step(dt) {
     }
   }
   if (g.turrets.length && state === 'playing') stepShots(dt);
+  if (g.volley && state === 'playing') {
+    for (const f of g.humans) if (!f.charged && simTime >= f.chargeAt) armCharge(f);
+    stepVolley(dt);
+  }
 
   if (g.ice) {
     // Coolant vents drip on their own clocks while the ball is in play.
@@ -261,7 +282,7 @@ function step(dt) {
   if (state === 'playing' && !g.ball.held && !g.tutorial && simTime - g.lastPlayed > BALL.stuckSeconds) recoverBall();
 
   // Keep-moving rule: human players only, never in the tutorial.
-  if (state === 'playing' && !g.ball.held && !g.tutorial) {
+  if (state === 'playing' && (!g.ball.held || g.volley) && !g.tutorial) {
     for (const f of g.humans) {
       if (state !== 'playing') break;
       campStep(f, f.slot, dt);
@@ -321,6 +342,118 @@ function stepShots(dt) {
 }
 
 /** Aim at the nearest human, leading it a little, and loose a shot. */
+// ------------------------------------------------------------------ volley
+
+/** Give a fighter its charge back. It sits at the centre of the shield until the thrust sends it. */
+function armCharge(f, at = simTime) {
+  f.charged = true;
+  f.chargeAt = at;
+  if (game.volley) netEvent({ e: 'arm', s: f.slot });
+}
+
+/** The thrust launches the charge: straight out along the facing, at the middle of the arena's speed range. */
+function fireCharge(f) {
+  const g = game;
+  if (!f.charged) return;
+  f.charged = false;
+  f.chargeAt = simTime + VOLLEY.life; // the reload runs from firing, whatever the charge meets
+  const fx = Math.cos(f.angle);
+  const fy = Math.sin(f.angle);
+  const out = f.paddleBase + f.paddleThick / 2 + VOLLEY.radius + VOLLEY.muzzle;
+  const speed = volleySpeed(g.maxSpeed);
+  const shot = new Shot(f.x + fx * out, f.y + fy * out, fx * speed, fy * speed, VOLLEY.radius, simTime, -1);
+  shot.owner = f.slot;
+  shot.pace = speed; // it holds this speed for its whole life
+  shot.bounce = true; // walls, doors and moving parts turn it back
+  shot.graceUntil = simTime + VOLLEY.grace; // clear of the shield that threw it
+  g.shots.push(shot);
+  fireChargeFx(f);
+  netEvent({ e: 'volley', s: f.slot, x: shot.x, y: shot.y, vx: shot.vx, vy: shot.vy });
+}
+
+function fireChargeFx(f) {
+  const g = game;
+  g.fx.ring(f.x + Math.cos(f.angle) * f.paddleBase, f.y + Math.sin(f.angle) * f.paddleBase, f.color, 70, 0.3);
+  audio.sfxPulse();
+}
+
+/**
+ * Volley's shots. A charge lives exactly VOLLEY.life from the moment it is
+ * fired: walls, movers and shields turn it back without extending it, and only
+ * a body ends it early. It is harmless to the fighter whose colour it wears,
+ * bouncing off them, and costs anyone else a shield.
+ */
+/** A charge travels at one speed: a bounce turns it, and never speeds it up or slows it down. */
+function holdPace(shot) {
+  const s = Math.hypot(shot.vx, shot.vy);
+  if (!shot.pace || s < 1e-6) return;
+  shot.vx *= shot.pace / s;
+  shot.vy *= shot.pace / s;
+}
+
+function stepVolley(dt) {
+  const g = game;
+  const active = activeFighters();
+  for (let i = g.shots.length - 1; i >= 0; i--) {
+    const shot = g.shots[i];
+    if (simTime - shot.born > VOLLEY.life || !pointInPolygon(shot.x, shot.y, g.def.boundary)) {
+      // Its three seconds are up, or numerical trouble put it outside the room.
+      chargeFadeFx(shot);
+      g.shots.splice(i, 1);
+      continue;
+    }
+    const mine = fighterBySlot(shot.owner);
+    const skip = simTime < shot.graceUntil ? mine : null;
+    const hit = advanceShot(shot, g.walls, active, dt, g.movers, skip);
+    if (!hit) continue;
+    if (hit.kind === 'paddle') {
+      // A shield turns a charge away without taking it over: it keeps its
+      // colour, its owner and its clock, so deflecting is aim, not defence.
+      shot.deflected = true;
+      holdPace(shot); // a swung shield changes its line, not its speed
+      paddleFx(hit.f, hit.h.cx, hit.h.cy, hit.h.nx, hit.h.ny, 0.4, false);
+      netEvent({ e: 'paddle', s: hit.f.slot, x: hit.h.cx, y: hit.h.cy, nx: hit.h.nx, ny: hit.h.ny, st: 0.4, d: 0 });
+      continue;
+    }
+    if (hit.kind === 'body') {
+      if (hit.f.slot === shot.owner) {
+        // Your own charge cannot hurt you: it bounces off you and flies on.
+        // It is put fully clear of the body first, so it cannot sit inside and
+        // reflect every step, and its speed is held so nothing can pump it.
+        const d = Math.hypot(shot.x - hit.f.x, shot.y - hit.f.y) || 1;
+        shot.x = hit.f.x + ((shot.x - hit.f.x) / d) * (hit.f.r + shot.r + 0.5);
+        shot.y = hit.f.y + ((shot.y - hit.f.y) / d) * (hit.f.r + shot.r + 0.5);
+        reflect(shot, hit.h.nx, hit.h.ny);
+        holdPace(shot);
+        continue;
+      }
+      g.shots.splice(i, 1);
+      onVolleyHit(hit.f, hit.h, shot);
+      return; // the round is over; the rest of the shots go with the reset
+    }
+    // A wall, a door or a moving part turns it back at the same speed.
+    shot.x += hit.h.nx * hit.h.depth;
+    shot.y += hit.h.ny * hit.h.depth;
+    reflect(shot, hit.h.nx, hit.h.ny);
+    holdPace(shot);
+    shotFx(shot.x, shot.y);
+    netEvent({ e: 'shotfx', x: shot.x, y: shot.y });
+  }
+}
+
+function chargeFadeFx(shot) {
+  const g = game;
+  const f = fighterBySlot(shot.owner);
+  g.fx.ring(shot.x, shot.y, (f && f.color) || '#ffffff', 40, 0.25);
+}
+
+/** A charge in someone else's colour found a body: that costs a shield and ends the round. */
+function onVolleyHit(f, h, shot) {
+  playerHitFx(f, h.cx, h.cy, h.nx, h.ny);
+  netEvent({ e: 'shield', s: f.slot, x: h.cx, y: h.cy, nx: h.nx, ny: h.ny });
+  pvpLoss(f, 'volley', shot.owner);
+}
+
 function fireTurret(t) {
   const g = game;
   let target = null;
@@ -1107,7 +1240,12 @@ function frame(now) {
         } else startNetRound();
       }
     }
-    if (state === 'playing') {
+    if (state === 'playing' && game.volley) {
+      // No ball to follow: the music keeps time from how armed the room is.
+      const armed = game.humans.filter((f) => f.charged).length / Math.max(1, game.humans.length);
+      audio.setBallSpeed(BALL.minSpeed + (game.maxSpeed - BALL.minSpeed) * 0.35 * (1 - armed), game.def.ball.speed, BALL.minSpeed, game.maxSpeed);
+      game.guidePath = null;
+    } else if (state === 'playing') {
       audio.setBallSpeed(game.ball.speed, game.def.ball.speed, BALL.minSpeed, game.maxSpeed);
       if (guideFrame-- <= 0) {
         guideFrame = 6;
@@ -1573,7 +1711,7 @@ function updateHud() {
   if (g.pvp) {
     setText('hud-lives-label', 'SHIELDS');
     setHtml('hud-lives', net.players.map((p) => tint(p.id, shieldPips(p.id))).join(' <span class="label">·</span> '));
-    setText('hud-boss-label', 'MATCH');
+    setText('hud-boss-label', g.volley ? 'VOLLEY' : 'MATCH');
     setHtml('hud-boss', `${net.players.map((p) => tint(p.id, esc(p.name).toUpperCase())).join(' <span class="label">VS</span> ')} · LAST ONE STANDING`);
     setText('hud-level', `ROUND ${net.round} · ${g.def.title.toUpperCase()}`);
   } else {
@@ -1592,9 +1730,20 @@ function updateHud() {
   const pace = g.pvp && net.speed !== DEFAULT_VERSUS_SPEED ? (VERSUS_SPEEDS.find((sp) => sp.id === net.speed) || {}).name : '';
   const tags = [frameTag, pace ? `${pace.toUpperCase()} · ${Math.round(g.maxSpeed)} PX/S` : '', g.coop ? `CO-OP · ${[net.names.host, ...net.roster.map((r) => r.name)].join(' & ').toUpperCase()}` : '', mode ? `${mode.toUpperCase()} CAMPAIGN` : '', g.difficulty ? g.difficulty.name.toUpperCase() : '', g.rules.ownBallLoss ? '' : 'SAFE OWN BALL', g.def.conduit && !g.pvp ? 'HALF SPEED' : '', g.def.noGuide ? 'NO GUIDE' : ''].filter(Boolean);
   setText('hud-rule', tags.map((t) => `· ${t}`).join(' '));
-  const s = g.ball.held && state !== 'cleared' ? 0 : g.ball.speed;
-  setText('hud-speed', `${Math.round(s)} px/s`);
-  $('hud-speed-bar').style.transform = `scaleX(${speedNorm(s).toFixed(3)})`;
+  if (g.volley) {
+    // No ball: the readout is your own charge, and the bar is its reload.
+    const mine = localFighter();
+    const ready = !mine || mine.charged;
+    const left = mine && !mine.charged ? Math.max(0, mine.chargeAt - g.time) : 0;
+    setText('hud-speed-label', 'CHARGE');
+    setText('hud-speed', ready ? `LOADED · ${volleySpeed(g.maxSpeed)} px/s` : `${left.toFixed(1)} s`);
+    $('hud-speed-bar').style.transform = `scaleX(${(ready ? 1 : 1 - left / VOLLEY.life).toFixed(3)})`;
+  } else {
+    setText('hud-speed-label', 'BALL');
+    const s = g.ball.held && state !== 'cleared' ? 0 : g.ball.speed;
+    setText('hud-speed', `${Math.round(s)} px/s`);
+    $('hud-speed-bar').style.transform = `scaleX(${speedNorm(s).toFixed(3)})`;
+  }
   setText('hud-bpm', audio.currentBpm ? `♪ ${Math.round(audio.currentBpm)} BPM` : '♪');
   const health = `${Math.round(fps)} FPS${g.drops ? ` · ${g.drops} DROPPED` : ''}${renderer.low ? ` · LOW Q${autoLow && qualitySetting() === 'auto' ? ' (AUTO)' : ''}` : ''}`;
   const padTag = input.pad.connected ? ' · 🎮' : '';
@@ -1615,7 +1764,7 @@ function updateHud() {
   }
   const last = g.pvp && state === 'roundEnd' && net.last ? net.last : null;
   if (last) {
-    const how = last.reason === 'camp' ? 'STOOD STILL' : last.reason === 'own' ? 'OWN BALL' : last.reason === 'shot' ? 'SHOT BY A TURRET' : last.reason === 'well' ? 'FELL INTO THE WELL' : `HIT BY ${playerName(last.by)}`;
+    const how = last.reason === 'camp' ? 'STOOD STILL' : last.reason === 'own' ? 'OWN BALL' : last.reason === 'shot' ? 'SHOT BY A TURRET' : last.reason === 'well' ? 'FELL INTO THE WELL' : last.reason === 'volley' ? `TOOK ${playerName(last.by)}'S CHARGE` : `HIT BY ${playerName(last.by)}`;
     const left = net.shields[last.id] || 0;
     status = `${playerName(last.id)} ${how} · ${last.out ? 'ELIMINATED' : `${left} SHIELD${left === 1 ? '' : 'S'} LEFT`}`.toUpperCase();
   }
@@ -2186,6 +2335,7 @@ const net = {
   shields: {}, // versus: shields left per player id; 0 means eliminated
   maxShields: DEFAULT_VERSUS_SHIELDS,
   speed: DEFAULT_VERSUS_SPEED, // versus: the pace the host picked, an id in VERSUS_SPEEDS
+  volley: false, // versus: no ball, everyone carries a charge in their own colour
   out: {}, // versus: player id -> the round they were eliminated in
   last: null, // versus: the latest loss, { id, reason: 'hit' | 'own' | 'camp' | 'shot' | 'well', by, out }
   names: { host: 'Host', guest: 'Guest' },
@@ -2206,6 +2356,7 @@ const net = {
 function endMatch() {
   net.mode = null;
   net.coop = false;
+  net.volley = false;
   net.coopCampaign = false;
   net.remoteIntents = {};
   net.seq = 0;
@@ -2496,7 +2647,7 @@ function renderHostLobby(client) {
       lobbyStatus(`
         <div class="mp-code">${client.code}</div>
         <p>${names} joined${net.roster.length < COOP.maxAllies ? ` · room for ${COOP.maxAllies - net.roster.length} more` : ' · the room is full'}.</p>
-        <div class="row"><label class="mp-field">Mode <select id="mp-mode"><option value="versus">Versus · ${people} players, last one standing</option><option value="coop">Co-op · ${people} of you against the boss</option></select></label></div>
+        <div class="row"><label class="mp-field">Mode <select id="mp-mode"><option value="versus">Versus · ${people} players, last one standing</option><option value="volley">Volley · ${people} players, no ball, every shield loaded</option><option value="coop">Co-op · ${people} of you against the boss</option></select></label></div>
         <div class="row" id="mp-versus-opts"><label class="mp-field">Arena <select id="mp-level">${arenaOptions}</select></label><label class="mp-field">Shields each <select id="mp-shields">${VERSUS_SHIELDS.map((n) => `<option value="${n}" ${n === versusShieldsSetting() ? 'selected' : ''}>${n}</option>`).join('')}</select></label><label class="mp-field" title="How fast the ball is allowed to get. Every setting scales the arena's own campaign limit, so Standard plays exactly as the campaign does.">Ball speed <select id="mp-speed">${VERSUS_SPEEDS.map((sp) => `<option value="${sp.id}" ${sp.id === versusSpeedSetting() ? 'selected' : ''}>${sp.name} · ${sp.blurb}</option>`).join('')}</select></label></div>
         <p class="small muted" id="mp-speed-note"></p>
         <p class="small muted" id="mp-versus-note">Every player for themselves. A body hit, an own ball or standing still costs that player a shield and resets everyone; with no shields left they are out. The last one standing wins.</p>
@@ -2525,10 +2676,14 @@ function renderHostLobby(client) {
       $('mp-level').onchange = syncSpeed;
       syncSpeed();
       const syncMode = () => {
-        const coop = $('mp-mode').value === 'coop';
+        const mode = $('mp-mode').value;
+        const coop = mode === 'coop';
         $('mp-versus-opts').hidden = coop;
         $('mp-versus-note').hidden = coop;
         $('mp-speed-note').hidden = coop;
+        $('mp-versus-note').textContent = mode === 'volley'
+          ? `No ball. Every fighter carries a charge in its own colour at the centre of its shield and fires it with the thrust, never by turning. A charge flies for ${VOLLEY.life} seconds, bouncing off walls, doors and moving parts, and the next one forms as it dies. Your own colour cannot hurt you; anyone else's costs a shield on the body. Deflecting a charge turns it away without taking it over.`
+          : 'Every player for themselves. A body hit, an own ball or standing still costs that player a shield and resets everyone; with no shields left they are out. The last one standing wins.';
         $('mp-coop-opts').hidden = !coop;
         $('mp-coop-note').hidden = !coop;
         $('mp-coop-level').parentElement.hidden = coop && $('mp-coop-play').value !== 'level';
@@ -2545,7 +2700,7 @@ function renderHostLobby(client) {
             // storage unavailable: the choice lasts for this match
           }
           setVersusSpeedSetting($('mp-speed').value);
-          return startNetMatch(Number($('mp-level').value), shields, $('mp-speed').value);
+          return startNetMatch(Number($('mp-level').value), shields, $('mp-speed').value, $('mp-mode').value === 'volley');
         }
         const play = $('mp-coop-play').value;
         startCoop({ campaign: play !== 'level', resume: play === 'resume', mode: play === 'full' ? 'full' : 'short', levelIdx: Number($('mp-coop-level').value) });
@@ -2586,9 +2741,10 @@ async function joinRoom(code) {
 }
 
 /** Host: begin a versus match on the chosen arena with everyone in the room. */
-function startNetMatch(levelIdx, shields = net.maxShields, speed = net.speed) {
+function startNetMatch(levelIdx, shields = net.maxShields, speed = net.speed, volley = net.volley) {
   net.mode = 'host';
   net.speed = VERSUS_SPEEDS.some((s) => s.id === speed) ? speed : DEFAULT_VERSUS_SPEED;
+  net.volley = !!volley;
   if (net.roster[0]) net.names.guest = net.roster[0].name;
   net.levelIndex = levelIdx;
   net.rules = { ownBallLoss: ownBallLoss() };
@@ -2609,7 +2765,7 @@ function startNetRound() {
   net.remoteIntents = {};
   net.events = [];
   net.frames = rosterFrames();
-  net.client.send({ t: 'setup', level: net.levelIndex, round: net.round, shields: net.shields, max: net.maxShields, out: net.out, last: net.last, players: net.players, names: net.names, rules: net.rules, frames: net.frames, speed: net.speed });
+  net.client.send({ t: 'setup', level: net.levelIndex, round: net.round, shields: net.shields, max: net.maxShields, out: net.out, last: net.last, players: net.players, names: net.names, rules: net.rules, frames: net.frames, speed: net.speed, volley: net.volley });
   beginNetRound();
 }
 
@@ -2638,6 +2794,7 @@ function onSetup(msg) {
   net.players = Array.isArray(msg.players) && msg.players.length ? msg.players : [{ id: 'a', name: msg.names.host }, { id: 'c', name: msg.names.guest }];
   net.maxShields = msg.max || DEFAULT_VERSUS_SHIELDS;
   net.speed = VERSUS_SPEEDS.some((s) => s.id === msg.speed) ? msg.speed : DEFAULT_VERSUS_SPEED;
+  net.volley = !!msg.volley;
   net.shields = msg.shields || Object.fromEntries(net.players.map((p) => [p.id, net.maxShields]));
   net.out = msg.out || {};
   net.last = msg.last || null;
@@ -2666,7 +2823,7 @@ function beginNetRound() {
   for (const p of net.players) net.colors[p.id] = colors[VERSUS_IDS.indexOf(p.id)] || colors[net.players.indexOf(p)];
   const seats = rotateSpawns(versusSpawns(def, n), net.round).map((sp, i) => ({ ...sp, id: alive[i].id, color: net.colors[alive[i].id] }));
   // The ball's colour ramp follows the match's own cap, not the arena's.
-  game = buildGame(def, n, net.rules, false, seats, netFrames(), netMaxSpeed(def));
+  game = buildGame(def, n, net.rules, false, seats, netFrames(), netMaxSpeed(def), net.volley);
   for (const f of game.fighters) f.name = playerName(f.slot) + (net.localSlot === f.slot ? ' (you)' : '');
   game.local = localFighter();
   renderer.setLevel(def, game.maxSpeed);
@@ -3014,6 +3171,16 @@ function playEvent(ev) {
     case 'shotfx':
       shotFx(ev.x, ev.y);
       break;
+    case 'volley': {
+      const f = fighterBySlot(ev.s);
+      if (f) fireChargeFx(f);
+      break;
+    }
+    case 'arm': {
+      const f = fighterBySlot(ev.s);
+      if (f) g.fx.ring(f.x + Math.cos(f.angle) * f.paddleOffset, f.y + Math.sin(f.angle) * f.paddleOffset, f.color, 40, 0.25);
+      break;
+    }
     case 'pulse':
       audio.sfxPulse();
       g.fx.ring(ev.x, ev.y, g.def.palette.obstacle, 80, 0.3);

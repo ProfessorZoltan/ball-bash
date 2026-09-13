@@ -267,7 +267,7 @@ export function rotateSpawns(spawns, round) {
  * `coop`: false, or the number of allies (true means one) playing beside the
  * host's human against the boss.
  */
-export function createGameState(def, { pvp = false, coop = false, rules = DEFAULT_RULES, spawns = null, frames = null, maxSpeed = null } = {}) {
+export function createGameState(def, { pvp = false, coop = false, volley = false, rules = DEFAULT_RULES, spawns = null, frames = null, maxSpeed = null } = {}) {
   const frameFor = (slot) => (frames && frames[slot]) || STANDARD;
   const allyCount = coop === true ? 1 : Math.max(0, Math.min(COOP.maxAllies, Number(coop) || 0));
   const pvpCount = pvp === true ? 2 : Math.max(0, Math.min(VERSUS_IDS.length, Number(pvp) || 0));
@@ -351,6 +351,11 @@ export function createGameState(def, { pvp = false, coop = false, rules = DEFAUL
   const humans = pvp ? fighters.slice() : [player, ...allies];
   // Where each human started: the well puts a player it swallows back there.
   for (const f of humans) f.spawn = { x: f.x, y: f.y, angle: f.angle };
+  // Volley: everyone starts the round armed.
+  for (const f of humans) {
+    f.charged = !!volley;
+    f.chargeAt = 0;
+  }
   for (const d of drones) if (d.phasing) d.phased = dronePhased(d.phasing, 0);
   // The gravity well: `r` is the horizon, `range` how far the pull reaches.
   const well = def.well ? { x: def.well.x, y: def.well.y, r: def.well.r || 40, range: def.well.range || 400, pull: def.well.pull || 60000, drag: def.well.drag || 45000 } : null;
@@ -366,7 +371,7 @@ export function createGameState(def, { pvp = false, coop = false, rules = DEFAUL
   // The frame each human seat wears, so the HUD and the tests can read it back.
   const wornFrames = {};
   for (const f of humans) wornFrames[f.slot] = frameFor(f.slot);
-  const g = { def, staticWalls, staticPolys, panes, doors, walls: [], solidPolys: [], player, ally, allies, boss, drones, nodes, turrets, emitters, shots: [], objective, fighters, humans, movers, ice, vents, well, frames: wornFrames, ball, maxSpeed: maxSpeed || def.maxBallSpeed || BALL.maxSpeed, pvp, players: pvpCount, coop: !pvp && allyCount > 0, rules: { ...DEFAULT_RULES, ...rules } };
+  const g = { def, staticWalls, staticPolys, panes, doors, walls: [], solidPolys: [], player, ally, allies, boss, drones, nodes, turrets, emitters, shots: [], objective, fighters, humans, movers, ice, vents, well, frames: wornFrames, ball, volley: !!volley && pvp, maxSpeed: maxSpeed || def.maxBallSpeed || BALL.maxSpeed, pvp, players: pvpCount, coop: !pvp && allyCount > 0, rules: { ...DEFAULT_RULES, ...rules } };
   rebuildWalls(g);
   return g;
 }

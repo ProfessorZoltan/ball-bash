@@ -6,7 +6,7 @@ const r1 = (v) => Math.round(v * 10) / 10;
 const r3 = (v) => Math.round(v * 1000) / 1000;
 
 export function fighterState(f) {
-  return [r1(f.x), r1(f.y), r3(f.angle), r1(f.paddleOffset), r1(f.frozen), f.lungeState === 'out' ? 1 : 0, r1(f.hitFlash), r1(f.invuln), r1(f.campTimer), f.down ? 1 : 0, f.glow ? 1 : 0, f.phased ? 1 : 0];
+  return [r1(f.x), r1(f.y), r3(f.angle), r1(f.paddleOffset), r1(f.frozen), f.lungeState === 'out' ? 1 : 0, r1(f.hitFlash), r1(f.invuln), r1(f.campTimer), f.down ? 1 : 0, f.glow ? 1 : 0, f.phased ? 1 : 0, f.charged ? 1 : 0, r1(f.chargeAt)];
 }
 
 export function applyFighter(f, a) {
@@ -22,6 +22,8 @@ export function applyFighter(f, a) {
   f.down = !!a[9];
   f.glow = !!a[10];
   f.phased = !!a[11];
+  f.charged = !!a[12];
+  f.chargeAt = a[13] || 0;
 }
 
 export function moverState(m) {
@@ -53,9 +55,9 @@ export function buildSnapshot(g, meta, events = [], includeIce = true) {
   if (g.doors && g.doors.length) s.dr = g.doors.map((d) => (d.closed ? 1 : 0));
   const pulsers = (g.drones || []).filter((d) => d.pulser).map((d) => d.pulser).concat((g.emitters || []).map((e) => e.pulser));
   if (pulsers.length) s.pu = pulsers.map((p) => [r1(p.t), r1(p.nextAt), p.active ? 1 : 0, r1(p.radius || 0), r1(p.x), r1(p.y)]);
-  if (g.turrets && g.turrets.length) {
-    s.tu = g.turrets.map((t) => [t.down ? 1 : 0, r3(t.aim)]);
-    s.pj = g.shots.map((p) => [r1(p.x), r1(p.y), r1(p.vx), r1(p.vy), p.deflected ? 1 : 0]);
+  if (g.turrets && g.turrets.length) s.tu = g.turrets.map((t) => [t.down ? 1 : 0, r3(t.aim)]);
+  if ((g.turrets && g.turrets.length) || g.volley) {
+    s.pj = g.shots.map((p) => [r1(p.x), r1(p.y), r1(p.vx), r1(p.vy), p.deflected ? 1 : 0, p.owner || '', r1(p.r)]);
   }
   if (includeIce && g.ice) s.ice = { u: r1(g.ice.layUntil), o: g.ice.owner, p: g.ice.points.map((p) => [r1(p.x), r1(p.y), r1(p.t)]), q: g.ice.patches.map((p) => [r1(p.x), r1(p.y), p.r, r1(p.t)]) };
   if (events.length) s.ev = events;
@@ -117,8 +119,8 @@ export function applySnapshot(g, s) {
       g.turrets[i].down = !!s.tu[i][0];
       g.turrets[i].aim = s.tu[i][1];
     }
-    g.shots = (s.pj || []).map(([x, y, vx, vy, d]) => ({ x, y, vx, vy, r: 8, deflected: !!d }));
   }
+  if (s.pj) g.shots = s.pj.map(([x, y, vx, vy, d, owner, r]) => ({ x, y, vx, vy, r: r || 8, deflected: !!d, owner: owner || null }));
   if (s.ice && g.ice) {
     g.ice.layUntil = s.ice.u;
     g.ice.owner = s.ice.o ?? null;

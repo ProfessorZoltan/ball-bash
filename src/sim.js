@@ -153,6 +153,10 @@ export class Shot {
     this.born = born;
     this.turret = turret; // which turret fired it
     this.deflected = false; // touched a shield: now it can knock a turret out
+    this.owner = null; // Volley: the slot of the fighter whose colour it wears
+    this.pace = 0; // Volley: the one speed it travels at, whatever it bounces off
+    this.bounce = false; // Volley: walls and movers turn it back instead of ending it
+    this.graceUntil = 0; // Volley: until this time it passes through the shield that fired it
   }
 
   get speed() {
@@ -165,10 +169,18 @@ export class Shot {
  * like the ball); a body, a mover or a wall stops it. Returns null while it
  * flies, else { kind: 'paddle' | 'body' | 'wall', f?, seg?, h }.
  */
-export function advanceShot(shot, walls, fighters, dt, movers = []) {
+/**
+ * Move a shot one step and report the first thing it meets: a shield
+ * ('paddle', already reflected), a body ('body'), or a wall or moving part
+ * ('wall', with the mover in `m` when it was one). `skip` is a fighter whose
+ * shield and body are ignored, which is how a freshly fired charge gets clear
+ * of the shield that fired it.
+ */
+export function advanceShot(shot, walls, fighters, dt, movers = [], skip = null) {
   shot.x += shot.vx * dt;
   shot.y += shot.vy * dt;
   for (const f of fighters) {
+    if (f === skip) continue;
     const seg = f.paddleSegment();
     const h = circleVsCapsule(shot.x, shot.y, shot.r, seg.ax, seg.ay, seg.bx, seg.by, f.paddleThick, shot.vx, shot.vy);
     if (h) {
@@ -185,7 +197,7 @@ export function advanceShot(shot, walls, fighters, dt, movers = []) {
     if (!m.segments) continue;
     for (const seg of m.segments()) {
       const h = circleVsCapsule(shot.x, shot.y, shot.r, seg.ax, seg.ay, seg.bx, seg.by, m.thick || 0, shot.vx, shot.vy);
-      if (h) return { kind: 'wall', seg, h };
+      if (h) return { kind: 'wall', seg, h, m };
     }
   }
   for (const s of walls) {

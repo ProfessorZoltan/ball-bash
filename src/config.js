@@ -51,6 +51,25 @@ export const BALL = {
  */
 export const SPEED_CEILING = 2250; // px/s: 9.4 px per step, 85% of the ball's radius
 
+/**
+ * Volley: a versus mode with no ball of its own. Every fighter carries a
+ * charge in its own colour at the centre of its shield and fires it with the
+ * thrust. A charge lives `life` seconds and the next one forms when it dies,
+ * so a fighter has exactly one in the air at a time, and a charge in anyone
+ * else's colour costs a shield on the body.
+ */
+export const VOLLEY = {
+  life: 3, // seconds a fired charge lives, and so the reload after firing
+  radius: 9,
+  muzzle: 14, // px beyond the shield's face that a charge leaves from
+  grace: 0.1, // seconds a charge ignores the shield that fired it
+};
+
+/** A charge flies at the middle of the arena's speed range. */
+export function volleySpeed(maxSpeed = BALL.maxSpeed) {
+  return Math.round((BALL.minSpeed + maxSpeed) / 2);
+}
+
 export const VERSUS_SPEEDS = [
   { id: 'strategic', name: 'Strategic', mult: 0.5, blurb: 'half pace: every shot is a decision' },
   { id: 'measured', name: 'Measured', mult: 0.75, blurb: 'a shade slower than the campaign' },
