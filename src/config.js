@@ -60,7 +60,9 @@ export const SPEED_CEILING = 2250; // px/s: 9.4 px per step, 85% of the ball's r
  */
 export const VOLLEY = {
   life: 3, // seconds a fired charge lives, and so the reload after firing
-  radius: 9,
+  // The ball's own radius: a charge is held to the arena's ball cap, and at
+  // that speed a body this size still cannot cross itself in one 240 Hz step.
+  radius: 11,
   muzzle: 14, // px beyond the shield's face that a charge leaves from
   grace: 0.1, // seconds a charge ignores the shield that fired it
 };

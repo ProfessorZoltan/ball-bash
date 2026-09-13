@@ -212,8 +212,7 @@ function step(dt) {
     }
   }
 
-  const active = activeFighters();
-  for (let i = 0; i < active.length; i++) for (let j = i + 1; j < active.length; j++) separateCircles(active[i], active[j]);
+  separateFighters();
   for (const f of g.fighters) f.finalizeStep(dt);
   // Lantern drones show their light only while standing still or just after a block.
   for (const d of g.drones) if (d.lantern) d.glow = !d.down && (Math.hypot(d.svx, d.svy) < 20 || d.hitFlash > 0);
@@ -383,12 +382,27 @@ function fireChargeFx(f) {
  * a body ends it early. It is harmless to the fighter whose colour it wears,
  * bouncing off them, and costs anyone else a shield.
  */
-/** A charge travels at one speed: a bounce turns it, and never speeds it up or slows it down. */
-function holdPace(shot) {
+/**
+ * A charge obeys the same speed rules as the ball: a shield moving into it
+ * adds speed and a retreating one takes it away, and the arena's cap and floor
+ * hold the result. The cap is also what keeps it from crossing more than its
+ * own radius in a physics step, which is how one used to leave the room.
+ */
+function clampCharge(shot, nx = 0, ny = 0) {
   const s = Math.hypot(shot.vx, shot.vy);
-  if (!shot.pace || s < 1e-6) return;
-  shot.vx *= shot.pace / s;
-  shot.vy *= shot.pace / s;
+  if (s < 1e-6) {
+    // A shield retreating at exactly the charge's speed cancels it dead. It
+    // leaves along the contact normal at the floor speed rather than hanging
+    // in the air, which is what the ball does when it is stalled.
+    const n = Math.hypot(nx, ny);
+    shot.vx = n > 1e-6 ? (nx / n) * BALL.minSpeed : BALL.minSpeed;
+    shot.vy = n > 1e-6 ? (ny / n) * BALL.minSpeed : 0;
+    return;
+  }
+  const c = Math.min(game.maxSpeed, Math.max(BALL.minSpeed, s));
+  if (c === s) return;
+  shot.vx *= c / s;
+  shot.vy *= c / s;
 }
 
 function stepVolley(dt) {
@@ -402,17 +416,38 @@ function stepVolley(dt) {
       g.shots.splice(i, 1);
       continue;
     }
+    // Everything the arena does to the ball, it does to a charge: the Event
+    // Horizon's well bends its flight and the horizon takes it.
+    if (g.well) {
+      const p = wellField(g.well, shot.x, shot.y);
+      if (p) {
+        shot.vx += p.ux * g.well.pull * p.k * dt;
+        shot.vy += p.uy * g.well.pull * p.k * dt;
+        clampCharge(shot);
+      }
+      if (wellSwallows(g.well, shot.x, shot.y)) {
+        swallowFx();
+        netEvent({ e: 'swallow' });
+        g.shots.splice(i, 1);
+        continue;
+      }
+    }
     const mine = fighterBySlot(shot.owner);
     const skip = simTime < shot.graceUntil ? mine : null;
+    const was = Math.hypot(shot.vx, shot.vy); // advanceShot reflects a shield hit itself
     const hit = advanceShot(shot, g.walls, active, dt, g.movers, skip);
     if (!hit) continue;
     if (hit.kind === 'paddle') {
       // A shield turns a charge away without taking it over: it keeps its
       // colour, its owner and its clock, so deflecting is aim, not defence.
+      // A shield turns a charge away and lends it its own motion, exactly as
+      // it does the ball: swing into one and it comes off faster.
       shot.deflected = true;
-      holdPace(shot); // a swung shield changes its line, not its speed
-      paddleFx(hit.f, hit.h.cx, hit.h.cy, hit.h.nx, hit.h.ny, 0.4, false);
-      netEvent({ e: 'paddle', s: hit.f.slot, x: hit.h.cx, y: hit.h.cy, nx: hit.h.nx, ny: hit.h.ny, st: 0.4, d: 0 });
+      clampCharge(shot, hit.h.nx, hit.h.ny);
+      const delta = Math.hypot(shot.vx, shot.vy) - was;
+      const st = clamp(Math.abs(delta) / 400, 0, 1);
+      paddleFx(hit.f, hit.h.cx, hit.h.cy, hit.h.nx, hit.h.ny, st, delta > 100);
+      netEvent({ e: 'paddle', s: hit.f.slot, x: hit.h.cx, y: hit.h.cy, nx: hit.h.nx, ny: hit.h.ny, st, d: delta > 100 ? 1 : 0 });
       continue;
     }
     if (hit.kind === 'body') {
@@ -424,18 +459,19 @@ function stepVolley(dt) {
         shot.x = hit.f.x + ((shot.x - hit.f.x) / d) * (hit.f.r + shot.r + 0.5);
         shot.y = hit.f.y + ((shot.y - hit.f.y) / d) * (hit.f.r + shot.r + 0.5);
         reflect(shot, hit.h.nx, hit.h.ny);
-        holdPace(shot);
+        clampCharge(shot, hit.h.nx, hit.h.ny);
         continue;
       }
       g.shots.splice(i, 1);
       onVolleyHit(hit.f, hit.h, shot);
       return; // the round is over; the rest of the shots go with the reset
     }
-    // A wall, a door or a moving part turns it back at the same speed.
+    // A wall keeps its speed; a moving part lends it its own, like the ball.
+    const sv = hit.m && hit.m.surfaceVelocityAt ? hit.m.surfaceVelocityAt(shot.x, shot.y) : { x: 0, y: 0 };
     shot.x += hit.h.nx * hit.h.depth;
     shot.y += hit.h.ny * hit.h.depth;
-    reflect(shot, hit.h.nx, hit.h.ny);
-    holdPace(shot);
+    reflect(shot, hit.h.nx, hit.h.ny, sv.x, sv.y, 1, SURFACE_VELOCITY_FACTOR);
+    clampCharge(shot, hit.h.nx, hit.h.ny);
     shotFx(shot.x, shot.y);
     netEvent({ e: 'shotfx', x: shot.x, y: shot.y });
   }
@@ -823,13 +859,35 @@ function settleFighter(f) {
   clampInsidePolygon(f, g.def.boundary);
 }
 
+/**
+ * Nobody walks through anybody. One pass leaves an overlap behind when three
+ * are pressed together or when a pair is against a wall, so the split is
+ * repeated and each fighter is settled against the walls again afterwards:
+ * being pushed apart must never push somebody into the rock.
+ */
+function separateFighters() {
+  const active = activeFighters();
+  if (active.length < 2) return;
+  for (let pass = 0; pass < 3; pass++) {
+    let any = false;
+    for (let i = 0; i < active.length; i++) {
+      for (let j = i + 1; j < active.length; j++) {
+        if (separateCircles(active[i], active[j])) any = true;
+      }
+    }
+    if (!any) break;
+    for (const f of active) if (f.kind === 'player') settleFighter(f);
+  }
+}
+
 function separateCircles(a, b) {
   const h = circleVsCircle(a.x, a.y, a.r, b.x, b.y, b.r);
-  if (!h) return;
+  if (!h) return false;
   a.x += h.nx * h.depth * 0.5;
   a.y += h.ny * h.depth * 0.5;
   b.x -= h.nx * h.depth * 0.5;
   b.y -= h.ny * h.depth * 0.5;
+  return true;
 }
 
 function moveBall(dt) {

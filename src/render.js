@@ -572,32 +572,52 @@ export class Renderer {
       const y = f.y + fy * f.paddleOffset;
       ctx.save();
       if (f.charged) {
-        const pulse = 1 + 0.08 * Math.sin(time * 7 + f.x);
-        const r = 9 * pulse;
+        // Loaded, and meant to be read across the room: a bright core, a halo
+        // that breathes, and two counter-turning ticks around it.
+        const pulse = 1 + 0.12 * Math.sin(time * 6 + f.x * 0.05);
+        const r = 12 * pulse;
+        const halo = ctx.createRadialGradient(x, y, r * 0.4, x, y, r * 2.6);
+        halo.addColorStop(0, withAlpha(f.color, 0.55));
+        halo.addColorStop(1, withAlpha(f.color, 0));
+        ctx.fillStyle = halo;
+        ctx.beginPath();
+        ctx.arc(x, y, r * 2.6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = f.color;
+        ctx.globalAlpha = 0.85;
+        for (let k = 0; k < 3; k++) {
+          const a = time * 1.6 + (k * Math.PI * 2) / 3;
+          ctx.beginPath();
+          ctx.arc(x, y, r + 6, a, a + 0.5);
+          ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
         ctx.beginPath();
         ctx.arc(x, y, r, 0, Math.PI * 2);
         ctx.fillStyle = f.color;
         ctx.shadowColor = f.color;
-        ctx.shadowBlur = this.blur(18);
+        ctx.shadowBlur = this.blur(26);
         ctx.fill();
         ctx.shadowBlur = 0;
         ctx.beginPath();
-        ctx.arc(x, y, r * 0.42, 0, Math.PI * 2);
+        ctx.arc(x, y, r * 0.5, 0, Math.PI * 2);
         ctx.fillStyle = '#ffffff';
         ctx.fill();
       } else {
-        // Reloading: an arc that closes as the next charge forms.
+        // Spent: a thin arc closing as the next charge forms. Deliberately
+        // quiet, so loaded and empty are never mistaken for one another.
         const left = Math.max(0, (f.chargeAt || 0) - now);
         const k = 1 - Math.min(1, left / 3);
-        ctx.globalAlpha = 0.5;
+        ctx.globalAlpha = 0.16;
         ctx.strokeStyle = f.color;
         ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.arc(x, y, 9, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * k);
+        ctx.arc(x, y, 11, 0, Math.PI * 2);
         ctx.stroke();
-        ctx.globalAlpha = 0.18;
+        ctx.globalAlpha = 0.55;
         ctx.beginPath();
-        ctx.arc(x, y, 9, 0, Math.PI * 2);
+        ctx.arc(x, y, 11, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * k);
         ctx.stroke();
       }
       ctx.restore();

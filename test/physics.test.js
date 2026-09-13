@@ -1524,45 +1524,73 @@ test('volley: a charge keeps its owner and its clock through bounces, and only a
   assert.ok(atShield.vx < 0, 'sent back the way it came');
 });
 
-test('volley: a charge holds one speed, so nothing can pump it fast enough to leave the room', async () => {
-  const { VOLLEY, volleySpeed, SPEED_CEILING, PHYSICS_DT, BALL } = await import('../src/config.js');
+test('volley: a shield moves a charge like it moves the ball, and the arena cap keeps it in the room', async () => {
+  const { VOLLEY, volleySpeed, SPEED_CEILING, PHYSICS_DT, BALL, SURFACE_VELOCITY_FACTOR } = await import('../src/config.js');
   const { Shot, advanceShot } = await import('../src/sim.js');
   const { reflect, polygonEdges } = await import('../src/physics.js');
   const { Fighter } = await import('../src/entities.js');
-  // The rule: every bounce turns a charge and renormalises it to its launch
-  // speed. Without it a charge bouncing off a moving body gains speed each
-  // step and eventually crosses more than its own radius per step, which is
-  // how it escaped the room before.
-  const hold = (shot) => {
+  // The rule stepVolley applies: a charge takes a shield's motion exactly as
+  // the ball does, and the arena's own cap and floor hold the result.
+  const cap = SPEED_CEILING;
+  const clampTo = (shot, nx = 0, ny = 0) => {
     const sp = Math.hypot(shot.vx, shot.vy);
-    if (!shot.pace || sp < 1e-6) return;
-    shot.vx *= shot.pace / sp;
-    shot.vy *= shot.pace / sp;
+    if (sp < 1e-6) {
+      // Cancelled dead by a matched retreating shield: it leaves along the
+      // contact normal at the floor speed rather than hanging in the air.
+      const n = Math.hypot(nx, ny) || 1;
+      shot.vx = (nx / n) * BALL.minSpeed;
+      shot.vy = (ny / n) * BALL.minSpeed;
+      return;
+    }
+    const c = Math.min(cap, Math.max(BALL.minSpeed, sp));
+    if (c === sp) return;
+    shot.vx *= c / sp;
+    shot.vy *= c / sp;
   };
+  // A shield closing on a charge sends it back faster; a retreating one slower.
+  const meet = (svx) => {
+    const f = new Fighter({ x: 500, y: 300, angle: Math.PI, slot: 'c', r: 22, paddleWidth: 116, paddleBase: 36, paddleThick: 6 });
+    f.paddleOffset = 36;
+    f.svx = svx;
+    f.svy = 0;
+    const shot = new Shot(300, 300, 600, 0, VOLLEY.radius, 0, -1);
+    shot.owner = 'a';
+    let hit = null;
+    for (let i = 0; i < 240 && !hit; i++) hit = advanceShot(shot, [], [f], PHYSICS_DT);
+    assert.equal(hit && hit.kind, 'paddle', `a shield moving at ${svx} met it`);
+    clampTo(shot, hit.h.nx, hit.h.ny);
+    return Math.round(Math.hypot(shot.vx, shot.vy));
+  };
+  const still = meet(0);
+  assert.equal(still, 600, 'a still shield returns it at the speed it came');
+  assert.ok(meet(-300) > still, 'a shield swung into it sends it back faster');
+  assert.ok(meet(300) < still, 'a retreating shield takes speed off it');
+  assert.equal(meet(300), BALL.minSpeed, 'and one that exactly matches it leaves it crawling, never stopped dead');
+  // Nothing a shield can do drives it past the arena's cap, which is what
+  // keeps it from crossing its own radius in a step and leaving the room.
   const room = polygonEdges([[0, 0], [1000, 0], [1000, 600], [0, 600]]);
-  const pace = volleySpeed(BALL.maxSpeed);
-  const shot = new Shot(500, 300, pace, 0, VOLLEY.radius, 0, -1);
+  const shot = new Shot(500, 300, 600, 0, VOLLEY.radius, 0, -1);
   shot.owner = 'a';
-  shot.pace = pace;
-  // A fighter charging at it as hard as the game allows, over and over.
   const bully = new Fighter({ x: 520, y: 300, angle: 0, slot: 'c', r: 28, paddleWidth: 140, paddleBase: 42, paddleThick: 6 });
   bully.paddleOffset = 42;
   for (let i = 0; i < 240 * 6; i++) {
-    bully.svx = i % 2 ? 520 : -520; // slamming back and forth at more than any frame can move
+    bully.svx = i % 2 ? 900 : -900; // slammed back and forth harder than any frame allows
     bully.svy = 0;
     const hit = advanceShot(shot, room, [bully], PHYSICS_DT);
     if (hit) {
-      if (hit.kind === 'paddle') hold(shot);
-      else {
+      if (hit.kind !== 'paddle') {
         shot.x += hit.h.nx * hit.h.depth;
         shot.y += hit.h.ny * hit.h.depth;
-        reflect(shot, hit.h.nx, hit.h.ny);
-        hold(shot);
+        reflect(shot, hit.h.nx, hit.h.ny, 0, 0, 1, SURFACE_VELOCITY_FACTOR);
       }
+      clampTo(shot, hit.h.nx, hit.h.ny);
     }
     const sp = Math.hypot(shot.vx, shot.vy);
-    assert.ok(Math.abs(sp - pace) < 1e-6, `step ${i}: the charge is at ${Math.round(sp)} instead of ${pace}`);
-    assert.ok(sp * PHYSICS_DT < shot.r, 'and so can never cross its own radius in a step');
+    assert.ok(sp <= cap + 1e-6, `step ${i}: pumped to ${Math.round(sp)}, past the ${cap} cap`);
+    assert.ok(sp * PHYSICS_DT < VOLLEY.radius, `step ${i}: ${(sp * PHYSICS_DT).toFixed(1)} px a step is more than its ${VOLLEY.radius} px radius`);
   }
-  assert.ok(pace < SPEED_CEILING, 'a charge is slower than the fastest ball the game allows');
+  assert.ok(cap * PHYSICS_DT < VOLLEY.radius, 'even the fastest arena cannot tunnel a charge');
+  assert.equal(VOLLEY.radius, BALL.radius, 'a charge is the size of the ball, so it is as safe as the ball');
+  assert.ok(volleySpeed(BALL.maxSpeed) < cap);
 });
+

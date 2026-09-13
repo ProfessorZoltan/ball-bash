@@ -408,11 +408,19 @@ loss; your own colour cannot hurt you.
 | One charge each | it lives three seconds and the next forms as it dies, so nobody ever has two in the air | `VOLLEY` in `src/config.js` |
 | The thrust fires it | rotating only turns the shield, so swinging at a charge never spends yours | `fireCharge` in `src/main.js` |
 | Reload runs from firing | three seconds whatever the charge meets, so shooting a nearby wall is not a free reload | same |
-| Walls turn it back | walls, doors and moving parts bounce a charge instead of ending it | `stepVolley`, same file |
-| One speed, always | it flies at the middle of the arena's range and every bounce turns it without changing that | `volleySpeed`, `holdPace` |
+| Walls turn it back | walls, doors and moving parts bounce a charge instead of ending it, and a moving part lends it its motion | `stepVolley`, same file |
+| Shields move it | a charge leaves at the middle of the arena's range, and after that a shield swung into it adds speed and a retreating one takes it away, exactly as they do the ball | `clampCharge`, same file |
+| The arena's cap holds it | whatever a shield does, a charge stays between the floor and the arena's own limit | same |
 | Deflection is aim | a shield turns a charge away without taking it over: it keeps its colour, its owner and its clock | `stepVolley` |
 | Your own is harmless | it bounces off your body and flies on | same |
+| The arena still applies | the Event Horizon's well bends a charge in flight and the horizon takes it, just as it does the ball | same |
+| Nobody walks through anybody | bodies block each other, so no one can shove into a rival and fire point blank | `separateFighters` in `src/main.js` |
 | The carried charge is drawn only | it is never part of the physics, so it cannot widen your shield | `drawCharges` in `src/render.js` |
+
+A loaded charge is meant to be read across the room: a bright core, a halo
+that breathes and three turning ticks around it. A spent one is a thin arc
+closing as the next forms, so an opponent can always tell at a glance whether
+you have a shot in hand.
 
 Because a shield never takes a charge over, deflecting is a way to aim
 somebody else's shot rather than a way to be safe from it. With three players
@@ -424,12 +432,13 @@ corner and sniping. The HUD's ball readout becomes your charge: **LOADED**
 with the speed it will fly at, or the seconds left on the reload, with the bar
 running as it fills.
 
-A charge holds exactly one speed for its whole life. That is not only for
-feel: a charge that bounced off a moving body used to gain speed every step
-until it crossed more than its own radius in a physics step and passed
-straight through the wall of the room. Renormalising after every bounce makes
-that impossible, and a test drives a fighter into a charge at full speed for
-six simulated seconds to prove it.
+A charge is the size of the ball and is held to the same cap, which is what
+keeps it from crossing more than its own radius in a physics step and passing
+through a wall. A test drives a fighter into a charge at full speed for six
+simulated seconds to prove nothing can pump it past that. A shield retreating
+at exactly the charge's speed cancels it dead; rather than leave it hanging in
+the air it goes on along the contact normal at the floor speed, the same
+recovery the ball gets when it stalls.
 
 ### Ball speed
 
