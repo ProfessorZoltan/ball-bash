@@ -1617,7 +1617,7 @@ async function golfFly(def, angle, { pulses = [], maxT = null } = {}) {
   let warp = 0;
   let closest = Infinity;
   const cup = g.wells.find((w) => w.cup);
-  for (; t < (maxT || GOLF.flightSeconds); t += PHYSICS_DT) {
+  for (; t < (maxT || def.flightSeconds); t += PHYSICS_DT) {
     for (const m of g.movers) m.update(PHYSICS_DT);
     for (const p of plan) {
       if (p.done || t < p.at) continue;
@@ -1672,8 +1672,9 @@ test('golf: a hole is a level with no opponent - a launcher bolted to the tee, n
     assert.equal(cups.length, 1, `${def.title}: exactly one cup`);
     assert.ok(pointInPolygon(cups[0].x, cups[0].y, def.boundary), `${def.title}: the cup is in the room`);
     assert.ok(pointInPolygon(def.tee.x, def.tee.y, def.boundary), `${def.title}: the tee is in the room`);
-    // Nothing on the course reaches the tee: the launcher is never dragged off it.
-    for (const w of g.wells) assert.ok(Math.hypot(w.x - def.tee.x, w.y - def.tee.y) > w.range, `${def.title}: no body reaches the tee`);
+    // No horizon holds the tee (a field may reach it: the launcher is bolted down and never dragged).
+    for (const w of g.wells) assert.ok(Math.hypot(w.x - def.tee.x, w.y - def.tee.y) > w.r + g.player.r, `${def.title}: a horizon holds the tee`);
+    assert.ok(def.flightSeconds >= 5, `${def.title}: a flight clock the hole can be played in`);
     // Every hole's geometry stays inside its own room. A wall that seals one
     // may sit flush against the boundary, so a corner counts as inside if a
     // step of a few px toward the middle of the room puts it there.
@@ -1713,7 +1714,8 @@ test('golf: a stone is solid and bends what passes, a maw ends the shot, and the
 });
 
 test('golf: every hole can be sunk off the tee, and no hole is sunk by the line it starts on', async () => {
-  const { COURSE } = await import('../src/golf.js');
+  const { COURSE, GOLF } = await import('../src/golf.js');
+  const GOLF_DEFAULT_CLOCK = GOLF.flightSeconds;
   for (const def of COURSE) {
     // The aim the hole opens on is a question, not an answer.
     const opener = await golfFly(def, def.tee.angle);
@@ -1725,7 +1727,8 @@ test('golf: every hole can be sunk off the tee, and no hole is sunk by the line 
       if (r.end === 'cup') sinks.push({ deg, t: r.t });
     }
     assert.ok(sinks.length > 0, `${def.title}: no launch line sinks the cup`);
-    assert.ok(sinks.some((s) => s.t < 5), `${def.title}: nothing sinks it inside five seconds`);
+    // A hole built round a bank shot can be sunk quickly; one built round an orbit takes its time.
+    assert.ok(sinks.some((s) => s.t < (def.flightSeconds > GOLF_DEFAULT_CLOCK ? def.flightSeconds : 5)), `${def.title}: nothing sinks it in time`);
     // And it is a hole, not a funnel: most of the circle misses.
     assert.ok(sinks.length < 180, `${def.title}: ${sinks.length} of 360 lines sink it, which is not a hole`);
   }
@@ -1733,7 +1736,7 @@ test('golf: every hole can be sunk off the tee, and no hole is sunk by the line 
 
 test('golf: the ion gauge is what turns a near miss into a sink', async () => {
   const { COURSE, GOLF } = await import('../src/golf.js');
-  const def = COURSE[COURSE.length - 1]; // the hardest hole on the course
+  const def = COURSE.find((h) => h.id === 'g3'); // the Maw: a hole the gauge has to finish
   // A band of lines around a known one: bare, few of them go down.
   const band = [];
   for (let deg = -50; deg <= -32; deg++) band.push((deg * Math.PI) / 180);
@@ -1809,5 +1812,82 @@ test('golf: the charge is held to the arena cap, so nothing a field does to it c
       b.clampSpeed(BALL.minSpeed, g.maxSpeed);
     }
     assert.ok(b.speed <= g.maxSpeed + 1e-6, `${def.title}: the gauge pushed it past the cap`);
+  }
+});
+
+test('golf: the tee is spent once the charge is away, so an orbit that comes back round passes through the launcher', async () => {
+  const { createGameState } = await import('../src/gamestate.js');
+  const { COURSE } = await import('../src/golf.js');
+  const def = COURSE.find((h) => h.id === 'g6');
+  const g = createGameState(def, {});
+  // With the launcher solid, a circular orbit hits it within one period.
+  const { PHYSICS_DT, SURFACE_VELOCITY_FACTOR } = await import('../src/config.js');
+  const { GOLF } = await import('../src/golf.js');
+  const { wellsAccel } = await import('../src/gamestate.js');
+  const f = g.player;
+  const b = g.ball;
+  const m = f.paddleBase + f.paddleThick / 2 + GOLF.muzzle + BALL.radius;
+  b.launch(f.x + Math.cos(f.angle) * m, f.y + Math.sin(f.angle) * m, f.angle, def.ball.speed);
+  let touched = false;
+  for (let t = 0; t < 6 && !touched; t += PHYSICS_DT) {
+    const a = wellsAccel(g.wells, b.x, b.y);
+    b.vx += a.ax * PHYSICS_DT;
+    b.vy += a.ay * PHYSICS_DT;
+    advanceBall(b, g.walls, [f], PHYSICS_DT, SURFACE_VELOCITY_FACTOR, { onPaddle: () => (touched = true), onBody: () => (touched = true) }, g.movers, g.solidPolys);
+  }
+  assert.ok(touched, 'the orbit passes back through the tee');
+  // main.js flies the charge past a phased launcher: activeFighters() leaves it out, exactly as it leaves out a phased drone.
+  f.phased = true;
+  assert.ok(!g.fighters.filter((x) => !x.down && !x.phased).length, 'a phased launcher is out of the physics');
+});
+
+test('golf: the course teaches what it says it does', async () => {
+  const { COURSE } = await import('../src/golf.js');
+  const byId = (id) => COURSE.find((h) => h.id === id);
+  const rad = (deg) => (deg * Math.PI) / 180;
+  // Aftermouth: the straight line through the mouths ends in the maw, and two
+  // pulses against the flight before the mouth bring it out slowly enough for
+  // the stone to swing it home.
+  const after = byId('g4');
+  assert.equal((await golfFly(after, after.tee.angle)).end, 'maw', 'the direct line goes into the maw');
+  const slow = await golfFly(after, after.tee.angle, { pulses: [{ at: 0.2, a: Math.PI }, { at: 0.5, a: Math.PI }] });
+  assert.equal(slow.end, 'cup', `two retro pulses bring it home, not ${slow.end}`);
+  // Carom: the line straight into the mouth comes out into the maw; the line
+  // off the plate comes out at the cup.
+  const carom = byId('g5');
+  const mouth = carom.wormholes[0];
+  const direct = Math.atan2(mouth.ay - carom.tee.y, mouth.ax - carom.tee.x);
+  assert.equal((await golfFly(carom, direct)).end, 'maw', 'straight into the mouth is straight into the maw');
+  const banked = await golfFly(carom, rad(-60));
+  assert.equal(banked.end, 'cup', `off the plate first, and it goes down (${banked.end})`);
+  assert.ok(banked.t < 3, 'quickly');
+  // Long Orbit: the line it opens on orbits for the whole clock and touches
+  // nothing; three pulses outward after one lap let go into the cup.
+  const orbit = byId('g6');
+  const lap = await golfFly(orbit, orbit.tee.angle);
+  assert.equal(lap.end, 'spent', 'a clean orbit never ends on its own');
+  assert.ok(lap.t >= orbit.flightSeconds - 1e-6);
+  const out = await golfFly(orbit, orbit.tee.angle, { pulses: [{ at: 4.5, a: 0 }, { at: 4.8, a: 0 }, { at: 5.1, a: 0 }] });
+  assert.equal(out.end, 'cup', `burning outward after a lap lets go into the cup (${out.end}, closest ${Math.round(out.closest)})`);
+  assert.ok(orbit.flightSeconds > byId('g1').flightSeconds, 'and the orbit hole gets a longer clock than a bank shot');
+});
+
+test('course music: every hole has its own track, none of them is a level\'s, and each asks the engine for a room', async () => {
+  const { TRACKS } = await import('../src/audio/tracks.js');
+  const { COURSE } = await import('../src/golf.js');
+  const { SEQUENCE } = await import('../src/conduits.js');
+  const levelTracks = new Set(SEQUENCE.map((d) => d.track));
+  const seen = new Set();
+  for (const h of COURSE) {
+    const t = TRACKS[h.track];
+    assert.ok(t, `${h.title} has a track`);
+    assert.ok(!levelTracks.has(h.track), `${h.title} does not borrow a level's music`);
+    assert.ok(!seen.has(h.track), `${h.title} has its own`);
+    seen.add(h.track);
+    assert.ok(t.fx && t.fx.reverb >= 0.55 && t.fx.feedback > 0.4, `${t.title} plays in a bigger room than the arcade`);
+    assert.ok(t.pad && t.pad.attack >= 1.2, `${t.title}'s pad takes its time`);
+    assert.ok(t.bell && t.bell.pattern.some((p) => p !== null), `${t.title} rings`);
+    assert.ok(t.bpm <= 110, `${t.title} runs slower than the arcade`);
+    for (const sec of t.sections) for (const layer of sec.layers) assert.ok(['pad', 'arp', 'kick', 'bass', 'hat', 'snare', 'lead', 'stab', 'bell'].includes(layer), `${t.title}: unknown layer ${layer}`);
   }
 });

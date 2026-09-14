@@ -491,7 +491,7 @@ existing `ellipse`) live next to the arenas, and every arena is fired at in
 ## Galactic Golf (the Outer Course)
 
 A solo mode that is not Pong at all. Out past the last room the Architect drew
-there is a short course: a tee, a charge, and three holes with nothing in them
+there is a short course: a tee, a charge, and six holes with nothing in them
 to deflect. Tilt the frame to pick a line, thrust once to launch, and from then
 on the only say you have is the **ion gauge** — six pulses that shove the charge
 sideways mid-flight. Reach the cup and the hole is done; the launches it took
@@ -512,18 +512,33 @@ into the near mouth is the line you leave the far one on.
 
 The course as it stands:
 
-| Hole | Name | Par | What it teaches | Source |
-|---|---|---|---|---|
-| 1 | Slip Orbit | 2 | A stone is solid, and its field bends what passes it | `COURSE[0]` in `src/golf.js` |
-| 2 | The Narrows | 3 | A wormhole keeps your heading, and a wall has no door | `COURSE[1]` in `src/golf.js` |
-| 3 | The Maw | 3 | Go around a black hole, and time the bar in the gate | `COURSE[2]` in `src/golf.js` |
+| Hole | Name | Par | Clock | What it teaches | Source |
+|---|---|---|---|---|---|
+| 1 | Slip Orbit | 2 | 9 s | A stone is solid, and its field bends what passes it | `COURSE[0]` in `src/golf.js` |
+| 2 | The Narrows | 3 | 9 s | A wormhole keeps your heading, and a wall has no door | `COURSE[1]` in `src/golf.js` |
+| 3 | The Maw | 3 | 9 s | Go around a black hole, and time the bar in the gate | `COURSE[2]` in `src/golf.js` |
+| 4 | Aftermouth | 3 | 9 s | The far mouth faces a maw; burn against your flight before the mouth and come out slow enough for the stone to swing you round | `COURSE[3]` in `src/golf.js` |
+| 5 | Carom | 3 | 9 s | Straight into the mouth is straight into the maw; bank off the plate first so the far mouth points at the cup | `COURSE[4]` in `src/golf.js` |
+| 6 | Long Orbit | 4 | 18 s | A body big enough to hold an orbit; ride it round, then burn outward when the pocket comes by | `COURSE[5]` in `src/golf.js` |
+
+On the last three the direct line is proved not to work: the tests fly the
+straight shot into hole 4's and hole 5's mouths and require it to end in the
+maw, fly two retro pulses on hole 4 and the plate line on hole 5 and require
+the cup, and fly hole 6's opening line for its whole clock and require it to
+touch nothing at all, then burn outward after one lap and require the cup.
+
+The tee is spent once the charge is away: the launcher fades and the charge
+passes through it, which matters on hole 6, where a clean circular orbit comes
+back through the tee every lap. Every flight is spent after the hole's own
+clock (`flightSeconds`, nine seconds unless the hole says otherwise; the orbit
+gets eighteen).
 
 Controls on the course: **A / D** aim the tee, and in flight steer the heading
 the next pulse pushes along; **W** or **Space** launches, then spends one pulse
 per press; **S** runs a spent flight out at triple speed once the gauge is empty
 and the outcome is fixed; **R** re-tees (abandoning a flight, or restarting the
-hole from the tee); **P** brings up the hole as a map, with every body named and
-the wormhole mouths paired.
+hole from the tee); **P**, or the ❚❚ button in the HUD, brings up the hole as a
+map, with every body named and the wormhole mouths paired.
 
 Each hole opens on that map as a briefing, and every flight leaves a ghost: the
 line your last shot flew is drawn faint under the next one, so an aim is
@@ -535,10 +550,11 @@ Three deliberate limits, since they shape what the mode can be:
   and never scrolls, so a hole bigger than the window would need a camera. The
   course is built to fit for now, and the map overlay is already the piece a
   camera would need.
-* **A flight is spent after nine seconds.** A charge never stalls (the floor
-  speed is the ball's), so without a clock one would bounce around the room
-  until it fell in the cup by accident. Nine seconds is roughly twice a clean
-  line, which is enough for a bank shot and not enough for a lottery.
+* **A flight is spent after the hole's clock.** A charge never stalls (the
+  floor speed is the ball's), so without a clock one would bounce around the
+  room until it fell in the cup by accident. Nine seconds is roughly twice a
+  clean line, which is enough for a bank shot and not enough for a lottery;
+  a hole sets its own where it needs to, and the orbit gets eighteen.
 * **The guide is one leg, and it ignores the fields.** A full curved path
   through the gravity would solve most holes on sight, so the tee draws the
   launch direction and nothing more.
@@ -552,6 +568,7 @@ What the mode reuses, rather than reinvents:
 | Ball vs walls, polygons and movers | Every obstacle, plate and turning bar on a hole | `advanceBall` in `src/sim.js` |
 | The speed cap and its tunnelling margin | Gravity can wind a charge up hard, and the walls still hold | `BALL`, `PHYSICS_DT` in `src/config.js` |
 | Tempo-following music | The track speeds up as the charge whips round a stone | `setBallSpeed` in `src/audio/engine.js` |
+| The sequencer and its voices | Six tracks of the course's own, in a room the arcade's never use | `TRACKS` in `src/audio/tracks.js` |
 | The level format and the renderer | A hole is a level definition with a tee instead of a boss | `hole()` in `src/golf.js` |
 
 The whole course is proved playable in `test/physics.test.js`: every hole has a
@@ -561,6 +578,33 @@ charge back down inside a mouth, and a band of nineteen near lines on the last
 hole goes from three sinking bare to all nineteen sinking once the gauge is
 allowed one or two pulses — which is the mode's whole claim, that the aim opens
 the shot and the gauge finishes it.
+
+### The course's music
+
+None of the arcade's tracks plays on the course. Each hole has its own,
+written for the void rather than the grid: slower (80 to 110 BPM against the
+levels' 122 to 150), in lydian and dorian modes and long-held major sevenths,
+with pads that take two to four seconds to arrive, a bell voice that exists
+nowhere else in the game, and drums that come in late if at all.
+
+| Hole | Track | Key | BPM | Source |
+|---|---|---|---|---|
+| 1 | Slip Orbit (Drift Theme) | C lydian | 92 | `TRACKS.slip` in `src/audio/tracks.js` |
+| 2 | The Narrows (Mouth Theme) | A dorian | 100 | `TRACKS.narrows` |
+| 3 | The Maw (Horizon Theme) | F# minor | 86 | `TRACKS.maw` |
+| 4 | Aftermouth (Slow Stone Theme) | E mixolydian | 104 | `TRACKS.aftermouth` |
+| 5 | Carom (Bank Theme) | G lydian | 110 | `TRACKS.carom` |
+| 6 | Long Orbit (Body Theme) | D major | 80 | `TRACKS.orbit` |
+
+To get there the engine gained a few knobs a track may set, all of which the
+level tracks leave at their old defaults: `fx` sizes the room (the reverb and
+delay returns, the delay's feedback, its tone and its length in beats, so a
+track can run a dotted-quarter or a two-beat echo instead of the arcade's
+dotted eighth), `pad` sets the pad's swell, release, filter and the rate and
+depth of its wobble, `arp.wave` lets an arpeggio run on triangles rather than
+saws, and the `bell` layer strikes chord tones from a 16-step pattern and
+sends most of each strike into the delay. Every course track is in the
+jukebox alongside the levels'.
 
 ## Online multiplayer (different networks)
 
@@ -636,7 +680,7 @@ static Vercel deployment cannot relay, so the button is disabled there.
 | Rotate character and shield | **A** (counter-clockwise) / **D** (clockwise) |
 | Thrust the shield forward ("whack") | **W** or **Space** |
 | Pull the shield in (soft return, slows the ball) | **S** |
-| Pause / mute / restart | **P** / **M** / **R** |
+| Pause / mute / restart | **P** (or the ❚❚ button in the HUD, which is how a phone pauses) / **M** / **R** |
 | Galactic Golf: launch, then one ion pulse per press | **W** or **Space** (**A** / **D** aim and steer, **S** runs a spent flight out, **P** is the hole map) |
 | Controller (Xbox or any standard gamepad) | **left stick** moves, **right stick** or **LT** / **RT** rotate like A and D (further is faster), **A** thrusts, **X** pulls the shield in, **Start** pauses, **A** also confirms on menus |
 

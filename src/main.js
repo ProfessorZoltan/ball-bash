@@ -923,12 +923,6 @@ function moveBall(dt) {
       onMover: onMoverHit,
       onBody: (f, h) => {
         if (g.tutorial) return tutorialBody(f, h);
-        // On the course the launcher is just another surface: its own charge
-        // comes off it, and there is no shield to lose.
-        if (g.golf) {
-          ownBallBounce(f, h);
-          return false;
-        }
         if (!bodyHitCounts(g.ball, f, g.rules)) {
           ownBallBounce(f, h);
           return false;
@@ -1485,7 +1479,7 @@ const jukebox = {
 };
 
 function trackLevel(key) {
-  return LEVELS.find((l) => l.track === key) || null;
+  return LEVELS.find((l) => l.track === key) || COURSE.find((h) => h.track === key) || null;
 }
 
 async function openJukebox() {
@@ -3747,6 +3741,7 @@ function golfTee() {
   gf.warpHold = 0;
   gf.trace = [];
   gf.held = true; // whatever is being held now does not launch the next shot
+  f.phased = false;
   const m = golfMuzzle(f);
   g.ball.held = true;
   g.ball.vx = 0;
@@ -3798,7 +3793,9 @@ function golfLaunch() {
   gf.warpHold = 0;
   gf.trace = [{ x: m.x, y: m.y }];
   gf.traceAt = GOLF.ghostStep;
-  gf.miss = null;
+  // The tee is spent once the charge is away: an orbit that comes back round
+  // passes through the launcher, which fades until the shot is over.
+  f.phased = true;
   g.ball.launch(m.x, m.y, f.angle, g.def.ball.speed);
   g.topSpeed = 0;
   g.lastPlayed = simTime;
@@ -3908,7 +3905,7 @@ function golfTick(dt) {
     }
     if (gf.warpHold > 0) gf.warpHold -= dt;
     else golfWarp();
-    if (gf.phase === 'flight' && gf.flightTime >= GOLF.flightSeconds) golfMiss('spent');
+    if (gf.phase === 'flight' && gf.flightTime >= g.def.flightSeconds) golfMiss('spent');
     return;
   }
   if (gf.phase === 'sunk' && simTime >= gf.endAt) showHoleCard();
@@ -4322,6 +4319,9 @@ function showFailed() {
 window.addEventListener('resize', () => renderer.resize());
 $('hud-full').hidden = !canFullscreen();
 $('hud-full').addEventListener('click', toggleFullscreen);
+// The HUD's pause button is the P key: on a phone there is no other way to
+// pause, and in a live match it arms the same two-press exit P does.
+$('hud-pause').addEventListener('click', () => input.pressed.add('p'));
 document.title = `${GAME_NAME} — ${GAME_TAGLINE}`;
 for (const [id, name] of [['tb-left', 'left'], ['tb-right', 'right'], ['tb-whack', 'whack'], ['tb-retract', 'retract']]) {
   input.bindTouchButton($(id), name);
@@ -4339,4 +4339,4 @@ NetClient.available().then((info) => {
 });
 
 // Expose for debugging / automated smoke tests.
-window.__game = { get state() { return state; }, get game() { return game; }, get net() { return net; }, get golfRound() { return golfRound; }, audio, renderer, input, startLevel, startGolf, startGolfHole };
+window.__game = { get state() { return state; }, get game() { return game; }, get net() { return net; }, get golfRound() { return golfRound; }, audio, renderer, input, startLevel, startGolf, startGolfHole, golfPulse };

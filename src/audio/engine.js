@@ -94,6 +94,7 @@ export class AudioEngine {
     this.dr.delayTime.value = 0.36;
     const fbL = gain(0.4);
     const fbR = gain(0.4);
+    this.fb = [fbL, fbR];
     const panL = c.createStereoPanner();
     panL.pan.value = -0.7;
     const panR = c.createStereoPanner();
@@ -101,6 +102,8 @@ export class AudioEngine {
     const tone = c.createBiquadFilter();
     tone.type = 'lowpass';
     tone.frequency.value = 4200;
+    this.delayTone = tone;
+    this.delayBeats = 0.75; // the delay's length in beats: a dotted eighth
     this.delayReturn = gain(0.45);
     this.delaySend.connect(this.dl);
     this.dl.connect(panL);
@@ -176,6 +179,15 @@ export class AudioEngine {
     this.intensity = 0;
     this.intensityTarget = 0;
     this.currentBpm = track.bpm;
+    // The room a track plays in. Every level's track has the same one; a track
+    // may ask for a bigger, longer, darker space than the arcade's.
+    const fx = track.fx || {};
+    const now = c.currentTime;
+    this.reverbReturn.gain.setTargetAtTime(fx.reverb ?? 0.55, now, 0.05);
+    this.delayReturn.gain.setTargetAtTime(fx.delay ?? 0.45, now, 0.05);
+    for (const f of this.fb) f.gain.setTargetAtTime(fx.feedback ?? 0.4, now, 0.05);
+    this.delayTone.frequency.setTargetAtTime(fx.tone ?? 4200, now, 0.05);
+    this.delayBeats = fx.delayBeats ?? 0.75;
     const g = this.musicBus.gain;
     g.cancelScheduledValues(c.currentTime);
     g.setValueAtTime(0.0001, c.currentTime);
@@ -224,8 +236,8 @@ export class AudioEngine {
       this.step++;
     }
     const beat = 60 / (T.bpm * this.tempoScale);
-    this.dl.delayTime.setTargetAtTime(beat * 0.75, now, 0.25);
-    this.dr.delayTime.setTargetAtTime(beat * 0.75, now, 0.25);
+    this.dl.delayTime.setTargetAtTime(beat * this.delayBeats, now, 0.25);
+    this.dr.delayTime.setTargetAtTime(beat * this.delayBeats, now, 0.25);
   }
 
   sectionAt(bar) {
@@ -290,6 +302,13 @@ export class AudioEngine {
         const idx = T.arp.pattern[s % T.arp.pattern.length];
         const midi = notes[idx % notes.length] + (section.arpOctave || 0);
         this.arp(t, midi, stepDur * (T.arp.gate ?? 0.55), s);
+      }
+    }
+    if (L.has('bell') && T.bell) {
+      const idx = T.bell.pattern[s % T.bell.pattern.length];
+      if (idx !== null && idx !== undefined && idx !== false) {
+        const notes = arpNotes(chord.chord, T.bell.octave ?? 24);
+        this.bell(t, notes[idx % notes.length], stepDur * (T.bell.ring ?? 12), s);
       }
     }
     if (L.has('lead') && T.lead) {
@@ -406,9 +425,10 @@ export class AudioEngine {
   arp(t, midi, dur, step) {
     const c = this.ctx;
     const f = mtof(midi);
-    const o1 = this.osc('sawtooth', f, t);
+    const voice = (this.track && this.track.arp) || {};
+    const o1 = this.osc(voice.wave || 'sawtooth', f, t);
     o1.detune.value = 4;
-    const o2 = this.osc('square', f, t);
+    const o2 = this.osc(voice.wave === 'triangle' ? 'sine' : 'square', f, t);
     o2.detune.value = -6;
     const g2 = c.createGain();
     g2.gain.value = 0.4;
@@ -432,11 +452,49 @@ export class AudioEngine {
     g.connect(pan);
     pan.connect(this.duck);
     const ds = c.createGain();
-    ds.gain.value = 0.35;
+    ds.gain.value = voice.delay ?? 0.35;
     g.connect(ds);
     ds.connect(this.delaySend);
     const rs = c.createGain();
-    rs.gain.value = 0.12;
+    rs.gain.value = voice.reverb ?? 0.12;
+    g.connect(rs);
+    rs.connect(this.reverbSend);
+    o1.start(t);
+    o2.start(t);
+    o1.stop(t + dur + 0.02);
+    o2.stop(t + dur + 0.02);
+  }
+
+  /**
+   * A bell: two sines a little over an octave apart, the upper one dying
+   * first, sent almost whole into the delay so each strike trails off across
+   * the stereo field. The course's voice; no level uses it.
+   */
+  bell(t, midi, dur, step) {
+    const c = this.ctx;
+    const f = mtof(midi);
+    const o1 = this.osc('sine', f, t);
+    const o2 = this.osc('sine', f * 2.01, t);
+    const g2 = c.createGain();
+    g2.gain.setValueAtTime(0.5, t);
+    g2.gain.exponentialRampToValueAtTime(0.0001, t + Math.min(dur, 0.6));
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.22, t + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    const pan = c.createStereoPanner();
+    pan.pan.value = Math.sin(step * 2.4) * 0.6;
+    o1.connect(g);
+    o2.connect(g2);
+    g2.connect(g);
+    g.connect(pan);
+    pan.connect(this.duck);
+    const ds = c.createGain();
+    ds.gain.value = 0.7;
+    g.connect(ds);
+    ds.connect(this.delaySend);
+    const rs = c.createGain();
+    rs.gain.value = 0.35;
     g.connect(rs);
     rs.connect(this.reverbSend);
     o1.start(t);
@@ -447,8 +505,9 @@ export class AudioEngine {
 
   pad(t, midis, dur, bright = 0) {
     const c = this.ctx;
-    const attack = 0.9;
-    const release = 1.2;
+    const voice = (this.track && this.track.pad) || {};
+    const attack = voice.attack ?? 0.9;
+    const release = voice.release ?? 1.2;
     const g = c.createGain();
     g.gain.setValueAtTime(0.0001, t);
     g.gain.linearRampToValueAtTime(0.2, t + attack);
@@ -456,18 +515,19 @@ export class AudioEngine {
     g.gain.linearRampToValueAtTime(0.0001, t + dur + release);
     const flt = c.createBiquadFilter();
     flt.type = 'lowpass';
-    flt.frequency.value = 700 + 700 * bright;
-    flt.Q.value = 1.2;
-    const lfo = this.osc('sine', 0.15, t);
+    flt.frequency.value = (voice.cutoff ?? 700) + 700 * bright;
+    flt.Q.value = voice.q ?? 1.2;
+    const lfo = this.osc('sine', voice.lfoRate ?? 0.15, t);
     const lfoG = c.createGain();
-    lfoG.gain.value = 250;
+    lfoG.gain.value = voice.lfoDepth ?? 250;
     lfo.connect(lfoG);
     lfoG.connect(flt.frequency);
     const oscs = [lfo];
+    const spread = voice.detune ?? 9;
     for (const m of midis) {
       const f = mtof(m);
-      for (const det of [-9, 9]) {
-        const o = this.osc('sawtooth', f, t);
+      for (const det of [-spread, spread]) {
+        const o = this.osc(voice.wave || 'sawtooth', f, t);
         o.detune.value = det;
         o.connect(flt);
         oscs.push(o);

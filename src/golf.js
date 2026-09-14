@@ -27,7 +27,7 @@ export const GOLF = {
   pulse: 125, // px/s a pulse adds along the held heading
   aimRay: 250, // px of the launch line shown at the tee: the first leg, and no more
   headTurn: 3.6, // rad/s the pulse heading swings during flight
-  flightSeconds: 9, // a flight this long is spent; the shot is over
+  flightSeconds: 9, // a flight this long is spent; the shot is over (a hole may set its own)
   muzzle: 16, // px beyond the shield's face the charge leaves from
   warpHold: 0.14, // seconds a warped charge ignores every wormhole mouth
   ghostStep: 1 / 30, // seconds between the points kept for the ghost of the last flight
@@ -91,6 +91,9 @@ function hole(spec) {
     track: spec.track,
     maxBallSpeed: spec.maxBallSpeed || GOLF.maxSpeed,
     fuel: spec.fuel === undefined ? GOLF.fuel : spec.fuel,
+    // How long a flight may run before it is spent. A hole built round an
+    // orbit needs more than one built round a bank shot.
+    flightSeconds: spec.flightSeconds || GOLF.flightSeconds,
     palette: { ...VOID_PALETTE, ...(spec.palette || {}) },
     boundary: spec.boundary,
     obstacles: spec.obstacles || [],
@@ -123,7 +126,7 @@ export const COURSE = [
     hole: 1,
     par: 2,
     title: 'Slip Orbit',
-    track: 'nullspace',
+    track: 'slip',
     intro: 'One body stands between the tee and the cup, and it is solid: straight at it is straight back at you. Pass it high and its field pulls you down on the far side, so the line that sinks the cup is not the line that points at it. Aim off, and let the fall do the aiming.',
     record: 'The first hole the void ever kept. There is nothing here but a stone, a pull, and a hole in the floor behind them — and that is enough to take most of an afternoon.',
     sunk: 'Down in two, or down in nine: the void does not write which. It only writes that it went down.',
@@ -144,7 +147,7 @@ export const COURSE = [
     hole: 2,
     par: 3,
     title: 'The Narrows',
-    track: 'spire',
+    track: 'narrows',
     intro: 'A wall with no door in it, and one pair of mouths that ignores the wall. A wormhole gives back exactly the heading it was given, so the shot is decided before you reach it: come into the near mouth on the line you want out of the far one. The cup waits in a hook on the far side, and the hook only opens one way.',
     record: 'The wall was drawn first and the mouths were found later, which is the order most things out here happened in. Nothing has ever gone over the wall.',
     sunk: 'Through the wall without touching it. The hook lets go of very few.',
@@ -166,7 +169,7 @@ export const COURSE = [
     hole: 3,
     par: 3,
     title: 'The Maw',
-    track: 'undercroft',
+    track: 'maw',
     intro: 'The middle of this hole is a hole. Its reach covers everything between you and the cup, and nothing that crosses the horizon comes out. Two stones sit off to the sides for you to bank off or swing around, and a bar turns in the mouth of the last chamber. Go round, and time the bar.',
     record: 'The maw was here before the course was laid out. The course was laid out around it, which is a polite way of saying nobody could move it.',
     sunk: 'Round the maw and past the bar. The void keeps the charge and, for once, gives something back.',
@@ -181,6 +184,64 @@ export const COURSE = [
       rect(1385, 340, 280, 18),
       rect(1245, 125, 18, 120),
     ],
+  }),
+  hole({
+    id: 'g4',
+    hole: 4,
+    par: 3,
+    title: 'Aftermouth',
+    track: 'aftermouth',
+    intro: 'The wall is back, and so are the mouths, and this time the far one faces a maw. Whatever line takes you in comes out pointed at it. A stone stands beside the far mouth, and the slower you pass a stone the harder it turns you: burn against your own flight before the mouth, come out crawling, and let the stone swing you up to the cup.',
+    record: 'The second pair of mouths the void kept. Every charge that went through them at speed went into the maw; the ones that went through slowly are the ones that came back.',
+    sunk: 'Out of the mouth at a crawl, round the stone, and up. Speed was the whole mistake.',
+    boundary: ROOM,
+    tee: { x: 200, y: 450, angle: 0 },
+    obstacles: [
+      rect(840, 450, 24, 780), // the wall, sealed
+    ],
+    wells: [planet(1150, 400, { r: 46, range: 340, pull: 52000 }), maw(1400, 610, { r: 40, range: 260, pull: 56000 })],
+    cup: cup(1330, 150),
+    wormholes: [warp(600, 450, 1000, 610)],
+  }),
+  hole({
+    id: 'g5',
+    hole: 5,
+    par: 3,
+    title: 'Carom',
+    track: 'carom',
+    intro: 'One mouth, one wall, and a maw sitting exactly where a straight line into the mouth would put you out. The mouth keeps whatever heading you give it, so give it a different one: bank off the plate first, and come into the mouth on a line that leaves the far side pointing at the cup.',
+    record: 'The maw behind the far mouth has taken more charges than any other body on the course. Every one of them was sent straight.',
+    sunk: 'Off the plate, into the mouth, and out on the line you chose. The maw saw nothing.',
+    boundary: ROOM,
+    tee: { x: 220, y: 700, angle: -0.2 },
+    obstacles: [
+      rect(840, 450, 24, 780), // the wall, sealed
+      rect(420, 330, 240, 18, -15.5), // the plate: the bank that sets the heading
+    ],
+    wells: [maw(1330, 370, { r: 40, range: 280, pull: 56000 })],
+    cup: cup(1380, 760),
+    wormholes: [warp(640, 460, 1000, 560)],
+  }),
+  hole({
+    id: 'g6',
+    hole: 6,
+    par: 4,
+    title: 'Long Orbit',
+    track: 'orbit',
+    flightSeconds: 18,
+    intro: 'A body big enough to hold you. Launched across its face at the tee\'s speed the charge neither falls in nor gets away: it goes round, and keeps going round. The cup sits in a pocket that only opens toward the body, so ride the orbit until the pocket comes round, then burn outward and let go.',
+    record: 'The largest thing on the course, and the only hole with nothing to hit. Everything here is a matter of when.',
+    sunk: 'Round, and round, and out. The void lets go of very little, and it let go of that.',
+    boundary: ROOM,
+    tee: { x: 500, y: 450, angle: -1.36 },
+    obstacles: [
+      // The pocket: a floor under the cup and a wall to its left, so the only way in faces the body.
+      rect(1435, 300, 210, 18),
+      rect(1330, 130, 20, 140),
+      rect(1330, 400, 20, 200), // a fin under the floor: nothing gets in from below
+    ],
+    wells: [planet(800, 450, { r: 90, range: 600, pull: 184900 })],
+    cup: cup(1420, 170),
   }),
 ];
 
