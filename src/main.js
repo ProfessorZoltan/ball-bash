@@ -1670,7 +1670,8 @@ function handleGlobalKeys() {
   if (input.consumePress('Enter') && !net.mode) {
     if (state === 'title') begin();
     else if (golfRound && state === 'cleared') {
-      if (golfRound.holeIndex < COURSE.length - 1) startGolfHole(golfRound.holeIndex + 1);
+      if (golfRound.single) startGolf(golfRound.holeIndex);
+      else if (golfRound.holeIndex < COURSE.length - 1) startGolfHole(golfRound.holeIndex + 1);
     } else if (state === 'cleared') {
       const nextIdx = nextAfter(levelIndex);
       startLevel(nextIdx >= 0 ? nextIdx : levelIndex);
@@ -1819,7 +1820,7 @@ function updateHud() {
   const frameTag = mine ? frameName(g.frames && g.frames[mine.slot]).toUpperCase() : '';
   // In versus the host sets the pace, so the HUD names it whenever it is not the campaign's own.
   const pace = g.pvp && net.speed !== DEFAULT_VERSUS_SPEED ? (VERSUS_SPEEDS.find((sp) => sp.id === net.speed) || {}).name : '';
-  const tags = [frameTag, g.golf ? 'THE OUTER COURSE' : '', pace ? `${pace.toUpperCase()} · ${Math.round(g.maxSpeed)} PX/S` : '', g.coop ? `CO-OP · ${[net.names.host, ...net.roster.map((r) => r.name)].join(' & ').toUpperCase()}` : '', mode ? `${mode.toUpperCase()} CAMPAIGN` : '', g.difficulty ? g.difficulty.name.toUpperCase() : '', g.rules.ownBallLoss ? '' : 'SAFE OWN BALL', g.def.conduit && !g.pvp ? 'HALF SPEED' : '', g.def.noGuide ? 'NO GUIDE' : ''].filter(Boolean);
+  const tags = [frameTag, g.golf ? (golfRound && golfRound.single ? 'ONE HOLE' : 'THE OUTER COURSE') : '', pace ? `${pace.toUpperCase()} · ${Math.round(g.maxSpeed)} PX/S` : '', g.coop ? `CO-OP · ${[net.names.host, ...net.roster.map((r) => r.name)].join(' & ').toUpperCase()}` : '', mode ? `${mode.toUpperCase()} CAMPAIGN` : '', g.difficulty ? g.difficulty.name.toUpperCase() : '', g.rules.ownBallLoss ? '' : 'SAFE OWN BALL', g.def.conduit && !g.pvp ? 'HALF SPEED' : '', g.def.noGuide ? 'NO GUIDE' : ''].filter(Boolean);
   setText('hud-rule', tags.map((t) => `· ${t}`).join(' '));
   if (g.golf) {
     // The charge: at rest on the tee it reads the speed every launch leaves at.
@@ -3618,7 +3619,7 @@ function showTitle() {
         ${qualitySelectHtml()}
       </div>
     </div>
-    <div class="row menu">${campaignButtonsHtml()}<button id="btn-start">${levelLabel(def)} only</button><button id="btn-golf" title="Galactic Golf: three holes out in the void, one launch at a time">Galactic Golf</button><button id="btn-tutorial">Tutorial</button><button id="btn-jukebox">Soundtrack</button><button id="btn-multi" title="${lanInfo && lanInfo.online ? 'Play online through the relay' : lanInfo ? 'Play on this Wi-Fi network' : 'Set a relay in the lobby, or run npm start on one PC and open its LAN address on both'}">${lanInfo && lanInfo.online ? 'Online match' : lanInfo ? 'LAN match' : 'Multiplayer'}</button>${fullscreenHint()}</div>
+    <div class="row menu">${campaignButtonsHtml()}<button id="btn-start">${levelLabel(def)} only</button><button id="btn-golf" title="Galactic Golf: the course out in the void, the whole round or any one hole">Galactic Golf</button><button id="btn-tutorial">Tutorial</button><button id="btn-jukebox">Soundtrack</button><button id="btn-multi" title="${lanInfo && lanInfo.online ? 'Play online through the relay' : lanInfo ? 'Play on this Wi-Fi network' : 'Set a relay in the lobby, or run npm start on one PC and open its LAN address on both'}">${lanInfo && lanInfo.online ? 'Online match' : lanInfo ? 'LAN match' : 'Multiplayer'}</button>${fullscreenHint()}</div>
     ${lanInfo ? '' : IS_DESKTOP ? '<p class="small muted">Multiplayer is unavailable: neither the relay nor the app\'s own server answered.</p>' : '<p class="small muted">Multiplayer needs a relay: paste one in the lobby for online play, or run <code>npm start</code> on one PC and open its LAN address on both.</p>'}
   `);
   $('btn-start').onclick = begin;
@@ -3631,7 +3632,7 @@ function showTitle() {
     showRecord();
   };
   bindOwnBallToggle();
-  $('btn-golf').onclick = startGolf;
+  $('btn-golf').onclick = showCourse;
   $('btn-tutorial').onclick = async () => {
     await audio.init();
     startTutorial(true);
@@ -3979,8 +3980,12 @@ function showHoleCard() {
   const diff = launches - def.par;
   const last = golfRound.holeIndex >= COURSE.length - 1;
   const word = diff < 0 ? 'Under par' : diff === 0 ? 'Par' : diff === 1 ? 'One over' : `${diff} over`;
-  if (last) return showCourseCard();
-  const next = COURSE[golfRound.holeIndex + 1];
+  if (last && !golfRound.single) return showCourseCard();
+  const next = last ? null : COURSE[golfRound.holeIndex + 1];
+  // A hole on its own offers itself again, the next hole on its own, and the course; a round goes on.
+  const buttons = golfRound.single
+    ? `<button id="btn-again" class="primary">Play it again</button>${next ? `<button id="btn-next">${holeLabel(next)} · ${next.title}</button>` : ''}<button id="btn-course">The course</button><button id="btn-menu">Main menu</button>`
+    : `<button id="btn-next" class="primary">Continue · ${holeLabel(next)} · ${next.title}</button><button id="btn-menu">Main menu</button>`;
   showOverlay(`
     <div class="eyebrow">${holeLabel(def).toUpperCase()} DOWN · ${word.toUpperCase()}${record ? ' · BEST YET' : ''}</div>
     <h1>${def.title}</h1>
@@ -3989,9 +3994,13 @@ function showHoleCard() {
       <tr><th>Hole</th><th>Par</th><th>Launches</th><th>Against par</th><th>Your best</th></tr>
       ${golfCardRows()}
     </table>
-    <div class="row"><button id="btn-next" class="primary">Continue · ${holeLabel(next)} · ${next.title}</button><button id="btn-menu">Main menu</button></div>
+    <div class="row">${buttons}</div>
   `);
-  $('btn-next').onclick = () => startGolfHole(golfRound.holeIndex + 1);
+  if (golfRound.single) {
+    $('btn-again').onclick = () => startGolf(golfRound.holeIndex);
+    if (next) $('btn-next').onclick = () => startGolf(golfRound.holeIndex + 1);
+    $('btn-course').onclick = showCourse;
+  } else $('btn-next').onclick = () => startGolfHole(golfRound.holeIndex + 1);
   $('btn-menu').onclick = goToMenu;
 }
 
@@ -4015,19 +4024,57 @@ function showCourseCard() {
       ${golfCardRows()}
       <tr class="total"><td>Total</td><td>${COURSE_PAR}</td><td>${total}</td><td>${toPar(diff)}</td><td>${record ? total : best.total || '—'}</td></tr>
     </table>
-    <div class="row"><button id="btn-again" class="primary">Play the course again</button><button id="btn-menu">Main menu</button></div>
+    <div class="row"><button id="btn-again" class="primary">Play the course again</button><button id="btn-course">The course</button><button id="btn-menu">Main menu</button></div>
   `);
   $('btn-again').onclick = () => startGolf();
+  $('btn-course').onclick = showCourse;
   $('btn-menu').onclick = goToMenu;
 }
 
 /** Tee off: a fresh round from the first hole. */
-async function startGolf() {
+/**
+ * Tee off: the whole course from the first hole, or with `only` set, that one
+ * hole on its own, scored against its own par and its own best.
+ */
+async function startGolf(only = null) {
   await audio.init();
   campaign = null;
   netReset();
-  golfRound = { holeIndex: 0, card: [] };
-  startGolfHole(0);
+  const single = Number.isInteger(only);
+  golfRound = { holeIndex: single ? only : 0, card: [], single };
+  startGolfHole(golfRound.holeIndex);
+}
+
+/** The course: every hole with its par and your best on it, the round as one button and each hole as its own. */
+function showCourse() {
+  state = 'title';
+  setInGame(false);
+  game = null;
+  golfRound = null;
+  $('hud').hidden = true;
+  $('countdown').hidden = true;
+  const best = golfBest();
+  const rows = COURSE.map((h, i) => `<li class="ready" data-hole="${i}" title="${h.title}: par ${h.par}. Play this hole on its own."><span>${String(h.hole).padStart(2, '0')}</span> ${h.title}<small>par ${h.par}${best.holes[h.id] ? ` · best ${best.holes[h.id]}` : ''}</small></li>`).join('');
+  showOverlay(`
+    <div class="eyebrow">GALACTIC GOLF</div>
+    <h1>The Outer Course</h1>
+    <p class="muted">Out past the last room the Architect drew. Tilt the frame to pick a line, thrust once to launch, and steer what is left with the ion gauge. Play the round, or pick a hole.</p>
+    <div class="top course">
+      <div>
+        <h3>Holes</h3>
+        <ol class="roster course">${rows}</ol>
+      </div>
+      <div>
+        <h3>The round</h3>
+        <p class="small">${COURSE.length} holes, par ${COURSE_PAR}. Every launch counts, and the card at the end reads each hole against its par.${best.total ? ` Your best round is <b>${best.total}</b> (${toPar(best.total - COURSE_PAR)}).` : ''}</p>
+        <p class="small muted"><b>A / D</b> aim · <b>W</b> or <b>Space</b> launch, then one ion pulse per press · <b>S</b> runs a spent flight out · <b>R</b> re-tees · <b>P</b> the hole map</p>
+      </div>
+    </div>
+    <div class="row"><button id="btn-course" class="primary">Play the course</button><button id="btn-menu">Main menu</button></div>
+  `);
+  $('btn-course').onclick = () => startGolf();
+  $('btn-menu').onclick = showTitle;
+  for (const li of document.querySelectorAll('.roster.course li[data-hole]')) li.onclick = () => startGolf(Number(li.dataset.hole));
 }
 
 function golfPause() {
@@ -4058,11 +4105,16 @@ function golfMap(brief) {
       <li><span class="k tee"></span>The tee</li>
     </ul>
     <p class="small muted"><b>A / D</b> aim, and steer the ion pulses in flight · <b>W</b> or <b>Space</b> launch, then one pulse per press · <b>S</b> runs a spent flight out · <b>R</b> re-tees · <b>P</b> this map</p>
-    <div class="row"><button id="btn-resume" class="primary">${brief ? 'Tee off' : 'Resume'}</button>${brief ? '' : '<button id="btn-restart">Restart hole</button>'}<button id="btn-menu">Main menu</button></div>
+    <div class="row"><button id="btn-resume" class="primary">${brief ? 'Tee off' : 'Resume'}</button>${brief ? '' : '<button id="btn-restart">Restart hole</button>'}<button id="btn-course">The course</button><button id="btn-menu">Main menu</button></div>
   `);
   $('overlay').classList.add('map'); // the scrim lifts so the hole shows through
   $('btn-resume').onclick = resume;
   if (!brief) $('btn-restart').onclick = () => startGolfHole(golfRound.holeIndex);
+  $('btn-course').onclick = () => {
+    audio.stopTrack(0.6);
+    if (audio.ctx && audio.ctx.state === 'suspended') audio.ctx.resume();
+    showCourse();
+  };
   $('btn-menu').onclick = goToMenu;
 }
 

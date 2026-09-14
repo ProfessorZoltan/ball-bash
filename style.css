@@ -347,6 +347,11 @@ button[disabled] { opacity: 0.45; cursor: default; }
 .golf-key .warp { color: #ff8df0; border-style: dashed; }
 .golf-key .tee { color: #8fd4ff; border-radius: 2px; }
 
+/* The course: the holes as a roster, the round beside them. */
+.top.course { text-align: left; }
+.roster.course li small { margin-left: 10px; font-size: 11px; color: var(--muted); }
+.roster.course li.ready::after { content: ' · play this hole'; }
+
 /* The pause map wants the hole visible behind it, so the scrim lifts and the
    panel gets out of the middle of the room. */
 #overlay.map { background: rgba(3, 5, 12, 0.18); place-items: end center; padding-bottom: 20px; }

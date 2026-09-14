@@ -540,6 +540,12 @@ and the outcome is fixed; **R** re-tees (abandoning a flight, or restarting the
 hole from the tee); **P**, or the ❚❚ button in the HUD, brings up the hole as a
 map, with every body named and the wormhole mouths paired.
 
+The **Galactic Golf** button opens the course: the holes as a roster, each
+with its par and your best on it, and the round as one button. Play the round
+and the card at the end reads every hole against its par; pick a hole and it
+plays on its own, scored against its own par and best, with its card offering
+the same hole again, the next one, or the course.
+
 Each hole opens on that map as a briefing, and every flight leaves a ghost: the
 line your last shot flew is drawn faint under the next one, so an aim is
 adjusted against something rather than guessed again.
