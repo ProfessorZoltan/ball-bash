@@ -1594,3 +1594,220 @@ test('volley: a shield moves a charge like it moves the ball, and the arena cap 
   assert.ok(volleySpeed(BALL.maxSpeed) < cap);
 });
 
+
+// --------------------------------------------------------- galactic golf
+
+/**
+ * One flight of the charge, exactly as main.js flies it: every body's pull,
+ * then the ball step, then the horizons and the wormhole mouths. `pulses` are
+ * ion pulses as {at, a} — the time they are spent and the heading they push.
+ */
+async function golfFly(def, angle, { pulses = [], maxT = null } = {}) {
+  const { createGameState, wellsAccel, swallowingWell } = await import('../src/gamestate.js');
+  const { PHYSICS_DT, SURFACE_VELOCITY_FACTOR } = await import('../src/config.js');
+  const { GOLF } = await import('../src/golf.js');
+  const g = createGameState(def, {});
+  const f = g.player;
+  f.angle = angle;
+  const b = g.ball;
+  const muzzle = f.paddleBase + f.paddleThick / 2 + GOLF.muzzle + BALL.radius;
+  b.launch(f.x + Math.cos(angle) * muzzle, f.y + Math.sin(angle) * muzzle, angle, def.ball.speed);
+  const plan = pulses.map((p) => ({ ...p, done: false }));
+  let t = 0;
+  let warp = 0;
+  let closest = Infinity;
+  const cup = g.wells.find((w) => w.cup);
+  for (; t < (maxT || GOLF.flightSeconds); t += PHYSICS_DT) {
+    for (const m of g.movers) m.update(PHYSICS_DT);
+    for (const p of plan) {
+      if (p.done || t < p.at) continue;
+      p.done = true;
+      b.vx += Math.cos(p.a) * GOLF.pulse;
+      b.vy += Math.sin(p.a) * GOLF.pulse;
+      b.clampSpeed(BALL.minSpeed, g.maxSpeed);
+    }
+    const a = wellsAccel(g.wells, b.x, b.y);
+    if (a) {
+      b.vx += a.ax * PHYSICS_DT;
+      b.vy += a.ay * PHYSICS_DT;
+    }
+    advanceBall(b, g.walls, [], PHYSICS_DT, SURFACE_VELOCITY_FACTOR, {}, g.movers, g.solidPolys);
+    b.clampSpeed(BALL.minSpeed, g.maxSpeed);
+    closest = Math.min(closest, Math.hypot(b.x - cup.x, b.y - cup.y));
+    const took = swallowingWell(g.wells, b.x, b.y);
+    if (took) return { end: took.cup ? 'cup' : took.hazard ? 'maw' : 'horizon', t, closest };
+    if (!pointInPolygon(b.x, b.y, def.boundary)) return { end: 'out', t, closest };
+    if (warp > 0) warp -= PHYSICS_DT;
+    else
+      for (const w of g.wormholes) {
+        for (const [ex, ey, tx, ty] of [[w.ax, w.ay, w.bx, w.by], [w.bx, w.by, w.ax, w.ay]]) {
+          if (Math.hypot(b.x - ex, b.y - ey) > w.r) continue;
+          const s = b.speed || 1;
+          b.x = tx + (b.vx / s) * (w.r + b.r + 6);
+          b.y = ty + (b.vy / s) * (w.r + b.r + 6);
+          warp = GOLF.warpHold;
+        }
+      }
+  }
+  return { end: 'spent', t, closest };
+}
+
+test('golf: a hole is a level with no opponent - a launcher bolted to the tee, no boss, no drones, and its cup among its bodies', async () => {
+  const { createGameState } = await import('../src/gamestate.js');
+  const { COURSE, COURSE_PAR, holeLabel, toPar } = await import('../src/golf.js');
+  assert.ok(COURSE.length >= 3, 'the course has holes on it');
+  assert.equal(COURSE_PAR, COURSE.reduce((n, h) => n + h.par, 0));
+  assert.equal(toPar(0), 'level');
+  assert.equal(toPar(2), '+2');
+  assert.equal(toPar(-1), '-1');
+  for (const def of COURSE) {
+    const g = createGameState(def, {});
+    assert.equal(holeLabel(def), `Hole ${def.hole}`);
+    assert.equal(g.boss, null, `${def.title}: nothing to beat`);
+    assert.equal(g.drones.length, 0, `${def.title}: nothing to beat`);
+    assert.equal(g.fighters.length, 1, `${def.title}: one launcher and nobody else`);
+    assert.equal(g.player.moveSpeed, 0, `${def.title}: the launcher turns, and that is all`);
+    assert.ok(g.nodes.length === 0 && g.turrets.length === 0, `${def.title}: a hole carries no targets`);
+    const cups = g.wells.filter((w) => w.cup);
+    assert.equal(cups.length, 1, `${def.title}: exactly one cup`);
+    assert.ok(pointInPolygon(cups[0].x, cups[0].y, def.boundary), `${def.title}: the cup is in the room`);
+    assert.ok(pointInPolygon(def.tee.x, def.tee.y, def.boundary), `${def.title}: the tee is in the room`);
+    // Nothing on the course reaches the tee: the launcher is never dragged off it.
+    for (const w of g.wells) assert.ok(Math.hypot(w.x - def.tee.x, w.y - def.tee.y) > w.range, `${def.title}: no body reaches the tee`);
+    // Every hole's geometry stays inside its own room. A wall that seals one
+    // may sit flush against the boundary, so a corner counts as inside if a
+    // step of a few px toward the middle of the room puts it there.
+    const inside = ([x, y]) => {
+      const nx = x + Math.sign(def.width / 2 - x) * 3;
+      const ny = y + Math.sign(def.height / 2 - y) * 3;
+      return pointInPolygon(nx, ny, def.boundary);
+    };
+    for (const o of def.obstacles) for (const p of obstaclePoly(o)) assert.ok(inside(p), `${def.title}: an obstacle corner at ${p} is outside the room`);
+  }
+});
+
+test('golf: a stone is solid and bends what passes, a maw ends the shot, and the pull of several bodies adds up', async () => {
+  const { createGameState, wellsAccel, swallowingWell, wellField } = await import('../src/gamestate.js');
+  const { COURSE } = await import('../src/golf.js');
+  const def = COURSE.find((h) => h.wells.some((w) => w.solid) && h.wells.some((w) => w.hazard));
+  assert.ok(def, 'some hole has both a stone and a maw');
+  const g = createGameState(def, {});
+  const stone = g.wells.find((w) => w.solid);
+  const hazard = g.wells.find((w) => w.hazard);
+  // A stone has no horizon: its surface is a wall, and the ball never gets inside it.
+  assert.equal(swallowingWell(g.wells, stone.x, stone.y), null, 'a stone never swallows');
+  assert.ok(g.staticWalls.some((s) => s.kind === 'planet' && s.well === stone), 'a stone is in the wall list');
+  assert.equal(swallowingWell(g.wells, hazard.x, hazard.y), hazard, 'a maw does');
+  // A stone still pulls, and two bodies at once pull harder than either alone.
+  const p = { x: (stone.x + hazard.x) / 2, y: (stone.y + hazard.y) / 2 };
+  const both = wellsAccel(g.wells, p.x, p.y);
+  const one = wellsAccel([stone], p.x, p.y);
+  assert.ok(one && both, 'both bodies reach the midpoint');
+  assert.ok(Math.hypot(both.ax, both.ay) !== Math.hypot(one.ax, one.ay), 'the second body is felt too');
+  assert.equal(wellsAccel([stone], stone.x + stone.range + 1, stone.y), null, 'nothing beyond a body\'s reach');
+  assert.ok(wellField(stone, stone.x + stone.r + 1, stone.y).k > wellField(stone, stone.x + stone.range * 0.6, stone.y).k, 'stronger at the surface');
+  // Aimed straight at a stone, the charge comes back rather than through.
+  const at = Math.atan2(stone.y - def.tee.y, stone.x - def.tee.x);
+  const r = await golfFly(def, at, { maxT: 2.5 });
+  assert.notEqual(r.end, 'horizon', 'a stone is not a hole to fall into');
+});
+
+test('golf: every hole can be sunk off the tee, and no hole is sunk by the line it starts on', async () => {
+  const { COURSE } = await import('../src/golf.js');
+  for (const def of COURSE) {
+    // The aim the hole opens on is a question, not an answer.
+    const opener = await golfFly(def, def.tee.angle);
+    assert.notEqual(opener.end, 'cup', `${def.title}: the tee must not point at the answer`);
+    // Somewhere in the circle there is a line that sinks it with no fuel spent.
+    const sinks = [];
+    for (let deg = -180; deg < 180; deg += 1) {
+      const r = await golfFly(def, (deg * Math.PI) / 180);
+      if (r.end === 'cup') sinks.push({ deg, t: r.t });
+    }
+    assert.ok(sinks.length > 0, `${def.title}: no launch line sinks the cup`);
+    assert.ok(sinks.some((s) => s.t < 5), `${def.title}: nothing sinks it inside five seconds`);
+    // And it is a hole, not a funnel: most of the circle misses.
+    assert.ok(sinks.length < 180, `${def.title}: ${sinks.length} of 360 lines sink it, which is not a hole`);
+  }
+});
+
+test('golf: the ion gauge is what turns a near miss into a sink', async () => {
+  const { COURSE, GOLF } = await import('../src/golf.js');
+  const def = COURSE[COURSE.length - 1]; // the hardest hole on the course
+  // A band of lines around a known one: bare, few of them go down.
+  const band = [];
+  for (let deg = -50; deg <= -32; deg++) band.push((deg * Math.PI) / 180);
+  let bare = 0;
+  let fuelled = 0;
+  for (const a of band) {
+    if ((await golfFly(def, a)).end === 'cup') {
+      bare++;
+      fuelled++;
+      continue;
+    }
+    let sank = false;
+    for (const t of [0.3, 0.6, 0.9, 1.2, 1.6, 2.0, 2.5, 3.0]) {
+      for (let k = 0; k < 12 && !sank; k++) {
+        const h = (k * Math.PI) / 6;
+        const one = await golfFly(def, a, { pulses: [{ at: t, a: h }] });
+        if (one.end === 'cup') sank = true;
+        else if ((await golfFly(def, a, { pulses: [{ at: t, a: h }, { at: t + 0.5, a: h }] })).end === 'cup') sank = true;
+      }
+      if (sank) break;
+    }
+    if (sank) fuelled++;
+  }
+  assert.ok(bare < band.length / 3, `${def.title}: ${bare} of ${band.length} lines already sink it without the gauge`);
+  assert.equal(fuelled, band.length, `${def.title}: only ${fuelled} of ${band.length} lines can be steered home`);
+  assert.ok(GOLF.fuel >= 2, 'and the gauge holds enough pulses to do it');
+});
+
+test('golf: a wormhole keeps the heading, sets the charge down clear of the far mouth, and does not swallow it again', async () => {
+  const { createGameState } = await import('../src/gamestate.js');
+  const { COURSE, GOLF } = await import('../src/golf.js');
+  const def = COURSE.find((h) => h.wormholes.length);
+  assert.ok(def, 'some hole has a pair of mouths');
+  const g = createGameState(def, {});
+  const w = g.wormholes[0];
+  assert.ok(pointInPolygon(w.ax, w.ay, def.boundary) && pointInPolygon(w.bx, w.by, def.boundary), 'both mouths are in the room');
+  const b = g.ball;
+  const angle = 0.6;
+  b.launch(w.ax, w.ay, angle, 500);
+  const before = { vx: b.vx, vy: b.vy };
+  // The step main.js takes when a mouth has the charge.
+  const s = b.speed;
+  b.x = w.bx + (b.vx / s) * (w.r + b.r + 6);
+  b.y = w.by + (b.vy / s) * (w.r + b.r + 6);
+  assert.deepEqual({ vx: b.vx, vy: b.vy }, before, 'speed and heading come through untouched');
+  assert.ok(Math.hypot(b.x - w.bx, b.y - w.by) > w.r, 'it is set down outside the far mouth');
+  assert.ok(pointInPolygon(b.x, b.y, def.boundary), 'and inside the room');
+  // Both mouths, both ways: nothing lands back inside a mouth.
+  for (const [ex, ey, tx, ty] of [[w.ax, w.ay, w.bx, w.by], [w.bx, w.by, w.ax, w.ay]]) {
+    for (let k = 0; k < 16; k++) {
+      const a = (k / 16) * Math.PI * 2;
+      const x = tx + Math.cos(a) * (w.r + b.r + 6);
+      const y = ty + Math.sin(a) * (w.r + b.r + 6);
+      assert.ok(Math.hypot(x - tx, y - ty) > w.r && Math.hypot(x - ex, y - ey) > w.r, 'clear of both mouths');
+    }
+  }
+  assert.ok(GOLF.warpHold > 0, 'and it ignores every mouth for a moment afterwards');
+});
+
+test('golf: the charge is held to the arena cap, so nothing a field does to it can tunnel a wall', async () => {
+  const { createGameState } = await import('../src/gamestate.js');
+  const { PHYSICS_DT } = await import('../src/config.js');
+  const { COURSE, GOLF } = await import('../src/golf.js');
+  for (const def of COURSE) {
+    const g = createGameState(def, {});
+    assert.ok(g.maxSpeed <= GOLF.maxSpeed, `${def.title}: the hole keeps its cap`);
+    assert.ok(g.maxSpeed * PHYSICS_DT < BALL.radius, `${def.title}: ${Math.round(g.maxSpeed * PHYSICS_DT)} px a step is more than the charge's radius`);
+    // The gauge spent entirely one way cannot push it past the cap either.
+    const b = g.ball;
+    b.launch(def.tee.x, def.tee.y, 0, def.ball.speed);
+    for (let i = 0; i < GOLF.fuel; i++) {
+      b.vx += GOLF.pulse;
+      b.clampSpeed(BALL.minSpeed, g.maxSpeed);
+    }
+    assert.ok(b.speed <= g.maxSpeed + 1e-6, `${def.title}: the gauge pushed it past the cap`);
+  }
+});

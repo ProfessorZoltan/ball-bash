@@ -123,7 +123,12 @@ export class Renderer {
     ctx.drawImage(this.staticLayer, shx * v.dpr, shy * v.dpr);
     ctx.setTransform(v.dpr * v.scale, 0, 0, v.dpr * v.scale, (v.ox + shx) * v.dpr, (v.oy + shy) * v.dpr);
 
-    if (game.well) this.drawWell(game.well, level.palette, time);
+    for (const w of game.wells || []) {
+      if (w.solid) this.drawPlanet(w, level.palette, time);
+      else this.drawWell(w, level.palette, time);
+    }
+    for (const w of game.wormholes || []) this.drawWormhole(w, level.palette, time);
+    if (game.golf) this.drawGolfTraces(game, level.palette);
     this.drawPredictedPath(game);
     if (game.panes && game.panes.length) this.drawGlass(game.panes, game, time);
     if (game.vents && game.vents.length) this.drawVents(game.vents, level.palette.ice || '#cdf6ff', game.time || 0);
@@ -143,6 +148,7 @@ export class Renderer {
     this.drawRings(game.fx);
     for (const f of game.fighters || [game.boss, game.player]) if (!f.down) this.drawFighter(f, time, f.color);
     if (!game.volley) this.drawBall(game.ball, state); // Volley has no ball to draw
+    if (game.golf) this.drawGolfAim(game, state, time);
     this.drawParticles(game.fx);
 
     if (level.dark) this.drawDarkness(game, level, state, time, shx, shy);
@@ -153,6 +159,7 @@ export class Renderer {
       ctx.fillRect(-50, -50, level.width + 100, level.height + 100);
     }
 
+    if (game.golf && state === 'paused') this.drawGolfMap(game, level, time);
     if (joystick && joystick.active) this.drawJoystick(joystick, (game.local && game.local.color) || game.player.color);
   }
 
@@ -507,7 +514,7 @@ export class Renderer {
   /** The gravity well: a black horizon, an accretion of slowly turning rings, and a dotted mark of its reach. */
   drawWell(w, palette, time) {
     const ctx = this.ctx;
-    const color = palette.well || '#b49cff';
+    const color = w.cup ? palette.cup || '#7dffc4' : palette.well || '#b49cff';
     ctx.save();
     ctx.translate(w.x, w.y);
     ctx.strokeStyle = color;
@@ -554,6 +561,248 @@ export class Renderer {
     ctx.lineWidth = 1.5;
     ctx.globalAlpha = 0.85;
     ctx.stroke();
+    // The cup wears a reticle: four ticks square to the world, so no maw on
+    // the course can be mistaken for the one that counts.
+    if (w.cup) {
+      ctx.globalAlpha = 0.9;
+      ctx.lineWidth = 2;
+      const a = w.r + 9;
+      const b = w.r + 20;
+      for (let i = 0; i < 4; i++) {
+        const t = (i * Math.PI) / 2;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(t) * a, Math.sin(t) * a);
+        ctx.lineTo(Math.cos(t) * b, Math.sin(t) * b);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  /**
+   * A solid gravity body: a stone with a lit rim, its field marked by the same
+   * dotted reach a black hole uses. The ball bounces off the surface, so the
+   * surface is drawn as a surface and not as a hole.
+   */
+  drawPlanet(w, palette, time) {
+    const ctx = this.ctx;
+    const color = palette.planet || palette.obstacle || '#ffb347';
+    ctx.save();
+    ctx.translate(w.x, w.y);
+    ctx.strokeStyle = color;
+    ctx.setLineDash([3, 11]);
+    ctx.lineDashOffset = -time * 10;
+    ctx.lineWidth = 1.5;
+    ctx.globalAlpha = 0.28;
+    ctx.beginPath();
+    ctx.arc(0, 0, w.range, 0, Math.PI * 2);
+    ctx.stroke();
+    // The field, closing in: two slow arcs between the reach and the surface.
+    ctx.setLineDash([26, 34]);
+    for (let i = 0; i < 2; i++) {
+      const rr = w.r + (w.range - w.r) * (0.35 + i * 0.3);
+      ctx.lineDashOffset = time * (i % 2 ? 22 : -30);
+      ctx.globalAlpha = 0.16 - i * 0.05;
+      ctx.beginPath();
+      ctx.arc(0, 0, rr, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    // The stone.
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+    const body = ctx.createRadialGradient(-w.r * 0.35, -w.r * 0.35, w.r * 0.1, 0, 0, w.r);
+    body.addColorStop(0, withAlpha(color, 0.5));
+    body.addColorStop(0.65, withAlpha(color, 0.16));
+    body.addColorStop(1, 'rgba(6, 8, 18, 0.95)');
+    ctx.fillStyle = body;
+    ctx.beginPath();
+    ctx.arc(0, 0, w.r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = this.blur(18);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /** A wormhole pair: two turning mouths and the faint thread between them. */
+  drawWormhole(w, palette, time) {
+    const ctx = this.ctx;
+    const color = palette.warp || '#ff8df0';
+    ctx.save();
+    // The thread: which mouth leads where, without claiming a path.
+    ctx.setLineDash([2, 16]);
+    ctx.lineDashOffset = -time * 24;
+    ctx.lineWidth = 1.5;
+    ctx.globalAlpha = 0.16;
+    ctx.strokeStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(w.ax, w.ay);
+    ctx.lineTo(w.bx, w.by);
+    ctx.stroke();
+    for (const [x, y, dir] of [[w.ax, w.ay, 1], [w.bx, w.by, -1]]) {
+      ctx.save();
+      ctx.translate(x, y);
+      const halo = ctx.createRadialGradient(0, 0, 0, 0, 0, w.r * 1.5);
+      halo.addColorStop(0, withAlpha(color, 0.3));
+      halo.addColorStop(1, withAlpha(color, 0));
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = halo;
+      ctx.beginPath();
+      ctx.arc(0, 0, w.r * 1.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = color;
+      for (let i = 0; i < 3; i++) {
+        const rr = w.r * (1 - i * 0.24);
+        ctx.setLineDash([rr * 0.7, rr * 0.5]);
+        ctx.lineDashOffset = dir * time * (30 + i * 26);
+        ctx.globalAlpha = 0.75 - i * 0.18;
+        ctx.lineWidth = 2 - i * 0.4;
+        ctx.beginPath();
+        ctx.arc(0, 0, rr, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  /** The flight being flown, and the ghost of the one before it. */
+  drawGolfTraces(game, palette) {
+    const gf = game.golf;
+    const ctx = this.ctx;
+    const line = (pts, color, alpha, dash) => {
+      if (!pts || pts.length < 2) return;
+      ctx.save();
+      ctx.setLineDash(dash);
+      ctx.lineWidth = 1.5;
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = color;
+      ctx.beginPath();
+      let pen = false;
+      for (const p of pts) {
+        // A warp marker breaks the line: the charge did not fly between these two points.
+        if (p.warp) {
+          pen = false;
+          continue;
+        }
+        if (!pen) ctx.moveTo(p.x, p.y);
+        else ctx.lineTo(p.x, p.y);
+        pen = true;
+      }
+      ctx.stroke();
+      ctx.restore();
+    };
+    line(gf.ghost, palette.wall || '#8fd4ff', 0.16, [5, 9]);
+    line(gf.trace, palette.wall || '#8fd4ff', 0.3, []);
+  }
+
+  /**
+   * What the launcher is told: the line the charge leaves on (one leg, no
+   * bounces and no field — the hole is not solved for you), and in flight the
+   * heading the next ion pulse pushes along.
+   */
+  drawGolfAim(game, state, time) {
+    const ctx = this.ctx;
+    const gf = game.golf;
+    const f = game.player;
+    const color = f.color;
+    if (gf.phase === 'aim') {
+      // The charge rests at the muzzle while it is aimed, so the line starts where it is.
+      const ax = game.ball.x;
+      const ay = game.ball.y;
+      const bx = ax + Math.cos(f.angle) * gf.ray;
+      const by = ay + Math.sin(f.angle) * gf.ray;
+      ctx.save();
+      ctx.setLineDash([9, 7]);
+      ctx.lineDashOffset = -time * 40;
+      ctx.lineWidth = 2;
+      ctx.globalAlpha = 0.5;
+      ctx.strokeStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(bx, by);
+      ctx.stroke();
+      // The head of the line, so the direction reads at a glance.
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 0.8;
+      ctx.beginPath();
+      for (const t of [2.5, -2.5]) {
+        ctx.moveTo(bx, by);
+        ctx.lineTo(bx + Math.cos(f.angle + t) * 16, by + Math.sin(f.angle + t) * 16);
+      }
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
+    if (gf.phase !== 'flight') return;
+    const b = game.ball;
+    const cx = Math.cos(gf.heading);
+    const cy = Math.sin(gf.heading);
+    const empty = gf.fuel <= 0;
+    ctx.save();
+    ctx.globalAlpha = empty ? 0.2 : 0.75;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(b.x + cx * (b.r + 4), b.y + cy * (b.r + 4));
+    ctx.lineTo(b.x + cx * (b.r + 30), b.y + cy * (b.r + 30));
+    for (const t of [2.5, -2.5]) {
+      ctx.moveTo(b.x + cx * (b.r + 30), b.y + cy * (b.r + 30));
+      ctx.lineTo(b.x + cx * (b.r + 30) + Math.cos(gf.heading + t) * 11, b.y + cy * (b.r + 30) + Math.sin(gf.heading + t) * 11);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /**
+   * The hole as a map, over a dimmed world: every gravity body named, the
+   * wormhole mouths paired up and the tee marked. One screen holds a whole
+   * hole today, so this is a legend rather than a second view of it.
+   */
+  drawGolfMap(game, level, time) {
+    const ctx = this.ctx;
+    const p = level.palette;
+    ctx.save();
+    ctx.fillStyle = 'rgba(3, 5, 12, 0.55)';
+    ctx.fillRect(-50, -50, level.width + 100, level.height + 100);
+    ctx.font = '600 15px Inter, system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const label = (x, y, text, color, r) => {
+      ctx.strokeStyle = color;
+      ctx.globalAlpha = 0.9;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 5]);
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = color;
+      ctx.globalAlpha = 1;
+      ctx.fillText(text, x, y - r - 14);
+    };
+    for (const w of game.wells) {
+      if (w.cup) label(w.x, w.y, 'THE CUP', p.cup || '#7dffc4', w.r + 26);
+      else if (w.solid) label(w.x, w.y, 'STONE', p.planet || '#ffb347', w.r + 16);
+      else label(w.x, w.y, 'MAW', p.well || '#b49cff', w.r + 16);
+    }
+    for (const w of game.wormholes) {
+      ctx.strokeStyle = p.warp || '#ff8df0';
+      ctx.globalAlpha = 0.6;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([8, 8]);
+      ctx.lineDashOffset = -time * 30;
+      ctx.beginPath();
+      ctx.moveTo(w.ax, w.ay);
+      ctx.lineTo(w.bx, w.by);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      label(w.ax, w.ay, 'IN', p.warp || '#ff8df0', w.r + 12);
+      label(w.bx, w.by, 'OUT', p.warp || '#ff8df0', w.r + 12);
+    }
+    label(level.tee.x, level.tee.y, 'TEE', p.wall || '#8fd4ff', 46);
     ctx.restore();
   }
 

@@ -4,9 +4,10 @@ import { GAME_MARK, GAME_NAME, GAME_TAGLINE, GAME_VERSION, MARK_READINGS, PHYSIC
 import { BallHistory, bossIntent, moverSegmentsAt } from './ai.js';
 import { LEVELS, VERSUS_LEVELS, ROSTER, TUTORIAL_LEVEL } from './levels.js';
 import { SEQUENCE, VERSUS_CONDUITS, levelLabel, shortId, campaignNextIndex } from './conduits.js';
+import { COURSE, COURSE_PAR, GOLF, holeLabel, toPar } from './golf.js';
 import { LORE } from './lore.js';
 import { SYSTEMS, TIERS, FRAME_CELLS, STANDARD, DEFAULT_FRAME, CUSTOM_ID, allFrames, frameById, withinBudget, cellsSpent, systemValue } from './frames.js';
-import { createGameState, rebuildWalls as rebuildWallsState, bodyHitCounts, tickCamp, versusSpawns, rotateSpawns, versusColors, VERSUS_IDS, nodeAccepts, objectiveDone, constrainToRail, wellField, wellDrag, wellSwallows, dronePhased } from './gamestate.js';
+import { createGameState, rebuildWalls as rebuildWallsState, bodyHitCounts, tickCamp, versusSpawns, rotateSpawns, versusColors, VERSUS_IDS, nodeAccepts, objectiveDone, constrainToRail, wellsDrag, wellsAccel, swallowingWell, dronePhased } from './gamestate.js';
 import { NetClient, relayConfig, saveRelay } from './net.js';
 import { buildSnapshot, applySnapshot } from './netstate.js';
 import { Input } from './input.js';
@@ -167,6 +168,8 @@ function step(dt) {
   if (g.pvp) {
     // Every player for themselves: the host is seat a, guests c and d.
     for (const f of g.humans) intents[f.slot] = f.slot === net.localSlot ? local : net.remoteIntents[f.slot] || ZERO_INTENT;
+  } else if (g.golf) {
+    intents.a = golfIntent(local, dt); // the launcher aims, or steers the pulses
   } else if (g.tutorial) {
     intents.a = local; // the training drone never moves
   } else {
@@ -184,8 +187,10 @@ function step(dt) {
       onWhack();
       // Volley: the thrust is also the trigger. Rotating the shield never fires.
       if (g.volley && state === 'playing') fireCharge(f);
+      // Golf: the same thrust sends the charge off the tee.
+      if (g.golf && state === 'playing' && g.golf.phase === 'aim') golfLaunch();
     }
-    if (g.well && state === 'playing') wellDrag(g.well, f, dt);
+    if (g.wells.length && state === 'playing' && !g.golf) wellsDrag(g.wells, f, dt);
     settleFighter(f);
   }
 
@@ -233,11 +238,15 @@ function step(dt) {
     }
   }
 
-  // The well: a player dragged over the horizon loses a shield and starts over at their spawn.
-  if (state === 'playing' && g.well && !g.tutorial) {
+  // The well: a player dragged over the horizon loses a shield and starts over
+  // at their spawn. On the golf course the launcher is bolted to the tee and
+  // no body's field reaches it.
+  if (state === 'playing' && g.wells.length && !g.tutorial && !g.golf) {
     for (const f of g.humans) {
-      if (f.invuln > 0 || !wellSwallows(g.well, f.x, f.y, f.r)) continue;
-      onFell(f);
+      if (f.invuln > 0) continue;
+      const w = swallowingWell(g.wells, f.x, f.y, f.r);
+      if (!w) continue;
+      onFell(f, w);
       break;
     }
   }
@@ -249,6 +258,8 @@ function step(dt) {
       g.history.push(simTime, g.ball);
     }
   }
+
+  if (g.golf && state === 'playing') golfTick(dt);
 
   if (g.emitters.length && state === 'playing') {
     for (const e of g.emitters) {
@@ -278,10 +289,11 @@ function step(dt) {
   if (g.panes.length) updateGlass();
 
   // Watchdog: a ball nobody can reach comes back on its own.
-  if (state === 'playing' && !g.ball.held && !g.tutorial && simTime - g.lastPlayed > BALL.stuckSeconds) recoverBall();
+  if (state === 'playing' && !g.ball.held && !g.tutorial && !g.golf && simTime - g.lastPlayed > BALL.stuckSeconds) recoverBall();
 
-  // Keep-moving rule: human players only, never in the tutorial.
-  if (state === 'playing' && (!g.ball.held || g.volley) && !g.tutorial) {
+  // Keep-moving rule: human players only, never in the tutorial, and never on
+  // the golf course, where the launcher is bolted to the tee.
+  if (state === 'playing' && (!g.ball.held || g.volley) && !g.tutorial && !g.golf) {
     for (const f of g.humans) {
       if (state !== 'playing') break;
       campStep(f, f.slot, dt);
@@ -418,15 +430,16 @@ function stepVolley(dt) {
     }
     // Everything the arena does to the ball, it does to a charge: the Event
     // Horizon's well bends its flight and the horizon takes it.
-    if (g.well) {
-      const p = wellField(g.well, shot.x, shot.y);
-      if (p) {
-        shot.vx += p.ux * g.well.pull * p.k * dt;
-        shot.vy += p.uy * g.well.pull * p.k * dt;
+    if (g.wells.length) {
+      const a = wellsAccel(g.wells, shot.x, shot.y);
+      if (a) {
+        shot.vx += a.ax * dt;
+        shot.vy += a.ay * dt;
         clampCharge(shot);
       }
-      if (wellSwallows(g.well, shot.x, shot.y)) {
-        swallowFx();
+      const took = swallowingWell(g.wells, shot.x, shot.y);
+      if (took) {
+        swallowFx(took);
         netEvent({ e: 'swallow' });
         g.shots.splice(i, 1);
         continue;
@@ -602,8 +615,8 @@ function touchFx(f, x, y) {
 }
 
 /** The well took a human player: that costs a shield, and they start over at their spawn, out of its reach. */
-function onFell(f) {
-  fellFx(f);
+function onFell(f, w = game.wells[0]) {
+  fellFx(f, w);
   netEvent({ e: 'fell', s: f.slot });
   if (game.pvp) {
     pvpLoss(f, 'well'); // the round ends and everyone is reseated
@@ -647,9 +660,8 @@ function cutOffFromBall(f) {
   return false;
 }
 
-function fellFx(f) {
+function fellFx(f, w = game.wells[0]) {
   const g = game;
-  const w = g.well;
   f.hitFlash = 0.5;
   g.fx.ring(w.x, w.y, '#ff4d6d', 170, 0.6);
   g.fx.ring(w.x, w.y, '#ffffff', 90, 0.4);
@@ -660,15 +672,14 @@ function fellFx(f) {
 }
 
 /** The ball crossed the horizon: the well keeps it and the serve starts over. No shield is lost. */
-function swallowBall() {
-  swallowFx();
+function swallowBall(w) {
+  swallowFx(w);
   netEvent({ e: 'swallow' });
   reserve('swallow', null);
 }
 
-function swallowFx() {
+function swallowFx(w = game.wells[0]) {
   const g = game;
-  const w = g.well;
   g.fx.ring(w.x, w.y, g.def.palette.well || '#b49cff', 150, 0.5);
   g.fx.ring(w.x, w.y, '#ffffff', 60, 0.3);
   g.fx.burst(w.x, w.y, 0, 0, 20, '#ffffff', 160, Math.PI, 0.4);
@@ -676,11 +687,9 @@ function swallowFx() {
   audio.sfxSwallow();
 }
 
-/** The well's pull on the ball at (x, y), for the guide. */
+/** Every body's pull on the ball at (x, y), for the guide. */
 function wellAccel(x, y) {
-  const w = game.well;
-  const p = wellField(w, x, y);
-  return p ? { ax: p.ux * w.pull * p.k, ay: p.uy * w.pull * p.k } : null;
+  return wellsAccel(game.wells, x, y);
 }
 
 /** A human player stood within a body length of one spot for too long: that is a loss. */
@@ -893,11 +902,11 @@ function separateCircles(a, b) {
 function moveBall(dt) {
   const g = game;
   const b = g.ball;
-  if (g.well) {
-    const p = wellField(g.well, b.x, b.y);
-    if (p) {
-      b.vx += p.ux * g.well.pull * p.k * dt;
-      b.vy += p.uy * g.well.pull * p.k * dt;
+  if (g.wells.length) {
+    const a = wellsAccel(g.wells, b.x, b.y);
+    if (a) {
+      b.vx += a.ax * dt;
+      b.vy += a.ay * dt;
     }
   }
   const active = activeFighters();
@@ -914,6 +923,12 @@ function moveBall(dt) {
       onMover: onMoverHit,
       onBody: (f, h) => {
         if (g.tutorial) return tutorialBody(f, h);
+        // On the course the launcher is just another surface: its own charge
+        // comes off it, and there is no shield to lose.
+        if (g.golf) {
+          ownBallBounce(f, h);
+          return false;
+        }
         if (!bodyHitCounts(g.ball, f, g.rules)) {
           ownBallBounce(f, h);
           return false;
@@ -938,9 +953,13 @@ function moveBall(dt) {
 
   b.clampSpeed(BALL.minSpeed, g.maxSpeed);
   if (b.speed > g.topSpeed) g.topSpeed = b.speed;
-  if (g.well && state === 'playing' && wellSwallows(g.well, b.x, b.y)) {
-    swallowBall();
-    return;
+  if (g.wells.length && state === 'playing') {
+    const took = swallowingWell(g.wells, b.x, b.y);
+    if (took) {
+      if (g.golf) golfSwallowed(took);
+      else swallowBall(took);
+      return;
+    }
   }
 
   // Safety net: the arena is sealed, but if numerical trouble ever pushed the
@@ -965,7 +984,7 @@ function onWallBounce(h, seg, before) {
     }
   }
   const n = speedNorm(g.ball.speed);
-  const color = seg.kind === 'glass' ? seg.pane.color : seg.kind === 'obstacle' ? g.def.palette.obstacle : g.def.palette.wall;
+  const color = seg.kind === 'glass' ? seg.pane.color : seg.kind === 'planet' ? g.def.palette.planet || g.def.palette.obstacle : seg.kind === 'obstacle' ? g.def.palette.obstacle : g.def.palette.wall;
   wallFx(h.cx, h.cy, h.nx, h.ny, n, color);
   netEvent({ e: 'wall', x: h.cx, y: h.cy, nx: h.nx, ny: h.ny, n, c: color });
   g.ball.lastHitBy = 'wall';
@@ -1265,7 +1284,7 @@ function frame(now) {
     const guest = net.mode === 'guest';
     if (state === 'playing') watchFrameTime(rawDt);
     if (guest) guestApply(now);
-    acc += dt;
+    acc += dt * golfTimeScale();
     const simulate = !guest && (state === 'countdown' || state === 'playing');
     const predict = guest && (state === 'countdown' || state === 'playing');
     while (acc >= PHYSICS_DT) {
@@ -1298,7 +1317,13 @@ function frame(now) {
         } else startNetRound();
       }
     }
-    if (state === 'playing' && game.volley) {
+    if (state === 'playing' && game.golf) {
+      // The hole shows the launch line and nothing more: a full path through
+      // the fields would solve the hole on sight.
+      game.guidePath = null;
+      const gf = game.golf;
+      audio.setBallSpeed(gf.phase === 'flight' ? game.ball.speed : BALL.minSpeed, game.def.ball.speed, BALL.minSpeed, game.maxSpeed);
+    } else if (state === 'playing' && game.volley) {
       // No ball to follow: the music keeps time from how armed the room is.
       const armed = game.humans.filter((f) => f.charged).length / Math.max(1, game.humans.length);
       audio.setBallSpeed(BALL.minSpeed + (game.maxSpeed - BALL.minSpeed) * 0.35 * (1 - armed), game.def.ball.speed, BALL.minSpeed, game.maxSpeed);
@@ -1318,8 +1343,8 @@ function frame(now) {
         }
         if (game.def.noGuide) {
           // nothing: the guide is off
-        } else if (game.well) {
-          game.guidePath = predictCurvedPath(game.ball.x, game.ball.y, game.ball.vx, game.ball.vy, guideWalls, wellAccel, { bounces: 1, maxDist: 900, radius: game.ball.r, speed: [BALL.minSpeed, game.maxSpeed], stop: (x, y) => wellSwallows(game.well, x, y) });
+        } else if (game.wells.length) {
+          game.guidePath = predictCurvedPath(game.ball.x, game.ball.y, game.ball.vx, game.ball.vy, guideWalls, wellAccel, { bounces: 1, maxDist: 900, radius: game.ball.r, speed: [BALL.minSpeed, game.maxSpeed], stop: (x, y) => !!swallowingWell(game.wells, x, y) });
         } else game.guidePath = predictPath(game.ball.x, game.ball.y, game.ball.vx, game.ball.vy, guideWalls, 1, 900, game.ball.r);
       }
     }
@@ -1635,6 +1660,7 @@ function handleGlobalKeys() {
   if (input.consumePress('p') || input.consumePress('Escape')) {
     // In a live match one press only arms the exit; it takes a second one.
     if (net.mode) requestLeave();
+    else if (state === 'playing' && game && game.golf) golfPause();
     else if (state === 'playing') pause();
     else if (state === 'paused') resume();
     else if (state === 'jukebox') leaveJukebox();
@@ -1642,12 +1668,16 @@ function handleGlobalKeys() {
   if (state === 'jukebox' && input.consumePress('n')) jukeboxNext();
   if (input.consumePress('r') && game && state !== 'title' && !net.mode) {
     if (game.tutorial) tutorialServe('Re-served.');
+    else if (golfRound && game.golf && state === 'playing') golfReset();
+    else if (golfRound) startGolfHole(golfRound.holeIndex);
     else startLevel(levelIndex);
   }
   if (input.consumePress('f')) toggleFullscreen();
   if (input.consumePress('Enter') && !net.mode) {
     if (state === 'title') begin();
-    else if (state === 'cleared') {
+    else if (golfRound && state === 'cleared') {
+      if (golfRound.holeIndex < COURSE.length - 1) startGolfHole(golfRound.holeIndex + 1);
+    } else if (state === 'cleared') {
       const nextIdx = nextAfter(levelIndex);
       startLevel(nextIdx >= 0 ? nextIdx : levelIndex);
     } else if (state === 'failed') startLevel(levelIndex);
@@ -1684,6 +1714,7 @@ function goToMenu() {
   audio.stopTrack(0.6);
   netReset();
   campaign = null;
+  golfRound = null;
   $('tutor').hidden = true;
   game = null;
   showTitle();
@@ -1766,7 +1797,15 @@ function tint(who, text) {
 function updateHud() {
   const g = game;
   setText('hud-time', formatTime(g.time));
-  if (g.pvp) {
+  if (g.golf) {
+    const gf = g.golf;
+    const spent = g.def.fuel - gf.fuel;
+    setText('hud-level', `${holeLabel(g.def).toUpperCase()} · ${g.def.title.toUpperCase()}`);
+    setText('hud-boss-label', 'PAR');
+    setText('hud-boss', `${g.def.par} · LAUNCH ${Math.max(1, gf.launches)}`);
+    setText('hud-lives-label', 'ION');
+    setText('hud-lives', gf.phase === 'aim' ? '◆'.repeat(g.def.fuel) : '◆'.repeat(Math.max(0, gf.fuel)) + '◇'.repeat(Math.max(0, spent)));
+  } else if (g.pvp) {
     setText('hud-lives-label', 'SHIELDS');
     setHtml('hud-lives', net.players.map((p) => tint(p.id, shieldPips(p.id))).join(' <span class="label">·</span> '));
     setText('hud-boss-label', g.volley ? 'VOLLEY' : 'MATCH');
@@ -1786,9 +1825,16 @@ function updateHud() {
   const frameTag = mine ? frameName(g.frames && g.frames[mine.slot]).toUpperCase() : '';
   // In versus the host sets the pace, so the HUD names it whenever it is not the campaign's own.
   const pace = g.pvp && net.speed !== DEFAULT_VERSUS_SPEED ? (VERSUS_SPEEDS.find((sp) => sp.id === net.speed) || {}).name : '';
-  const tags = [frameTag, pace ? `${pace.toUpperCase()} · ${Math.round(g.maxSpeed)} PX/S` : '', g.coop ? `CO-OP · ${[net.names.host, ...net.roster.map((r) => r.name)].join(' & ').toUpperCase()}` : '', mode ? `${mode.toUpperCase()} CAMPAIGN` : '', g.difficulty ? g.difficulty.name.toUpperCase() : '', g.rules.ownBallLoss ? '' : 'SAFE OWN BALL', g.def.conduit && !g.pvp ? 'HALF SPEED' : '', g.def.noGuide ? 'NO GUIDE' : ''].filter(Boolean);
+  const tags = [frameTag, g.golf ? 'THE OUTER COURSE' : '', pace ? `${pace.toUpperCase()} · ${Math.round(g.maxSpeed)} PX/S` : '', g.coop ? `CO-OP · ${[net.names.host, ...net.roster.map((r) => r.name)].join(' & ').toUpperCase()}` : '', mode ? `${mode.toUpperCase()} CAMPAIGN` : '', g.difficulty ? g.difficulty.name.toUpperCase() : '', g.rules.ownBallLoss ? '' : 'SAFE OWN BALL', g.def.conduit && !g.pvp ? 'HALF SPEED' : '', g.def.noGuide ? 'NO GUIDE' : ''].filter(Boolean);
   setText('hud-rule', tags.map((t) => `· ${t}`).join(' '));
-  if (g.volley) {
+  if (g.golf) {
+    // The charge: at rest on the tee it reads the speed every launch leaves at.
+    const flying = g.golf.phase === 'flight';
+    const s = flying ? g.ball.speed : g.def.ball.speed;
+    setText('hud-speed-label', flying ? 'CHARGE' : 'LAUNCH');
+    setText('hud-speed', `${Math.round(s)} px/s`);
+    $('hud-speed-bar').style.transform = `scaleX(${speedNorm(s).toFixed(3)})`;
+  } else if (g.volley) {
     // No ball: the readout is your own charge, and the bar is its reload.
     const mine = localFighter();
     const ready = !mine || mine.charged;
@@ -1847,6 +1893,7 @@ function showOverlay(html) {
 
 function hideOverlay() {
   $('overlay').hidden = true;
+  $('overlay').classList.remove('map');
   stopMarkAnimation();
 }
 
@@ -3130,7 +3177,7 @@ function guestStep(dt) {
 function guestAdvance(f, dt, intent) {
   const g = game;
   f.update(dt, intent);
-  if (g.well && state === 'playing') wellDrag(g.well, f, dt);
+  if (g.wells.length && state === 'playing' && !g.golf) wellsDrag(g.wells, f, dt);
   settleFighter(f);
   f.finalizeStep(dt);
 }
@@ -3265,10 +3312,10 @@ function playEvent(ev) {
       touchFx(fighterBySlot(ev.s) || g.player, ev.x, ev.y);
       break;
     case 'swallow':
-      if (g.well) swallowFx();
+      if (g.wells.length) swallowFx();
       break;
     case 'fell':
-      if (g.well) fellFx(fighterBySlot(ev.s) || g.player);
+      if (g.wells.length) fellFx(fighterBySlot(ev.s) || g.player);
       break;
     default:
       break;
@@ -3562,6 +3609,7 @@ function showTitle() {
           <li><b>W</b> or <b>Space</b> — thrust the shield</li>
           <li><b>S</b> — pull the shield in (soft return)</li>
           <li><b>P</b> pause · <b>M</b> mute · <b>R</b> restart</li>
+          <li><b>Galactic Golf</b>: A / D aim, W launches then spends one ion pulse a press, P is the hole map</li>
           <li><b>Controller</b>: left stick moves, right stick or <b>LT</b>/<b>RT</b> rotate, <b>A</b> thrusts, <b>X</b> pulls in, <b>Start</b> pauses <span id="pad-state" class="small muted">${input.pad.connected ? `· detected: ${input.pad.id.slice(0, 40)}` : '· none detected yet (press any button on it)'}</span></li>
         </ul>
       </div>
@@ -3576,7 +3624,7 @@ function showTitle() {
         ${qualitySelectHtml()}
       </div>
     </div>
-    <div class="row menu">${campaignButtonsHtml()}<button id="btn-start">${levelLabel(def)} only</button><button id="btn-tutorial">Tutorial</button><button id="btn-jukebox">Soundtrack</button><button id="btn-multi" title="${lanInfo && lanInfo.online ? 'Play online through the relay' : lanInfo ? 'Play on this Wi-Fi network' : 'Set a relay in the lobby, or run npm start on one PC and open its LAN address on both'}">${lanInfo && lanInfo.online ? 'Online match' : lanInfo ? 'LAN match' : 'Multiplayer'}</button>${fullscreenHint()}</div>
+    <div class="row menu">${campaignButtonsHtml()}<button id="btn-start">${levelLabel(def)} only</button><button id="btn-golf" title="Galactic Golf: three holes out in the void, one launch at a time">Galactic Golf</button><button id="btn-tutorial">Tutorial</button><button id="btn-jukebox">Soundtrack</button><button id="btn-multi" title="${lanInfo && lanInfo.online ? 'Play online through the relay' : lanInfo ? 'Play on this Wi-Fi network' : 'Set a relay in the lobby, or run npm start on one PC and open its LAN address on both'}">${lanInfo && lanInfo.online ? 'Online match' : lanInfo ? 'LAN match' : 'Multiplayer'}</button>${fullscreenHint()}</div>
     ${lanInfo ? '' : IS_DESKTOP ? '<p class="small muted">Multiplayer is unavailable: neither the relay nor the app\'s own server answered.</p>' : '<p class="small muted">Multiplayer needs a relay: paste one in the lobby for online play, or run <code>npm start</code> on one PC and open its LAN address on both.</p>'}
   `);
   $('btn-start').onclick = begin;
@@ -3589,6 +3637,7 @@ function showTitle() {
     showRecord();
   };
   bindOwnBallToggle();
+  $('btn-golf').onclick = startGolf;
   $('btn-tutorial').onclick = async () => {
     await audio.init();
     startTutorial(true);
@@ -3612,6 +3661,412 @@ async function begin() {
   campaign = null;
   if (!tutorialDone() && levelIndex === 0) startTutorial(false, () => startLevel(levelIndex));
   else startLevel(levelIndex);
+}
+
+// ------------------------------------------------------------ galactic golf
+
+// The course beyond the arcade. A hole is one launch at a time: tilt the frame
+// to pick a line, thrust to send the charge, and steer what is left of it with
+// the ion gauge. Every launch is counted, and par says what the hole is worth.
+const GOLF_KEY = 'deflector.golf';
+let golfRound = null; // { holeIndex, card: [{ id, hole, par, launches }] } while a round is being played
+
+/** Best launches per hole, and the best total round, kept in the browser. */
+function golfBest() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(GOLF_KEY) || '{}');
+    return { holes: raw.holes && typeof raw.holes === 'object' ? raw.holes : {}, total: Number(raw.total) || 0 };
+  } catch (_) {
+    return { holes: {}, total: 0 };
+  }
+}
+
+function saveGolfBest(best) {
+  try {
+    localStorage.setItem(GOLF_KEY, JSON.stringify(best));
+  } catch (_) {
+    // Private browsing: the round still plays, it just is not remembered.
+  }
+}
+
+/** The per-hole state: which phase the shot is in, what is left of the gauge, and the traces drawn. */
+function freshGolf(def) {
+  return {
+    phase: 'aim', // aim | flight | sunk | lost
+    launches: 0,
+    fuel: def.fuel,
+    heading: def.tee.angle, // where the next ion pulse pushes
+    ray: GOLF.aimRay, // px of the launch line the tee is shown
+    held: false, // the thrust was down last step (pulses are one per press)
+    flightTime: 0,
+    trace: [], // this flight, for the ghost the next one is aimed against
+    traceAt: 0,
+    ghost: null, // the last flight that ended
+    warpHold: 0,
+    endAt: 0, // when the pause after a shot ends
+  };
+}
+
+function startGolfHole(index) {
+  const def = COURSE[index];
+  golfRound.holeIndex = index;
+  $('tutor').hidden = true;
+  resetFrameWatch();
+  game = buildGame(def);
+  game.golf = freshGolf(def);
+  golfTee();
+  renderer.setLevel(def);
+  renderer.resize();
+  simTime = 0;
+  acc = 0;
+  countdown = 0;
+  endTimer = 0;
+  endShown = false;
+  state = 'playing';
+  input.clearPresses();
+  hideOverlay();
+  setInGame(true);
+  $('hud').hidden = false;
+  $('countdown').hidden = true;
+  $('hud-level').textContent = `${holeLabel(def).toUpperCase()} · ${def.title.toUpperCase()}`;
+  $('hud-track').textContent = TRACKS[def.track].title;
+  audio.playTrack(TRACKS[def.track]);
+  golfNote(`PAR ${def.par}`, 4);
+  updateHud(); // the brief goes up before a step is taken, so the HUD is written now
+  golfMap(true); // every hole opens on its own map
+}
+
+/** Put the charge back on the tee, ready to be aimed. */
+function golfTee() {
+  const g = game;
+  const gf = g.golf;
+  const f = g.player;
+  gf.phase = 'aim';
+  gf.fuel = g.def.fuel;
+  gf.flightTime = 0;
+  gf.warpHold = 0;
+  gf.trace = [];
+  gf.held = true; // whatever is being held now does not launch the next shot
+  const m = golfMuzzle(f);
+  g.ball.held = true;
+  g.ball.vx = 0;
+  g.ball.vy = 0;
+  g.ball.x = m.x;
+  g.ball.y = m.y;
+  g.ball.trail.length = 0;
+  g.ball.markRender();
+  f.resetCamp();
+}
+
+/** Where the charge sits in front of the launcher's shield. */
+function golfMuzzle(f) {
+  const d = f.paddleOffset + f.paddleThick / 2 + GOLF.muzzle + BALL.radius;
+  return { x: f.x + Math.cos(f.angle) * d, y: f.y + Math.sin(f.angle) * d, d };
+}
+
+/**
+ * The launcher's intent. Aiming, the turn tilts the frame and the thrust
+ * launches; in flight the frame is still and the same two controls point and
+ * fire the ion pulses instead.
+ */
+function golfIntent(local, dt) {
+  const gf = game.golf;
+  const down = !!local.lunge;
+  const edge = down && !gf.held;
+  gf.held = down;
+  if (gf.phase === 'flight') {
+    gf.heading = wrapAngle(gf.heading + local.turn * GOLF.headTurn * dt);
+    if (edge) golfPulse();
+    return ZERO_INTENT;
+  }
+  if (gf.phase !== 'aim') return ZERO_INTENT;
+  // The launcher is bolted to the tee: it turns, and that is all it does.
+  return { mx: 0, my: 0, turn: local.turn, lunge: local.lunge, retract: false };
+}
+
+/** Thrust on the tee: the charge goes, and the launch is counted whatever becomes of it. */
+function golfLaunch() {
+  const g = game;
+  const gf = g.golf;
+  const f = g.player;
+  const m = golfMuzzle(f);
+  gf.launches++;
+  gf.fuel = g.def.fuel;
+  gf.heading = f.angle;
+  gf.phase = 'flight';
+  gf.flightTime = 0;
+  gf.warpHold = 0;
+  gf.trace = [{ x: m.x, y: m.y }];
+  gf.traceAt = GOLF.ghostStep;
+  gf.miss = null;
+  g.ball.launch(m.x, m.y, f.angle, g.def.ball.speed);
+  g.topSpeed = 0;
+  g.lastPlayed = simTime;
+  g.shots.length = 0;
+  for (const v of g.vents) v.nextAt = simTime + v.delay;
+  for (const t of g.turrets) t.nextAt = simTime + t.delay;
+  g.fx.burst(m.x, m.y, Math.cos(f.angle), Math.sin(f.angle), 16, f.color, 300, 0.5, 0.4);
+  g.fx.ring(m.x, m.y, f.color, 60, 0.3);
+  audio.sfxCount(true);
+  golfNote(`LAUNCH ${gf.launches}`, 1.6);
+}
+
+/** One ion pulse: a fixed shove along the held heading, and one notch off the gauge. */
+function golfPulse() {
+  const g = game;
+  const gf = g.golf;
+  const b = g.ball;
+  if (gf.fuel <= 0) {
+    golfNote('ION GAUGE EMPTY', 1.2);
+    audio.sfxPing(0.2);
+    return;
+  }
+  gf.fuel--;
+  const cx = Math.cos(gf.heading);
+  const cy = Math.sin(gf.heading);
+  b.vx += cx * GOLF.pulse;
+  b.vy += cy * GOLF.pulse;
+  b.clampSpeed(BALL.minSpeed, g.maxSpeed);
+  // The ejection leaves the other way.
+  g.fx.burst(b.x - cx * b.r, b.y - cy * b.r, -cx, -cy, 12, g.player.color, 280, 0.6, 0.35);
+  audio.sfxPing(0.7);
+}
+
+/** A horizon took the charge: the cup is the one that counts. */
+function golfSwallowed(w) {
+  if (w.cup) golfSink(w);
+  else golfMiss(w.hazard ? 'maw' : 'horizon', w);
+}
+
+function golfSink(w) {
+  const g = game;
+  const gf = g.golf;
+  gf.phase = 'sunk';
+  gf.endAt = simTime + GOLF.sinkPause;
+  gf.ghost = gf.trace.slice();
+  g.ball.held = true;
+  g.ball.x = w.x;
+  g.ball.y = w.y;
+  g.ball.vx = 0;
+  g.ball.vy = 0;
+  g.ball.markRender();
+  const color = g.def.palette.cup || '#7dffc4';
+  g.fx.ring(w.x, w.y, color, 260, 0.8);
+  g.fx.ring(w.x, w.y, '#ffffff', 120, 0.45);
+  g.fx.burst(w.x, w.y, 0, 0, 34, color, 240, Math.PI, 0.7);
+  g.fx.addShake(8);
+  g.fx.flash = 0.5;
+  audio.sfxSwallow();
+  audio.sfxBossHit();
+  golfNote('DOWN', 2);
+}
+
+/** The shot is over and nothing was sunk. The launch still counts; the charge goes back to the tee. */
+function golfMiss(reason, w = null) {
+  const g = game;
+  const gf = g.golf;
+  if (gf.phase !== 'flight') return;
+  gf.phase = 'lost';
+  gf.endAt = simTime + GOLF.missPause;
+  gf.ghost = gf.trace.slice();
+  const b = g.ball;
+  b.held = true;
+  b.vx = 0;
+  b.vy = 0;
+  if (w) {
+    b.x = w.x;
+    b.y = w.y;
+    g.fx.ring(w.x, w.y, g.def.palette.well || '#b49cff', 170, 0.6);
+    g.fx.burst(w.x, w.y, 0, 0, 22, '#ffffff', 180, Math.PI, 0.5);
+    g.fx.addShake(6);
+    audio.sfxSwallow();
+  } else {
+    g.fx.ring(b.x, b.y, '#ff4d6d', 90, 0.4);
+  }
+  b.markRender();
+  golfNote(reason === 'maw' ? 'THE MAW TOOK IT' : reason === 'horizon' ? 'OVER THE HORIZON' : reason === 'spent' ? 'FLIGHT SPENT' : 'SHOT ABANDONED', 2.2);
+}
+
+/** Abandon the shot in flight, or start the hole over from the tee. */
+function golfReset() {
+  const gf = game.golf;
+  if (gf.phase === 'flight') golfMiss('given');
+  else if (gf.phase === 'aim') startGolfHole(golfRound.holeIndex);
+}
+
+/** The clocks a hole runs on: the flight, the wormholes, and the pause after a shot ends. */
+function golfTick(dt) {
+  const g = game;
+  const gf = g.golf;
+  if (gf.phase === 'flight') {
+    gf.flightTime += dt;
+    gf.traceAt -= dt;
+    if (gf.traceAt <= 0) {
+      gf.traceAt = GOLF.ghostStep;
+      gf.trace.push({ x: g.ball.x, y: g.ball.y });
+      if (gf.trace.length > 1200) gf.trace.shift();
+    }
+    if (gf.warpHold > 0) gf.warpHold -= dt;
+    else golfWarp();
+    if (gf.phase === 'flight' && gf.flightTime >= GOLF.flightSeconds) golfMiss('spent');
+    return;
+  }
+  if (gf.phase === 'sunk' && simTime >= gf.endAt) showHoleCard();
+  else if (gf.phase === 'lost' && simTime >= gf.endAt) golfTee();
+}
+
+/** A mouth that has the charge hands it to its pair, on the heading it arrived with. */
+function golfWarp() {
+  const g = game;
+  const gf = g.golf;
+  const b = g.ball;
+  for (const w of g.wormholes) {
+    const ends = [[w.ax, w.ay, w.bx, w.by], [w.bx, w.by, w.ax, w.ay]];
+    for (const [ex, ey, tx, ty] of ends) {
+      if (Math.hypot(b.x - ex, b.y - ey) > w.r) continue;
+      const s = b.speed || 1;
+      // Set down clear of the far mouth, so it cannot fall straight back in.
+      b.x = tx + (b.vx / s) * (w.r + b.r + 6);
+      b.y = ty + (b.vy / s) * (w.r + b.r + 6);
+      b.trail.length = 0;
+      b.markRender();
+      gf.warpHold = GOLF.warpHold;
+      gf.trace.push({ x: ex, y: ey }, { warp: true }, { x: b.x, y: b.y });
+      const color = g.def.palette.warp || '#ff8df0';
+      g.fx.ring(ex, ey, color, 90, 0.35);
+      g.fx.ring(tx, ty, color, 110, 0.45);
+      g.fx.burst(b.x, b.y, b.vx / s, b.vy / s, 14, color, 260, 0.7, 0.4);
+      audio.sfxPulse();
+      return;
+    }
+  }
+}
+
+/** While the gauge is empty the outcome is fixed, so holding the pull-in key runs the rest of the flight out. */
+function golfTimeScale() {
+  if (!game || !game.golf || state !== 'playing') return 1;
+  const gf = game.golf;
+  if (gf.phase !== 'flight' || gf.fuel > 0) return 1;
+  return input.intent(game.player).retract ? 3 : 1;
+}
+
+function golfNote(text, secs = 2) {
+  if (game) game.note = { text, until: (game.time || 0) + secs };
+}
+
+/** The scoreline so far: what each hole took against its par. */
+function golfCardRows() {
+  const best = golfBest();
+  return golfRound.card
+    .map((r) => `<tr><td>Hole ${r.hole} · ${r.title}</td><td>${r.par}</td><td>${r.launches}</td><td>${toPar(r.launches - r.par)}</td><td>${best.holes[r.id] || '—'}</td></tr>`)
+    .join('');
+}
+
+/** The hole is done: record it, and offer the next one. */
+function showHoleCard() {
+  const g = game;
+  const def = g.def;
+  const gf = g.golf;
+  const launches = gf.launches;
+  state = 'cleared';
+  endShown = true;
+  setInGame(false);
+  const best = golfBest();
+  const prev = best.holes[def.id] || 0;
+  const record = !prev || launches < prev;
+  if (record) {
+    best.holes[def.id] = launches;
+    saveGolfBest(best);
+  }
+  golfRound.card.push({ id: def.id, hole: def.hole, title: def.title, par: def.par, launches });
+  const diff = launches - def.par;
+  const last = golfRound.holeIndex >= COURSE.length - 1;
+  const word = diff < 0 ? 'Under par' : diff === 0 ? 'Par' : diff === 1 ? 'One over' : `${diff} over`;
+  if (last) return showCourseCard();
+  const next = COURSE[golfRound.holeIndex + 1];
+  showOverlay(`
+    <div class="eyebrow">${holeLabel(def).toUpperCase()} DOWN · ${word.toUpperCase()}${record ? ' · BEST YET' : ''}</div>
+    <h1>${def.title}</h1>
+    <p class="muted">${def.stopped}</p>
+    <table class="stats golf-card">
+      <tr><th>Hole</th><th>Par</th><th>Launches</th><th>Against par</th><th>Your best</th></tr>
+      ${golfCardRows()}
+    </table>
+    <div class="row"><button id="btn-next" class="primary">Continue · ${holeLabel(next)} · ${next.title}</button><button id="btn-menu">Main menu</button></div>
+  `);
+  $('btn-next').onclick = () => startGolfHole(golfRound.holeIndex + 1);
+  $('btn-menu').onclick = goToMenu;
+}
+
+/** The round is over: the whole card, against par and against your best. */
+function showCourseCard() {
+  const total = golfRound.card.reduce((n, r) => n + r.launches, 0);
+  const diff = total - COURSE_PAR;
+  const best = golfBest();
+  const record = !best.total || total < best.total;
+  const wasTotal = best.total;
+  if (record) {
+    best.total = total;
+    saveGolfBest(best);
+  }
+  showOverlay(`
+    <div class="eyebrow">THE OUTER COURSE · ${toPar(diff).toUpperCase()}${record ? ' · BEST ROUND' : ''}</div>
+    <h1>${diff <= 0 ? 'The void keeps the card' : 'Round complete'}</h1>
+    <p class="muted">${total} launch${total === 1 ? '' : 'es'} over ${COURSE.length} holes, against a par of ${COURSE_PAR}.${wasTotal ? ` Your best round is ${record ? total : wasTotal}.` : ''}</p>
+    <table class="stats golf-card">
+      <tr><th>Hole</th><th>Par</th><th>Launches</th><th>Against par</th><th>Your best</th></tr>
+      ${golfCardRows()}
+      <tr class="total"><td>Total</td><td>${COURSE_PAR}</td><td>${total}</td><td>${toPar(diff)}</td><td>${record ? total : best.total || '—'}</td></tr>
+    </table>
+    <div class="row"><button id="btn-again" class="primary">Play the course again</button><button id="btn-menu">Main menu</button></div>
+  `);
+  $('btn-again').onclick = () => startGolf();
+  $('btn-menu').onclick = goToMenu;
+}
+
+/** Tee off: a fresh round from the first hole. */
+async function startGolf() {
+  await audio.init();
+  campaign = null;
+  netReset();
+  golfRound = { holeIndex: 0, card: [] };
+  startGolfHole(0);
+}
+
+function golfPause() {
+  golfMap(false);
+}
+
+/**
+ * The hole as a map: the world dims, everything on it is named, and the panel
+ * carries the brief and the controls. `brief` is the look the hole opens on,
+ * before a charge has been sent; otherwise it is the pause.
+ */
+function golfMap(brief) {
+  state = 'paused';
+  setInGame(false);
+  if (audio.ctx && !brief) audio.ctx.suspend();
+  const g = game;
+  const def = g.def;
+  const gf = g.golf;
+  showOverlay(`
+    <div class="eyebrow">${holeLabel(def).toUpperCase()} · PAR ${def.par}${brief ? '' : ` · LAUNCH ${Math.max(1, gf.launches)}`}</div>
+    <h1>${def.title}</h1>
+    ${brief ? `<p class="intro">${def.intro}</p>` : ''}
+    <ul class="golf-key">
+      <li><span class="k cup"></span>The cup — get the charge past its horizon</li>
+      ${g.wells.some((w) => w.hazard) ? '<li><span class="k maw"></span>A maw — its horizon ends the shot</li>' : ''}
+      ${g.wells.some((w) => w.solid) ? '<li><span class="k planet"></span>A stone — solid, and its field bends what passes</li>' : ''}
+      ${g.wormholes.length ? '<li><span class="k warp"></span>Wormhole mouths — paired, and they keep your heading</li>' : ''}
+      <li><span class="k tee"></span>The tee</li>
+    </ul>
+    <p class="small muted"><b>A / D</b> aim, and steer the ion pulses in flight · <b>W</b> or <b>Space</b> launch, then one pulse per press · <b>S</b> runs a spent flight out · <b>R</b> re-tees · <b>P</b> this map</p>
+    <div class="row"><button id="btn-resume" class="primary">${brief ? 'Tee off' : 'Resume'}</button>${brief ? '' : '<button id="btn-restart">Restart hole</button>'}<button id="btn-menu">Main menu</button></div>
+  `);
+  $('overlay').classList.add('map'); // the scrim lifts so the hole shows through
+  $('btn-resume').onclick = resume;
+  if (!brief) $('btn-restart').onclick = () => startGolfHole(golfRound.holeIndex);
+  $('btn-menu').onclick = goToMenu;
 }
 
 // ---------------------------------------------------------------- campaign
@@ -3884,4 +4339,4 @@ NetClient.available().then((info) => {
 });
 
 // Expose for debugging / automated smoke tests.
-window.__game = { get state() { return state; }, get game() { return game; }, get net() { return net; }, audio, renderer, input, startLevel };
+window.__game = { get state() { return state; }, get game() { return game; }, get net() { return net; }, get golfRound() { return golfRound; }, audio, renderer, input, startLevel, startGolf, startGolfHole };

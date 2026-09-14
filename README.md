@@ -488,6 +488,80 @@ The shape helpers (`truncatedTriangle`, `circleUnion`, `jaggedSquare` and the
 existing `ellipse`) live next to the arenas, and every arena is fired at in
 `test/physics.test.js` at the maximum ball speed to prove its walls hold.
 
+## Galactic Golf (the Outer Course)
+
+A solo mode that is not Pong at all. Out past the last room the Architect drew
+there is a short course: a tee, a charge, and three holes with nothing in them
+to deflect. Tilt the frame to pick a line, thrust once to launch, and from then
+on the only say you have is the **ion gauge** — six pulses that shove the charge
+sideways mid-flight. Reach the cup and the hole is done; the launches it took
+are counted against the hole's par.
+
+Three kinds of gravity body stand on a hole, told apart by what happens when
+the charge reaches one:
+
+| Body | What it is | What reaching it does | Source |
+|---|---|---|---|
+| Stone | Solid, with a field around it | The surface bounces the charge; the field bends anything that passes | `planet()` in `src/golf.js` |
+| Maw | A black hole with nothing in it | The horizon ends the shot, and the launch still counts | `maw()` in `src/golf.js` |
+| Cup | The goal: a small horizon with a short, hard pull | The hole is done | `cup()` in `src/golf.js` |
+
+A **wormhole** is a pair of mouths that hands the charge on at the speed and
+heading it arrived with, which is the whole difficulty of it: the line you take
+into the near mouth is the line you leave the far one on.
+
+The course as it stands:
+
+| Hole | Name | Par | What it teaches | Source |
+|---|---|---|---|---|
+| 1 | Slip Orbit | 2 | A stone is solid, and its field bends what passes it | `COURSE[0]` in `src/golf.js` |
+| 2 | The Narrows | 3 | A wormhole keeps your heading, and a wall has no door | `COURSE[1]` in `src/golf.js` |
+| 3 | The Maw | 3 | Go around a black hole, and time the bar in the gate | `COURSE[2]` in `src/golf.js` |
+
+Controls on the course: **A / D** aim the tee, and in flight steer the heading
+the next pulse pushes along; **W** or **Space** launches, then spends one pulse
+per press; **S** runs a spent flight out at triple speed once the gauge is empty
+and the outcome is fixed; **R** re-tees (abandoning a flight, or restarting the
+hole from the tee); **P** brings up the hole as a map, with every body named and
+the wormhole mouths paired.
+
+Each hole opens on that map as a briefing, and every flight leaves a ghost: the
+line your last shot flew is drawn faint under the next one, so an aim is
+adjusted against something rather than guessed again.
+
+Three deliberate limits, since they shape what the mode can be:
+
+* **A hole is one screen.** The renderer scales a whole level to the viewport
+  and never scrolls, so a hole bigger than the window would need a camera. The
+  course is built to fit for now, and the map overlay is already the piece a
+  camera would need.
+* **A flight is spent after nine seconds.** A charge never stalls (the floor
+  speed is the ball's), so without a clock one would bounce around the room
+  until it fell in the cup by accident. Nine seconds is roughly twice a clean
+  line, which is enough for a bank shot and not enough for a lottery.
+* **The guide is one leg, and it ignores the fields.** A full curved path
+  through the gravity would solve most holes on sight, so the tee draws the
+  launch direction and nothing more.
+
+What the mode reuses, rather than reinvents:
+
+| Piece | What it becomes on a hole | Source |
+|---|---|---|
+| The gravity well | Stones, maws and the cup, all fields now summed | `wellsAccel`, `swallowingWell` in `src/gamestate.js` |
+| Solid discs in the wall list | A stone's surface, exactly as a turret's is | `createGameState` in `src/gamestate.js` |
+| Ball vs walls, polygons and movers | Every obstacle, plate and turning bar on a hole | `advanceBall` in `src/sim.js` |
+| The speed cap and its tunnelling margin | Gravity can wind a charge up hard, and the walls still hold | `BALL`, `PHYSICS_DT` in `src/config.js` |
+| Tempo-following music | The track speeds up as the charge whips round a stone | `setBallSpeed` in `src/audio/engine.js` |
+| The level format and the renderer | A hole is a level definition with a tee instead of a boss | `hole()` in `src/golf.js` |
+
+The whole course is proved playable in `test/physics.test.js`: every hole has a
+launch line that sinks the cup with no fuel spent and none of them is sunk by
+the line it opens on, a stone is never a horizon, a wormhole never sets the
+charge back down inside a mouth, and a band of nineteen near lines on the last
+hole goes from three sinking bare to all nineteen sinking once the gauge is
+allowed one or two pulses — which is the mode's whole claim, that the aim opens
+the shot and the gauge finishes it.
+
 ## Online multiplayer (different networks)
 
 The LAN server only works on one Wi-Fi network, because the guest has to reach
@@ -563,6 +637,7 @@ static Vercel deployment cannot relay, so the button is disabled there.
 | Thrust the shield forward ("whack") | **W** or **Space** |
 | Pull the shield in (soft return, slows the ball) | **S** |
 | Pause / mute / restart | **P** / **M** / **R** |
+| Galactic Golf: launch, then one ion pulse per press | **W** or **Space** (**A** / **D** aim and steer, **S** runs a spent flight out, **P** is the hole map) |
 | Controller (Xbox or any standard gamepad) | **left stick** moves, **right stick** or **LT** / **RT** rotate like A and D (further is faster), **A** thrusts, **X** pulls the shield in, **Start** pauses, **A** also confirms on menus |
 
 On touch devices, touch anywhere on the arena and drag: the first touch becomes
@@ -906,6 +981,7 @@ src/ice.js                 ice trail hazard (Coolant Tunnels)
 src/levels.js              level data, the roster and the tutorial's training hall
 src/conduits.js            the conduits between levels and the campaign sequence
 src/frames.js              the four frames, the eight cells and what they buy
+src/golf.js                Galactic Golf: the Outer Course, its holes and its tunables
 src/lore.js                worldbuilding: the bulletin, the record's chapters, status words
 src/input.js               keyboard, mouse, touch -> one intent object
 src/render.js              Canvas 2D neon renderer with 2.5D wall extrusion

@@ -319,6 +319,41 @@ button[disabled] { opacity: 0.45; cursor: default; }
 .stats td:first-child { color: var(--muted); text-align: right; }
 .stats td:last-child { font-family: var(--display); text-align: left; }
 
+/* Galactic Golf ---------------------------------------------------------- */
+/* The scorecard is a real table: every column carries one thing, and the hole
+   it belongs to is named in its own cell rather than folded into the score. */
+.golf-card { font-size: 14px; }
+.golf-card th {
+  padding: 4px 16px;
+  font-family: var(--display);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+  text-transform: uppercase;
+  border-bottom: 1px solid rgba(127, 233, 255, 0.18);
+}
+.golf-card td { text-align: right; }
+.golf-card td:first-child { text-align: left; color: var(--fg); }
+.golf-card td:last-child { text-align: right; }
+.golf-card tr.total td { border-top: 1px solid rgba(127, 233, 255, 0.18); padding-top: 9px; }
+.golf-card tr.total td:first-child { font-family: var(--display); letter-spacing: 0.1em; }
+
+.golf-key { list-style: none; margin: 14px auto; padding: 0; max-width: 560px; text-align: left; font-size: 14px; color: var(--muted); }
+.golf-key li { display: flex; align-items: center; gap: 10px; padding: 3px 0; }
+.golf-key .k { width: 14px; height: 14px; border-radius: 50%; border: 2px solid currentColor; flex: none; }
+.golf-key .cup { color: #7dffc4; }
+.golf-key .maw { color: #b49cff; background: #000; }
+.golf-key .planet { color: #ffb347; background: rgba(255, 179, 71, 0.25); }
+.golf-key .warp { color: #ff8df0; border-style: dashed; }
+.golf-key .tee { color: #8fd4ff; border-radius: 2px; }
+
+/* The pause map wants the hole visible behind it, so the scrim lifts and the
+   panel gets out of the middle of the room. */
+#overlay.map { background: rgba(3, 5, 12, 0.18); place-items: end center; padding-bottom: 20px; }
+#overlay.map .panel { width: min(760px, 100%); background: rgba(6, 10, 22, 0.92); padding: 18px 24px; }
+#overlay.map .panel h1 { font-size: 22px; }
+#overlay.map .panel .intro { font-size: 14px; }
+
 @media (max-width: 720px) {
   .columns, .columns.three, .top { grid-template-columns: 1fr; }
   .panel { padding: 20px 18px; }

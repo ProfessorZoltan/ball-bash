@@ -161,6 +161,50 @@ export function wellSwallows(well, x, y, r = 0) {
   return Math.hypot(well.x - x, well.y - y) < well.r + r * 0.5;
 }
 
+/**
+ * The combined pull of every gravity body at (x, y), in px/s², or null where
+ * there is none. A hole on the golf course carries several; a level carries
+ * one or none, and the sum is the same answer it always gave.
+ */
+export function wellsAccel(wells, x, y) {
+  let ax = 0;
+  let ay = 0;
+  for (const w of wells) {
+    const p = wellField(w, x, y);
+    if (!p) continue;
+    ax += p.ux * w.pull * p.k;
+    ay += p.uy * w.pull * p.k;
+  }
+  return ax || ay ? { ax, ay } : null;
+}
+
+/** The first body whose horizon has (x, y) inside it, or null. A solid body has no horizon: its surface is a wall. */
+export function swallowingWell(wells, x, y, r = 0) {
+  for (const w of wells) if (!w.solid && wellSwallows(w, x, y, r)) return w;
+  return null;
+}
+
+/** Drag a fighter toward every well that reaches them. */
+export function wellsDrag(wells, f, dt) {
+  for (const w of wells) if (w.drag) wellDrag(w, f, dt);
+}
+
+/** Every gravity body a level declares: its single `well`, or a hole's list (the cup last). */
+export function levelWells(def) {
+  const list = def.wells && def.wells.length ? def.wells : def.well ? [def.well] : [];
+  return list.map((w) => ({
+    x: w.x,
+    y: w.y,
+    r: w.r || 40,
+    range: w.range || 400,
+    pull: w.pull || 60000,
+    drag: w.drag === undefined ? 45000 : w.drag,
+    solid: !!w.solid,
+    hazard: !!w.hazard,
+    cup: def.cup ? w === def.cup : false,
+  }));
+}
+
 /** A phasing drone's clock: solid for `on` seconds, then intangible for `off`, from the start of the level. */
 export function dronePhased(phasing, t) {
   const cycle = phasing.on + phasing.off;
@@ -313,13 +357,31 @@ export function createGameState(def, { pvp = false, coop = false, volley = false
     for (const sg of segs) sg.turret = t;
     staticWalls.push(...segs);
   });
+  // Gravity bodies. A solid one (a golf hole's planet) is a wall as well as a
+  // field: its surface bounces the ball while its pull bends everything near.
+  const wells = levelWells(def);
+  const wellPolys = [];
+  for (const w of wells) {
+    if (!w.solid) continue;
+    const poly = ellipse(w.x, w.y, w.r, w.r, 22);
+    const segs = polygonEdges(poly, 'planet');
+    for (const sg of segs) sg.well = w;
+    staticWalls.push(...segs);
+    wellPolys.push(poly);
+  }
   const movers = (def.movers || []).map(createMover);
   let player;
   let boss;
   let fighters;
   const allies = [];
   let drones = [];
-  if (pvp) {
+  if (def.golf) {
+    // A hole has no opponent. The one human is the launcher: it stands on the
+    // tee, turns to aim and never moves, whatever frame it wears.
+    player = new Fighter({ ...playerStats(def, def.player, frameFor('a')), moveSpeed: 0, name: 'You', kind: 'player', slot: 'a', team: 'us', color: def.palette.wall });
+    boss = null;
+    fighters = [player];
+  } else if (pvp) {
     // Every player for themselves: each human is its own team, seated at the
     // spawns in order (the host first). `boss` stays an alias for the second
     // seat so shared code has something to point at.
@@ -357,8 +419,11 @@ export function createGameState(def, { pvp = false, coop = false, volley = false
     f.chargeAt = 0;
   }
   for (const d of drones) if (d.phasing) d.phased = dronePhased(d.phasing, 0);
-  // The gravity well: `r` is the horizon, `range` how far the pull reaches.
-  const well = def.well ? { x: def.well.x, y: def.well.y, r: def.well.r || 40, range: def.well.range || 400, pull: def.well.pull || 60000, drag: def.well.drag || 45000 } : null;
+  // `well` is the one body a level carries, kept for everything written before
+  // a hole could carry several; `wells` is the list the physics reads.
+  const well = def.well ? wells[0] : null;
+  // Wormholes: paired mouths that hand the charge on at the heading it arrived with.
+  const wormholes = (def.wormholes || []).map((w, i) => ({ ax: w.ax, ay: w.ay, bx: w.bx, by: w.by, r: w.r || 36, i }));
   const ice = def.ice ? new IceTrail(def.ice) : null;
   // Coolant vents: each drops a patch of ice every `period` seconds, the first after `delay`.
   const vents = (def.vents || []).map((v, i) => ({ x: v.x, y: v.y, r: v.r || 48, period: v.period || 7, delay: v.delay || 0, i, nextAt: v.delay || 0 }));
@@ -366,12 +431,12 @@ export function createGameState(def, { pvp = false, coop = false, volley = false
   ball.x = def.ball.x;
   ball.y = def.ball.y;
   ball.held = true;
-  const staticPolys = def.obstacles.filter((o) => !o.glass).map(obstaclePoly).concat(nodePolys, turretPolys);
+  const staticPolys = def.obstacles.filter((o) => !o.glass).map(obstaclePoly).concat(nodePolys, turretPolys, wellPolys);
   const objective = { nodes: nodes.length, drones: def.objective && def.objective.drones ? drones.length : 0, turrets: def.objective && def.objective.turrets && !pvp ? turrets.length : 0 };
   // The frame each human seat wears, so the HUD and the tests can read it back.
   const wornFrames = {};
   for (const f of humans) wornFrames[f.slot] = frameFor(f.slot);
-  const g = { def, staticWalls, staticPolys, panes, doors, walls: [], solidPolys: [], player, ally, allies, boss, drones, nodes, turrets, emitters, shots: [], objective, fighters, humans, movers, ice, vents, well, frames: wornFrames, ball, volley: !!volley && pvp, maxSpeed: maxSpeed || def.maxBallSpeed || BALL.maxSpeed, pvp, players: pvpCount, coop: !pvp && allyCount > 0, rules: { ...DEFAULT_RULES, ...rules } };
+  const g = { def, staticWalls, staticPolys, panes, doors, walls: [], solidPolys: [], player, ally, allies, boss, drones, nodes, turrets, emitters, shots: [], objective, fighters, humans, movers, ice, vents, well, wells, wormholes, golf: null, frames: wornFrames, ball, volley: !!volley && pvp, maxSpeed: maxSpeed || def.maxBallSpeed || BALL.maxSpeed, pvp, players: pvpCount, coop: !pvp && allyCount > 0, rules: { ...DEFAULT_RULES, ...rules } };
   rebuildWalls(g);
   return g;
 }
