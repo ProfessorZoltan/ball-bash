@@ -3916,7 +3916,8 @@ function golfWarp() {
   const gf = g.golf;
   const b = g.ball;
   for (const w of g.wormholes) {
-    const ends = [[w.ax, w.ay, w.bx, w.by], [w.bx, w.by, w.ax, w.ay]];
+    // A one-way pair's far mouth only lets go.
+    const ends = w.oneWay ? [[w.ax, w.ay, w.bx, w.by]] : [[w.ax, w.ay, w.bx, w.by], [w.bx, w.by, w.ax, w.ay]];
     for (const [ex, ey, tx, ty] of ends) {
       if (Math.hypot(b.x - ex, b.y - ey) > w.r) continue;
       const s = b.speed || 1;

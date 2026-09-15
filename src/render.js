@@ -2,6 +2,7 @@
 // walls to give the "slightly off-centre top-down" feel.
 import { BALL, PLAYER } from './config.js';
 import { clamp, lerp } from './vec.js';
+import { fitScale, cameraTarget, cameraOffset, easeCamera } from './camera.js';
 
 const WALL_HEIGHT = 9; // px of extrusion under each wall face
 
@@ -11,6 +12,7 @@ function withAlpha(hex, a) {
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
 }
 const DARK_SCALE = 0.5; // the darkness layer's resolution relative to the canvas
+const STATIC_LAYER_PIXELS = 18e6; // the most pixels the static layer holds: a big world drops its density rather than its walls
 
 export class Renderer {
   constructor(canvas) {
@@ -19,6 +21,9 @@ export class Renderer {
     this.view = { scale: 1, ox: 0, oy: 0, w: 0, h: 0, dpr: 1 };
     this.level = null;
     this.staticLayer = null;
+    this.scrolls = false; // the level is bigger than the window: the view follows a camera
+    this.cam = null; // where the camera is, in world px, while a level scrolls
+    this.camTime = 0;
     this.low = false; // low quality: pixel density capped at 1, no glow on moving things
     this.maxDpr = 2;
     this.darkScale = DARK_SCALE;
@@ -41,6 +46,7 @@ export class Renderer {
     this.level = level;
     this.maxSpeed = maxSpeed || (level && level.maxBallSpeed) || BALL.maxSpeed;
     this.staticLayer = null;
+    this.cam = null;
   }
 
   resize() {
@@ -53,10 +59,30 @@ export class Renderer {
     this.canvas.style.height = h + 'px';
     const lw = this.level ? this.level.width : 1600;
     const lh = this.level ? this.level.height : 900;
-    const scale = Math.min(w / lw, h / lh);
-    this.view = { scale, ox: (w - lw * scale) / 2, oy: (h - lh * scale) / 2, w, h, dpr };
+    // A level that declares a `view` is scaled to that window, not to itself,
+    // and the camera carries the window over it.
+    const vw = this.level && this.level.view ? this.level.view.w : lw;
+    const vh = this.level && this.level.view ? this.level.view.h : lh;
+    const scale = fitScale(w, h, vw, vh);
+    this.scrolls = lw * scale > w + 0.5 || lh * scale > h + 0.5;
+    const o = cameraOffset(this.cam || { x: lw / 2, y: lh / 2 }, { w: lw, h: lh }, w, h, scale);
+    this.view = { scale, ox: o.ox, oy: o.oy, w, h, dpr };
     this.staticLayer = null;
     this.darkLayer = null;
+  }
+
+  /** Move the camera for this frame and set the view's offset from it. A level that fits the window never moves. */
+  updateCamera(game, time) {
+    if (!this.scrolls) return;
+    const L = this.level;
+    const v = this.view;
+    const target = cameraTarget(game, L);
+    const dt = this.camTime ? Math.min(0.1, time - this.camTime) : 0;
+    this.camTime = time;
+    this.cam = easeCamera(this.cam, target, dt);
+    const o = cameraOffset(this.cam, { w: L.width, h: L.height }, v.w, v.h, v.scale);
+    v.ox = o.ox;
+    v.oy = o.oy;
   }
 
   /**
@@ -66,13 +92,18 @@ export class Renderer {
    */
   buildStaticLayer() {
     const v = this.view;
+    const L = this.level;
+    // The layer holds the whole world at the view's scale, so a scrolling
+    // level blits a window of it each frame. Its pixel density drops on a
+    // world too big to hold at full density.
+    const ldpr = Math.min(v.dpr, Math.sqrt(STATIC_LAYER_PIXELS / (L.width * v.scale * L.height * v.scale)));
     const off = document.createElement('canvas');
-    off.width = this.canvas.width;
-    off.height = this.canvas.height;
+    off.width = Math.ceil(L.width * v.scale * ldpr);
+    off.height = Math.ceil(L.height * v.scale * ldpr);
     const ctx = off.getContext('2d');
     ctx.fillStyle = '#03050c';
     ctx.fillRect(0, 0, off.width, off.height);
-    ctx.setTransform(v.dpr * v.scale, 0, 0, v.dpr * v.scale, v.ox * v.dpr, v.oy * v.dpr);
+    ctx.setTransform(ldpr * v.scale, 0, 0, ldpr * v.scale, 0, 0);
     const live = this.ctx;
     this.ctx = ctx;
     this.drawFloor(this.level);
@@ -115,12 +146,12 @@ export class Renderer {
       shx = (Math.random() - 0.5) * game.fx.shake;
       shy = (Math.random() - 0.5) * game.fx.shake;
     }
+    this.updateCamera(game, time);
     if (!this.staticLayer) this.buildStaticLayer();
-    if (shx || shy) {
-      ctx.fillStyle = '#03050c';
-      ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-    }
-    ctx.drawImage(this.staticLayer, shx * v.dpr, shy * v.dpr);
+    ctx.fillStyle = '#03050c';
+    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    const L = this.staticLayer;
+    ctx.drawImage(L, 0, 0, L.width, L.height, (v.ox + shx) * v.dpr, (v.oy + shy) * v.dpr, level.width * v.scale * v.dpr, level.height * v.scale * v.dpr);
     ctx.setTransform(v.dpr * v.scale, 0, 0, v.dpr * v.scale, (v.ox + shx) * v.dpr, (v.oy + shy) * v.dpr);
 
     for (const w of game.wells || []) {
@@ -644,6 +675,7 @@ export class Renderer {
     for (const [x, y, dir] of [[w.ax, w.ay, 1], [w.bx, w.by, -1]]) {
       ctx.save();
       ctx.translate(x, y);
+      const exitOnly = w.oneWay && dir === -1;
       const halo = ctx.createRadialGradient(0, 0, 0, 0, 0, w.r * 1.5);
       halo.addColorStop(0, withAlpha(color, 0.3));
       halo.addColorStop(1, withAlpha(color, 0));
@@ -653,7 +685,7 @@ export class Renderer {
       ctx.arc(0, 0, w.r * 1.5, 0, Math.PI * 2);
       ctx.fill();
       ctx.strokeStyle = color;
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < (exitOnly ? 1 : 3); i++) {
         const rr = w.r * (1 - i * 0.24);
         ctx.setLineDash([rr * 0.7, rr * 0.5]);
         ctx.lineDashOffset = dir * time * (30 + i * 26);
@@ -763,25 +795,40 @@ export class Renderer {
    */
   drawGolfMap(game, level, time) {
     const ctx = this.ctx;
+    const v = this.view;
     const p = level.palette;
     ctx.save();
-    ctx.fillStyle = 'rgba(3, 5, 12, 0.55)';
-    ctx.fillRect(-50, -50, level.width + 100, level.height + 100);
-    ctx.font = '600 15px Inter, system-ui, sans-serif';
+    // A hole that fits the window is dimmed in place and labelled. One that
+    // scrolls is drawn whole, fitted to the screen, with the window marked.
+    let s = 1;
+    if (this.scrolls) {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = 'rgba(3, 5, 12, 0.88)';
+      ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+      s = Math.min(v.w / level.width, v.h / level.height) * 0.9;
+      const mx = (v.w - level.width * s) / 2;
+      const my = (v.h - level.height * s) / 2 - v.h * 0.04;
+      ctx.setTransform(v.dpr * s, 0, 0, v.dpr * s, mx * v.dpr, my * v.dpr);
+      this.drawMapSchematic(game, level, time, s);
+    } else {
+      ctx.fillStyle = 'rgba(3, 5, 12, 0.55)';
+      ctx.fillRect(-50, -50, level.width + 100, level.height + 100);
+    }
+    ctx.font = `600 ${15 / s}px Inter, system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     const label = (x, y, text, color, r) => {
       ctx.strokeStyle = color;
       ctx.globalAlpha = 0.9;
-      ctx.lineWidth = 2;
-      ctx.setLineDash([4, 5]);
+      ctx.lineWidth = 2 / s;
+      ctx.setLineDash([4 / s, 5 / s]);
       ctx.beginPath();
       ctx.arc(x, y, r, 0, Math.PI * 2);
       ctx.stroke();
       ctx.setLineDash([]);
       ctx.fillStyle = color;
       ctx.globalAlpha = 1;
-      ctx.fillText(text, x, y - r - 14);
+      ctx.fillText(text, x, y - r - 14 / s);
     };
     for (const w of game.wells) {
       if (w.cup) label(w.x, w.y, 'THE CUP', p.cup || '#7dffc4', w.r + 26);
@@ -793,6 +840,9 @@ export class Renderer {
     game.wormholes.forEach((w, i) => {
       const color = w.color || p.warp || '#ff8df0';
       const name = game.wormholes.length > 1 ? `MOUTH ${String.fromCharCode(65 + i)}` : 'MOUTH';
+      // A one-way pair is the one case where IN and OUT are true.
+      const nameA = w.oneWay ? `${name} · IN` : name;
+      const nameB = w.oneWay ? `${name} · OUT` : name;
       ctx.strokeStyle = color;
       ctx.globalAlpha = 0.6;
       ctx.lineWidth = 2;
@@ -803,10 +853,125 @@ export class Renderer {
       ctx.lineTo(w.bx, w.by);
       ctx.stroke();
       ctx.setLineDash([]);
-      label(w.ax, w.ay, name, color, w.r + 12);
-      label(w.bx, w.by, name, color, w.r + 12);
+      label(w.ax, w.ay, nameA, color, w.r + 12);
+      label(w.bx, w.by, nameB, color, w.r + 12);
     });
     label(level.tee.x, level.tee.y, 'TEE', p.wall || '#8fd4ff', 46);
+    ctx.restore();
+  }
+
+  /**
+   * The whole hole as a chart, drawn in world units under a fit-all transform
+   * at scale `s`: the room, its walls, every body, the mouths, the tee, the
+   * charge, the flight so far and its ghost, and the window the screen shows.
+   */
+  drawMapSchematic(game, level, time, s) {
+    const ctx = this.ctx;
+    const v = this.view;
+    const p = level.palette;
+    ctx.save();
+    ctx.beginPath();
+    polyPath(ctx, level.boundary);
+    ctx.fillStyle = 'rgba(12, 20, 40, 0.9)';
+    ctx.fill();
+    ctx.lineWidth = 3 / s;
+    ctx.strokeStyle = p.wall;
+    ctx.stroke();
+    for (const o of level.obstacles) {
+      ctx.beginPath();
+      polyPath(ctx, Array.isArray(o) ? o : o.poly);
+      ctx.fillStyle = p.obstacleDark || '#2a1a46';
+      ctx.fill();
+      ctx.lineWidth = 2 / s;
+      ctx.strokeStyle = p.obstacle;
+      ctx.stroke();
+    }
+    for (const m of game.movers || []) {
+      for (const sg of m.segments()) {
+        ctx.beginPath();
+        ctx.moveTo(sg.ax, sg.ay);
+        ctx.lineTo(sg.bx, sg.by);
+        ctx.lineWidth = (m.thick || 6) * 2;
+        ctx.strokeStyle = p.obstacle;
+        ctx.stroke();
+      }
+    }
+    for (const w of game.wells) {
+      const color = w.cup ? p.cup || '#7dffc4' : w.solid ? p.planet || '#ffb347' : p.well || '#b49cff';
+      ctx.setLineDash([6 / s, 10 / s]);
+      ctx.lineWidth = 1.5 / s;
+      ctx.strokeStyle = color;
+      ctx.globalAlpha = 0.35;
+      ctx.beginPath();
+      ctx.arc(w.x, w.y, w.range, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+      ctx.beginPath();
+      ctx.arc(w.x, w.y, w.r, 0, Math.PI * 2);
+      ctx.fillStyle = w.solid ? withAlpha(color, 0.35) : '#000000';
+      ctx.fill();
+      ctx.lineWidth = 2 / s;
+      ctx.stroke();
+    }
+    for (const w of game.wormholes) {
+      const color = w.color || p.warp || '#ff8df0';
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2 / s;
+      for (const [x, y] of [[w.ax, w.ay], [w.bx, w.by]]) {
+        ctx.setLineDash([w.r * 0.5, w.r * 0.35]);
+        ctx.beginPath();
+        ctx.arc(x, y, w.r, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+    }
+    // The flight, and the ghost of the last one.
+    const gf = game.golf;
+    const line = (pts, alpha, dash) => {
+      if (!pts || pts.length < 2) return;
+      ctx.setLineDash(dash);
+      ctx.lineWidth = 1.5 / s;
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = p.wall;
+      ctx.beginPath();
+      let pen = false;
+      for (const q of pts) {
+        if (q.warp) {
+          pen = false;
+          continue;
+        }
+        if (!pen) ctx.moveTo(q.x, q.y);
+        else ctx.lineTo(q.x, q.y);
+        pen = true;
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+    };
+    if (gf) {
+      line(gf.ghost, 0.3, [6 / s, 8 / s]);
+      line(gf.trace, 0.7, []);
+    }
+    // The launcher and the charge.
+    const f = game.player;
+    ctx.beginPath();
+    ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2);
+    ctx.fillStyle = withAlpha(f.color, 0.5);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(game.ball.x, game.ball.y, game.ball.r * 1.6, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = f.color;
+    ctx.shadowBlur = this.blur(12 / s);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    // The window: what the screen is looking at right now.
+    ctx.setLineDash([8 / s, 6 / s]);
+    ctx.lineDashOffset = -time * 20;
+    ctx.lineWidth = 1.5 / s;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+    ctx.strokeRect(-v.ox / v.scale, -v.oy / v.scale, v.w / v.scale, v.h / v.scale);
     ctx.restore();
   }
 

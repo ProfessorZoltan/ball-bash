@@ -491,8 +491,8 @@ existing `ellipse`) live next to the arenas, and every arena is fired at in
 ## Galactic Golf (the Outer Course)
 
 A solo mode that is not Pong at all. Out past the last room the Architect drew
-there is a short course: a tee, a charge, and seven holes with nothing in them
-to deflect. Tilt the frame to pick a line, thrust once to launch, and from then
+there is a course: a tee, a charge, and nine holes with nothing in them to
+deflect. Tilt the frame to pick a line, thrust once to launch, and from then
 on the only say you have is the **ion gauge** — six pulses that shove the charge
 sideways mid-flight. Reach the cup and the hole is done; the launches it took
 are counted against the hole's par.
@@ -523,6 +523,11 @@ The course as it stands:
 | 5 | Carom | 3 | 9 s | Straight into the mouth is straight into the maw; bank off the plate first so the far mouth points at the cup | `COURSE[4]` in `src/golf.js` |
 | 6 | Long Orbit | 4 | 18 s | A body big enough to hold an orbit; ride it round, then burn outward when the pocket comes by | `COURSE[5]` in `src/golf.js` |
 | 7 | Matched Pair | 3 | 9 s | Two pairs of mouths in two colours; the gold pair drops you into a sealed box, the rose pair is the only way out and across | `COURSE[6]` in `src/golf.js` |
+| 8 | Relay | 4 | 22 s | Two screens wide. A narrow gap, a mouth past it that is the only way past a second wall, and a far mouth that sets you down on an orbit; ride it to the pocket and burn out | `COURSE[7]` in `src/golf.js` |
+| 9 | Twin Bodies | 5 | 30 s | Two screens each way. Orbit the first body, burn to transfer to the second, orbit that, burn into the cup's corner, which only the second orbit reaches | `COURSE[8]` in `src/golf.js` |
+
+Those nine are the front nine: every mechanic on the course, one or two at a
+time, in the order they are easiest to learn.
 
 On the last three the direct line is proved not to work: the tests fly the
 straight shot into hole 4's and hole 5's mouths and require it to end in the
@@ -554,12 +559,31 @@ Each hole opens on that map as a briefing, and every flight leaves a ghost: the
 line your last shot flew is drawn faint under the next one, so an aim is
 adjusted against something rather than guessed again.
 
-Three deliberate limits, since they shape what the mode can be:
+### Holes bigger than the screen
 
-* **A hole is one screen.** The renderer scales a whole level to the viewport
-  and never scrolls, so a hole bigger than the window would need a camera. The
-  course is built to fit for now, and the map overlay is already the piece a
-  camera would need.
+A hole may be bigger than the window. It declares `view`, the size of the
+window in world units (every big hole uses one arena's worth, 1600 × 900, so
+it plays at the same zoom as the small ones), and the renderer scales to that
+instead of to the level. A camera then carries the window over the world: it
+holds the tee while a launch is aimed, follows the charge in flight, led a
+little by its velocity so the ball is not pinned to the centre of the screen,
+and never shows past a world edge. The floor, walls and obstacles are still
+drawn once, into a static layer the size of the whole world, and a window of
+it is blitted each frame; a world too big to hold at full pixel density drops
+its density rather than its walls. The camera's arithmetic is a small pure
+module, `src/camera.js`, and the tests drive it.
+
+On a hole that scrolls, **P** is a real map: the whole hole drawn to fit the
+screen, every body, mouth and wall on it, the flight so far and the ghost of
+the last one, and a dotted rectangle showing what the window is looking at.
+On a hole that fits the screen it is what it was, the hole dimmed in place
+and labelled.
+
+A pair of mouths may be **one-way** (`oneWay`), its far mouth only letting go:
+Relay's far mouth sits on the orbit it sets you down on, and a two-way mouth
+there would take the charge back after one lap.
+
+Two deliberate limits, since they shape what the mode can be:
 * **A flight is spent after the hole's clock.** A charge never stalls (the
   floor speed is the ball's), so without a clock one would bounce around the
   room until it fell in the cup by accident. Nine seconds is roughly twice a
@@ -606,6 +630,8 @@ nowhere else in the game, and drums that come in late if at all.
 | 5 | Carom (Bank Theme) | G lydian | 110 | `TRACKS.carom` |
 | 6 | Long Orbit (Body Theme) | D major | 80 | `TRACKS.orbit` |
 | 7 | Matched Pair (Two Colours Theme) | B minor | 98 | `TRACKS.pair` |
+| 8 | Relay (Long Hole Theme) | E minor | 96 | `TRACKS.relay` |
+| 9 | Twin Bodies (Transfer Theme) | A major | 78 | `TRACKS.twins` |
 
 To get there the engine gained a few knobs a track may set, all of which the
 level tracks leave at their old defaults: `fx` sizes the room (the reverb and
@@ -1037,6 +1063,7 @@ src/levels.js              level data, the roster and the tutorial's training ha
 src/conduits.js            the conduits between levels and the campaign sequence
 src/frames.js              the four frames, the eight cells and what they buy
 src/golf.js                Galactic Golf: the Outer Course, its holes and its tunables
+src/camera.js              the camera for a level bigger than the screen (pure)
 src/lore.js                worldbuilding: the bulletin, the record's chapters, status words
 src/input.js               keyboard, mouse, touch -> one intent object
 src/render.js              Canvas 2D neon renderer with 2.5D wall extrusion

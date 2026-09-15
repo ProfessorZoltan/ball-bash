@@ -55,8 +55,13 @@ function cup(x, y, extra = {}) {
  * same heading. A hole with more than one pair colours each, and a mouth
  * leads to the one in its own colour.
  */
-function warp(ax, ay, bx, by, r = 36, color = null) {
-  return { ax, ay, bx, by, r, color };
+function warp(ax, ay, bx, by, r = 36, color = null, extra = {}) {
+  return { ax, ay, bx, by, r, color, ...extra };
+}
+
+/** A pair whose far mouth only lets go: nothing that reaches it is taken back. For a mouth that sits on an orbit. */
+function oneWay(ax, ay, bx, by, r = 36, color = null) {
+  return warp(ax, ay, bx, by, r, color, { oneWay: true });
 }
 
 /** The second pair's colour on a hole that has two. The first wears the palette's. */
@@ -97,9 +102,14 @@ function hole(spec) {
     stopped: spec.sunk,
     width: spec.width || 1600,
     height: spec.height || 900,
+    // A hole bigger than one screen says how much of itself the screen shows
+    // at once, in world units; the camera does the rest.
+    view: spec.view || null,
     track: spec.track,
     maxBallSpeed: spec.maxBallSpeed || GOLF.maxSpeed,
     fuel: spec.fuel === undefined ? GOLF.fuel : spec.fuel,
+    // A hole no line from the tee can sink without the gauge: the tests hold it to that.
+    noBareLine: !!spec.noBareLine,
     // How long a flight may run before it is spent. A hole built round an
     // orbit needs more than one built round a bank shot.
     flightSeconds: spec.flightSeconds || GOLF.flightSeconds,
@@ -128,6 +138,23 @@ const ROOM = [
   [140, 840],
   [60, 760],
 ];
+
+/** A chamfered room of any size, with the same 60 px margin and 80 px corners as ROOM. */
+function room(w, h) {
+  return [
+    [60, 140],
+    [140, 60],
+    [w - 140, 60],
+    [w - 60, 140],
+    [w - 60, h - 140],
+    [w - 140, h - 60],
+    [140, h - 60],
+    [60, h - 140],
+  ];
+}
+
+/** The window every hole bigger than a screen shows at once: one arena's worth. */
+const SCREEN = { w: 1600, h: 900 };
 
 export const COURSE = [
   hole({
@@ -275,6 +302,65 @@ export const COURSE = [
     wells: [maw(1300, 730, { r: 40, range: 250, pull: 56000 })],
     cup: cup(1350, 426),
     wormholes: [warp(560, 250, 380, 700, 36, GOLD), warp(620, 567, 1000, 620)],
+  }),
+  hole({
+    id: 'g8',
+    hole: 8,
+    par: 4,
+    title: 'Relay',
+    track: 'relay',
+    width: 3200,
+    height: 900,
+    view: SCREEN,
+    flightSeconds: 22,
+    noBareLine: true,
+    intro: 'The first hole longer than the screen: the map on P shows all of it, and the window follows the charge. A wall with one narrow gap in it, a mouth beyond the gap, and a second wall the mouth is the only way past. The far mouth sets you down on the orbit of a body at the far end, tangent to it if you came in level. Ride the orbit round to the pocket, and burn out.',
+    record: 'Four things in a line, and each of them only lets through what the one before it sent straight. The void calls that a relay. So does anyone who has tried it.',
+    sunk: 'Through the gap, through the mouth, round the body, and out. One line, and then one burn.',
+    boundary: room(3200, 900),
+    tee: { x: 200, y: 450, angle: 0.2 },
+    obstacles: [
+      // The first wall: a gap 110 px wide, a little below the middle.
+      rect(900, 245, 24, 370),
+      rect(900, 690, 24, 300),
+      // The second wall: sealed. Only the mouth crosses it.
+      rect(1700, 450, 24, 780),
+      // The pocket at the far end, open toward the body.
+      rect(3050, 340, 180, 18),
+      rect(3050, 560, 180, 18),
+    ],
+    wells: [planet(2450, 450, { r: 90, range: 600, pull: 184900 })],
+    cup: cup(3040, 450),
+    // The far mouth sets the charge down a mouth's width beyond itself, on the
+    // top of the orbit; it only lets go, or the next lap would take the charge back.
+    wormholes: [oneWay(1300, 500, 2397, 150)],
+  }),
+  hole({
+    id: 'g9',
+    hole: 9,
+    par: 5,
+    title: 'Twin Bodies',
+    track: 'twins',
+    width: 3200,
+    height: 1800,
+    view: SCREEN,
+    flightSeconds: 30,
+    fuel: 8,
+    intro: 'Two bodies, each big enough to hold an orbit, and the cup in a pocket beyond the second. You start on the first body\'s orbit. Somewhere on it there is a moment to burn that lifts you out of one field and drops you into the other; ride the second body round until the pocket comes by, and burn again. Eight pulses, two burns, and the map on P to plan them with.',
+    record: 'The void kept two bodies close enough that a charge could belong to either. Most that have tried to change their mind about which have ended up belonging to neither.',
+    sunk: 'One orbit, a burn, a second orbit, a burn. The longest hole on the course, and the only one that is all timing.',
+    boundary: room(3200, 1800),
+    tee: { x: 600, y: 1250, angle: -Math.PI / 2 },
+    noBareLine: true,
+    obstacles: [
+      // A wall from the ceiling to below the second body's orbit, and a shelf
+      // from the far wall: the corner the cup sits in is entered through the
+      // gap between them, from underneath, on a line only the second orbit gives.
+      rect(2700, 380, 24, 640),
+      rect(3000, 700, 280, 18),
+    ],
+    wells: [planet(900, 1250, { r: 90, range: 600, pull: 184900 }), planet(2300, 550, { r: 90, range: 600, pull: 184900 })],
+    cup: cup(2960, 250),
   }),
 ];
 

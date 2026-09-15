@@ -443,7 +443,7 @@ export function createGameState(def, { pvp = false, coop = false, volley = false
   // a hole could carry several; `wells` is the list the physics reads.
   const well = def.well ? wells[0] : null;
   // Wormholes: paired mouths that hand the charge on at the heading it arrived with.
-  const wormholes = (def.wormholes || []).map((w, i) => ({ ax: w.ax, ay: w.ay, bx: w.bx, by: w.by, r: w.r || 36, color: w.color || null, i }));
+  const wormholes = (def.wormholes || []).map((w, i) => ({ ax: w.ax, ay: w.ay, bx: w.bx, by: w.by, r: w.r || 36, color: w.color || null, oneWay: !!w.oneWay, i }));
   const ice = def.ice ? new IceTrail(def.ice) : null;
   // Coolant vents: each drops a patch of ice every `period` seconds, the first after `delay`.
   const vents = (def.vents || []).map((v, i) => ({ x: v.x, y: v.y, r: v.r || 48, period: v.period || 7, delay: v.delay || 0, i, nextAt: v.delay || 0 }));

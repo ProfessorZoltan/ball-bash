@@ -838,4 +838,85 @@ export const TRACKS = {
     ],
     loopFrom: 1,
   },
+
+  relay: {
+    key: 'E minor',
+    title: 'Relay (Long Hole Theme)',
+    bpm: 96,
+    fx: { reverb: 0.8, delay: 0.7, feedback: 0.66, tone: 2800, delayBeats: 1 },
+    pad: { attack: 2, release: 3, lfoRate: 0.09, lfoDepth: 440, cutoff: 480, detune: 15 },
+    progression: [
+      { chord: [52, 55, 59, 62], pad: [40, 47, 52, 55], bass: 28, bars: 2 }, // Em7
+      { chord: [48, 52, 55, 59], pad: [36, 43, 48, 52], bass: 24, bars: 2 }, // Cmaj7
+      { chord: [50, 54, 57, 60], pad: [38, 45, 50, 54], bass: 26, bars: 2 }, // D7
+      { chord: [47, 50, 54, 57], pad: [35, 42, 47, 50], bass: 23, bars: 2 }, // Bm7, the far end
+    ],
+    // A figure that hands itself on: each bar's last note is the next bar's first.
+    arp: { octave: 12, gate: 0.7, wave: 'triangle', delay: 0.55, reverb: 0.3, pattern: [0, 2, 4, 5, 3, 1, 0, 3, 1, 4, 2, 5, 4, 2, 0, 3] },
+    bell: { octave: 24, ring: 12, pattern: [null, null, 0, null, null, null, null, null, 4, null, null, null, null, 2, null, null] },
+    bass: { pattern: [[0, 3], 0, 0, [0, 1], 0, 0, [0, 2], 0, [0, 3], 0, 0, [0, 1], 0, 0, [7, 2], 0] },
+    drums: {
+      kick: [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0],
+      snare: [0, 0, 0, 0, 0.4, 0, 0, 0, 0, 0, 0, 0, 0.4, 0, 0, 0],
+      hat: [0.4, 0, 0.5, 0, 0.4, 0, 0.5, 0, 0.4, 0, 0.5, 0, 0.4, 0, 0.5, 0.3],
+      hatOpen: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+    },
+    lead: {
+      length: 128,
+      notes: [
+        [0, 76, 8], [8, 79, 8], [16, 83, 12], [30, 81, 2],
+        [32, 79, 12], [48, 76, 8], [56, 74, 8],
+        [64, 78, 8], [72, 81, 8], [80, 86, 12], [92, 84, 4],
+        [96, 83, 8], [104, 78, 8], [112, 74, 16],
+      ],
+    },
+    sections: [
+      { name: 'the gap', bars: 8, layers: ['pad', 'bell'] },
+      { name: 'the mouth', bars: 8, layers: ['pad', 'bell', 'arp'], arpDensity: 8 },
+      { name: 'the body', bars: 16, layers: ['pad', 'bell', 'arp', 'kick', 'bass', 'hat'], arpDensity: 8, padBright: 0.3 },
+      { name: 'round', bars: 8, layers: ['pad', 'bell', 'lead', 'arp'], arpDensity: 8, arpOctave: 12 },
+      { name: 'out', bars: 16, layers: ['pad', 'bell', 'arp', 'kick', 'bass', 'hat', 'snare', 'lead'], padBright: 0.45 },
+    ],
+    loopFrom: 1,
+  },
+
+  twins: {
+    key: 'A major',
+    title: 'Twin Bodies (Transfer Theme)',
+    bpm: 78,
+    fx: { reverb: 1, delay: 0.62, feedback: 0.74, tone: 2200, delayBeats: 1.5 },
+    pad: { attack: 4, release: 6, lfoRate: 0.035, lfoDepth: 340, cutoff: 420, detune: 22, q: 1.5 },
+    progression: [
+      { chord: [57, 61, 64, 68], pad: [45, 52, 57, 61, 64], bass: 33, bars: 4 }, // Amaj7: the first body
+      { chord: [54, 57, 61, 64], pad: [42, 49, 54, 57], bass: 30, bars: 4 }, // F#m7
+      { chord: [50, 54, 57, 61], pad: [38, 45, 50, 54, 57], bass: 26, bars: 4 }, // Dmaj7: the second body
+      { chord: [52, 56, 59, 62], pad: [40, 47, 52, 56], bass: 28, bars: 4 }, // E7, the way across
+    ],
+    arp: { octave: 12, gate: 1, wave: 'triangle', delay: 0.45, reverb: 0.5, pattern: [0, 1, 2, 3, 4, 5, 4, 3, 2, 1, 0, 1, 2, 3, 4, 5] },
+    bell: { octave: 24, ring: 16, pattern: [0, null, null, null, null, null, null, null, 2, null, null, null, null, null, null, null] },
+    bass: { pattern: [[0, 8], 0, 0, 0, 0, 0, 0, 0, [0, 8], 0, 0, 0, 0, 0, 0, 0] },
+    drums: {
+      kick: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      snare: [0, 0, 0, 0, 0, 0, 0, 0, 0.3, 0, 0, 0, 0, 0, 0, 0],
+      hat: [0, 0, 0, 0, 0.3, 0, 0, 0, 0, 0, 0, 0, 0.3, 0, 0, 0],
+      hatOpen: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    },
+    lead: {
+      length: 256,
+      notes: [
+        [0, 76, 24], [32, 80, 16], [48, 83, 16],
+        [64, 81, 24], [96, 76, 24],
+        [128, 78, 16], [144, 81, 16], [160, 85, 32],
+        [192, 83, 16], [208, 80, 16], [224, 76, 32],
+      ],
+    },
+    sections: [
+      { name: 'first body', bars: 8, layers: ['pad', 'bell'] },
+      { name: 'orbit', bars: 16, layers: ['pad', 'bell', 'arp'], arpDensity: 8 },
+      { name: 'transfer', bars: 16, layers: ['pad', 'bell', 'arp', 'kick', 'bass', 'hat'], arpDensity: 8, padBright: 0.2 },
+      { name: 'second body', bars: 16, layers: ['pad', 'bell', 'lead', 'arp', 'bass'], arpDensity: 8, arpOctave: 12 },
+      { name: 'let go', bars: 16, layers: ['pad', 'bell', 'arp', 'kick', 'bass', 'hat', 'snare', 'lead'], arpDensity: 8, padBright: 0.35 },
+    ],
+    loopFrom: 1,
+  },
 };

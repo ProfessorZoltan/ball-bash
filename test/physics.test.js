@@ -1602,8 +1602,9 @@ test('volley: a shield moves a charge like it moves the ball, and the arena cap 
  * then the ball step, then the horizons and the wormhole mouths. `pulses` are
  * ion pulses as {at, a} — the time they are spent and the heading they push.
  */
-async function golfFly(def, angle, { pulses = [], maxT = null, events = false } = {}) {
+async function golfFly(def, angle, { pulses = [], maxT = null, events = false, watch = null } = {}) {
   let warps = 0;
+  let inWatch = 0; // seconds spent inside `watch`'s reach, a body to keep an eye on
   void events;
   const { createGameState, wellsAccel, swallowingWell } = await import('../src/gamestate.js');
   const { PHYSICS_DT, SURFACE_VELOCITY_FACTOR } = await import('../src/config.js');
@@ -1635,13 +1636,14 @@ async function golfFly(def, angle, { pulses = [], maxT = null, events = false } 
     advanceBall(b, g.walls, [], PHYSICS_DT, SURFACE_VELOCITY_FACTOR, {}, g.movers, g.solidPolys);
     b.clampSpeed(BALL.minSpeed, g.maxSpeed);
     closest = Math.min(closest, Math.hypot(b.x - cup.x, b.y - cup.y));
+    if (watch && Math.hypot(b.x - watch.x, b.y - watch.y) < watch.range) inWatch += PHYSICS_DT;
     const took = swallowingWell(g.wells, b.x, b.y);
-    if (took) return { end: took.cup ? 'cup' : took.hazard ? 'maw' : 'horizon', t, closest, warps };
-    if (!pointInPolygon(b.x, b.y, def.boundary)) return { end: 'out', t, closest, warps };
+    if (took) return { end: took.cup ? 'cup' : took.hazard ? 'maw' : 'horizon', t, closest, warps, inWatch };
+    if (!pointInPolygon(b.x, b.y, def.boundary)) return { end: 'out', t, closest, warps, inWatch };
     if (warp > 0) warp -= PHYSICS_DT;
     else
       for (const w of g.wormholes) {
-        for (const [ex, ey, tx, ty] of [[w.ax, w.ay, w.bx, w.by], [w.bx, w.by, w.ax, w.ay]]) {
+        for (const [ex, ey, tx, ty] of w.oneWay ? [[w.ax, w.ay, w.bx, w.by]] : [[w.ax, w.ay, w.bx, w.by], [w.bx, w.by, w.ax, w.ay]]) {
           if (Math.hypot(b.x - ex, b.y - ey) > w.r) continue;
           const s = b.speed || 1;
           b.x = tx + (b.vx / s) * (w.r + b.r + 6);
@@ -1651,7 +1653,7 @@ async function golfFly(def, angle, { pulses = [], maxT = null, events = false } 
         }
       }
   }
-  return { end: 'spent', t, closest, warps };
+  return { end: 'spent', t, closest, warps, inWatch };
 }
 
 test('golf: a hole is a level with no opponent - a launcher bolted to the tee, no boss, no drones, and its cup among its bodies', async () => {
@@ -1727,6 +1729,11 @@ test('golf: every hole can be sunk off the tee, and no hole is sunk by the line 
     for (let deg = -180; deg < 180; deg += 1) {
       const r = await golfFly(def, (deg * Math.PI) / 180);
       if (r.end === 'cup') sinks.push({ deg, t: r.t });
+    }
+    if (def.noBareLine) {
+      // A hole that needs the gauge: at most a stray line or two sinks it bare, and its own test flies the route.
+      assert.ok(sinks.length <= 2, `${def.title}: ${sinks.length} of 360 lines sink it with no fuel spent`);
+      continue;
     }
     assert.ok(sinks.length > 0, `${def.title}: no launch line sinks the cup`);
     // A hole built round a bank shot can be sunk quickly; one built round an orbit takes its time.
@@ -1871,6 +1878,36 @@ test('golf: the course teaches what it says it does', async () => {
   const out = await golfFly(orbit, orbit.tee.angle, { pulses: [{ at: 4.5, a: 0 }, { at: 4.8, a: 0 }, { at: 5.1, a: 0 }] });
   assert.equal(out.end, 'cup', `burning outward after a lap lets go into the cup (${out.end}, closest ${Math.round(out.closest)})`);
   assert.ok(orbit.flightSeconds > byId('g1').flightSeconds, 'and the orbit hole gets a longer clock than a bank shot');
+  // Relay: the line through the gap and the mouth comes out on a clean orbit
+  // round the far body (one warp, nothing touched), and three pulses at 30
+  // degrees after a lap and a half let go into the pocket.
+  const relay = byId('g8');
+  const relayMouth = relay.wormholes[0];
+  const relayLine = Math.atan2(relayMouth.ay - relay.tee.y, relayMouth.ax - relay.tee.x);
+  const ride = await golfFly(relay, relayLine, { events: true });
+  assert.equal(ride.end, 'spent', 'the line orbits until the clock runs out');
+  assert.equal(ride.warps, 1, 'through the mouth once, and the one-way far mouth never takes it back');
+  const relayOut = await golfFly(relay, relayLine, { pulses: [{ at: 6, a: rad(30) }, { at: 6.3, a: rad(30) }, { at: 6.6, a: rad(30) }], events: true });
+  assert.equal(relayOut.end, 'cup', `the burn off the orbit goes down (${relayOut.end})`);
+  assert.notEqual((await golfFly(relay, relay.tee.angle)).end, 'cup');
+  // Twin Bodies: the tee's line orbits the first body for the whole clock and
+  // touches nothing; a burn after a lap and a half lifts the charge into the
+  // second body's hold, and a second burn off that orbit drops it into the
+  // cup's corner, still touching nothing. Five of the eight pulses.
+  const twins = byId('g9');
+  const [, second] = twins.wells;
+  const held = await golfFly(twins, twins.tee.angle, { events: true });
+  assert.equal(held.end, 'spent');
+  assert.ok(held.t >= twins.flightSeconds - 1e-6, 'the first orbit never ends on its own');
+  const transfer = [8, 8.3, 8.6].map((at) => ({ at, a: rad(330) })).concat([15.2, 15.5].map((at) => ({ at, a: rad(60) })));
+  const across = await golfFly(twins, twins.tee.angle, { pulses: transfer, events: true });
+  assert.equal(across.end, 'cup', `two burns take it across and down (${across.end}, closest ${Math.round(across.closest)})`);
+  assert.ok(across.t > 15.5 && across.t < twins.flightSeconds, 'after the second burn, inside the clock');
+  // With only the first burn it is held by the second body: several seconds inside its reach, and no cup.
+  const heldByB = await golfFly(twins, twins.tee.angle, { pulses: transfer.slice(0, 3), events: true, watch: second });
+  assert.notEqual(heldByB.end, 'cup', 'one burn alone does not sink it');
+  assert.ok(heldByB.inWatch >= 4, `the first burn leaves it in the second body's hold for ${heldByB.inWatch.toFixed(1)} s`);
+  assert.ok(twins.fuel >= transfer.length, 'the gauge holds both burns');
 });
 
 test('course music: every hole has its own track, none of them is a level\'s, and each asks the engine for a room', async () => {
@@ -1946,4 +1983,60 @@ test('golf: two pairs of mouths, each in its own colour, and a hole that can onl
   assert.equal(one.warps, 2);
   assert.ok(one.t < 3, 'and quickly');
   assert.notEqual((await golfFly(def, def.tee.angle)).end, 'cup', 'the tee does not point at it');
+});
+
+test('camera: a level that fits the window never moves, and one that does not is clamped to its own edges', async () => {
+  const { fitScale, cameraOffset, cameraTarget, easeCamera } = await import('../src/camera.js');
+  const { COURSE } = await import('../src/golf.js');
+  const { createGameState } = await import('../src/gamestate.js');
+  // Every level before the course, and every hole that fits, scales to itself: the old formula exactly.
+  assert.equal(fitScale(1440, 810, 1600, 900), 0.9);
+  const small = cameraOffset({ x: 100, y: 100 }, { w: 1600, h: 900 }, 1440, 810, 0.9);
+  assert.deepEqual(small, { ox: 0, oy: 0 }, 'a world that fills the window exactly sits at the origin whatever the camera says');
+  const centred = cameraOffset({ x: 0, y: 0 }, { w: 1600, h: 900 }, 1600, 1000, 1);
+  assert.deepEqual(centred, { ox: 0, oy: 50 }, 'an axis the world does not fill is centred on it');
+  // A wide hole: the window slides along it and stops at the ends.
+  const wide = COURSE.find((h) => h.width > 1600);
+  assert.ok(wide && wide.view, 'a hole bigger than the screen declares its window');
+  const s = fitScale(1440, 810, wide.view.w, wide.view.h);
+  const world = { w: wide.width, h: wide.height };
+  const mid = cameraOffset({ x: wide.width / 2, y: wide.height / 2 }, world, 1440, 810, s);
+  assert.ok(mid.ox < 0 && Math.abs(1440 / 2 - (wide.width / 2) * s - mid.ox) < 1e-9, 'the camera point sits at the centre of the screen');
+  const left = cameraOffset({ x: 10, y: wide.height / 2 }, world, 1440, 810, s);
+  assert.equal(left.ox, 0, 'the window never shows past the left edge');
+  const right = cameraOffset({ x: wide.width - 10, y: wide.height / 2 }, world, 1440, 810, s);
+  assert.ok(Math.abs(right.ox - (1440 - wide.width * s)) < 1e-9, 'nor past the right');
+  // What it looks at: the tee while aiming, the charge led by its velocity in flight, and nothing beyond the lead's cap.
+  const g = createGameState(wide, {});
+  g.golf = { phase: 'aim' };
+  assert.deepEqual(cameraTarget(g, wide), { x: wide.tee.x, y: wide.tee.y });
+  g.golf = { phase: 'flight' };
+  g.ball.x = 1000;
+  g.ball.y = 400;
+  g.ball.vx = 400;
+  g.ball.vy = 0;
+  assert.deepEqual(cameraTarget(g, wide), { x: 1120, y: 400 }, 'led by 0.3 s of velocity');
+  g.ball.vx = 4000;
+  assert.deepEqual(cameraTarget(g, wide), { x: 1260, y: 400 }, 'the lead is capped');
+  // Easing: a snap when there is no camera yet, and a fraction of the way each frame after.
+  assert.deepEqual(easeCamera(null, { x: 5, y: 6 }, 0.016), { x: 5, y: 6 });
+  const eased = easeCamera({ x: 0, y: 0 }, { x: 100, y: 0 }, 0.1);
+  assert.ok(eased.x > 30 && eased.x < 50, `a tenth of a second covers about 40%: ${eased.x}`);
+  assert.equal(easeCamera({ x: 0, y: 0 }, { x: 100, y: 0 }, 0).x, 0, 'no time, no movement');
+});
+
+test('golf: a one-way pair only lets go at its far mouth, and a hole that scrolls still keeps its tee and cup inside its own room', async () => {
+  const { createGameState } = await import('../src/gamestate.js');
+  const { COURSE } = await import('../src/golf.js');
+  const relay = COURSE.find((h) => h.id === 'g8');
+  const g = createGameState(relay, {});
+  assert.ok(g.wormholes[0].oneWay, 'the relay\'s mouth is one-way');
+  // Its far mouth sits on the orbit: a two-way mouth would take the charge back after one lap.
+  const body = g.wells.find((w) => w.solid);
+  const w = g.wormholes[0];
+  assert.ok(Math.abs(Math.hypot(w.bx - body.x, w.by - body.y) - 300) < 40, 'the far mouth is on the orbit, which is why it only lets go');
+  for (const def of COURSE.filter((h) => h.view)) {
+    assert.ok(def.width > def.view.w || def.height > def.view.h, `${def.title} is bigger than its window`);
+    assert.ok(pointInPolygon(def.tee.x, def.tee.y, def.boundary) && pointInPolygon(def.cup.x, def.cup.y, def.boundary));
+  }
 });
