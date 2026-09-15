@@ -70,8 +70,10 @@ const VOID_PALETTE = {
 
 /**
  * A hole, in the same shape as a level so the state builder, the renderer and
- * the tests need no special case. `tee` doubles as the player spawn and the
- * charge's rest position; `par` is what the hole is worth.
+ * the tests need no special case. `tee` is where the charge rests and leaves
+ * from; the launcher stands a muzzle's length behind it and turns around it,
+ * so the aim is set with the charge as the pivot. `par` is what the hole is
+ * worth.
  */
 function hole(spec) {
   const tee = spec.tee;
@@ -102,8 +104,8 @@ function hole(spec) {
     cup: spec.cup,
     wormholes: spec.wormholes || [],
     tee: { x: tee.x, y: tee.y, angle },
-    // The level shape the rest of the game reads: the launcher stands at the
-    // tee and never moves, and the charge rests there until it is launched.
+    // The level shape the rest of the game reads. The state builder seats the
+    // launcher behind the tee (its distance depends on the frame it wears).
     player: { x: tee.x, y: tee.y, angle },
     ball: { x: tee.x, y: tee.y, speed: spec.launchSpeed || GOLF.launchSpeed, angleDeg: (angle * 180) / Math.PI },
   };
@@ -174,7 +176,7 @@ export const COURSE = [
     record: 'The maw was here before the course was laid out. The course was laid out around it, which is a polite way of saying nobody could move it.',
     sunk: 'Round the maw and past the bar. The void keeps the charge and, for once, gives something back.',
     boundary: ROOM,
-    tee: { x: 200, y: 770, angle: -0.55 },
+    tee: { x: 210, y: 735, angle: -0.55 },
     wells: [maw(800, 450, { r: 44, range: 460, pull: 70000 }), planet(520, 210, { r: 42, range: 300, pull: 40000 }), planet(1010, 730, { r: 42, range: 300, pull: 40000 })],
     cup: cup(1400, 180),
     movers: [{ type: 'spinner', x: 1230, y: 330, length: 150, thick: 10, omega: 0.55, angle: 0.4 }],
@@ -233,7 +235,7 @@ export const COURSE = [
     record: 'The largest thing on the course, and the only hole with nothing to hit. Everything here is a matter of when.',
     sunk: 'Round, and round, and out. The void lets go of very little, and it let go of that.',
     boundary: ROOM,
-    tee: { x: 500, y: 450, angle: -1.36 },
+    tee: { x: 514, y: 386, angle: -1.351 },
     obstacles: [
       // The pocket: a floor under the cup and a wall to its left, so the only way in faces the body.
       rect(1435, 300, 210, 18),

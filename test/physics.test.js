@@ -1610,8 +1610,7 @@ async function golfFly(def, angle, { pulses = [], maxT = null } = {}) {
   const f = g.player;
   f.angle = angle;
   const b = g.ball;
-  const muzzle = f.paddleBase + f.paddleThick / 2 + GOLF.muzzle + BALL.radius;
-  b.launch(f.x + Math.cos(angle) * muzzle, f.y + Math.sin(angle) * muzzle, angle, def.ball.speed);
+  b.launch(def.tee.x, def.tee.y, angle, def.ball.speed); // the charge leaves from where it rests
   const plan = pulses.map((p) => ({ ...p, done: false }));
   let t = 0;
   let warp = 0;
@@ -1826,8 +1825,7 @@ test('golf: the tee is spent once the charge is away, so an orbit that comes bac
   const { wellsAccel } = await import('../src/gamestate.js');
   const f = g.player;
   const b = g.ball;
-  const m = f.paddleBase + f.paddleThick / 2 + GOLF.muzzle + BALL.radius;
-  b.launch(f.x + Math.cos(f.angle) * m, f.y + Math.sin(f.angle) * m, f.angle, def.ball.speed);
+  b.launch(def.tee.x, def.tee.y, f.angle, def.ball.speed);
   let touched = false;
   for (let t = 0; t < 6 && !touched; t += PHYSICS_DT) {
     const a = wellsAccel(g.wells, b.x, b.y);
@@ -1889,5 +1887,33 @@ test('course music: every hole has its own track, none of them is a level\'s, an
     assert.ok(t.bell && t.bell.pattern.some((p) => p !== null), `${t.title} rings`);
     assert.ok(t.bpm <= 110, `${t.title} runs slower than the arcade`);
     for (const sec of t.sections) for (const layer of sec.layers) assert.ok(['pad', 'arp', 'kick', 'bass', 'hat', 'snare', 'lead', 'stab', 'bell'].includes(layer), `${t.title}: unknown layer ${layer}`);
+  }
+});
+
+test('golf: aiming turns the frame round the charge, which stays on the tee, and the frame fits round it on every hole', async () => {
+  const { createGameState, seatLauncher, launcherReach } = await import('../src/gamestate.js');
+  const { COURSE } = await import('../src/golf.js');
+  const { FRAMES, vectorFrame } = await import('../src/frames.js');
+  const frames = FRAMES.concat(vectorFrame({ drive: 0, gyro: 0, span: 4, hull: 4 }));
+  for (const def of COURSE) {
+    for (const frame of frames) {
+      const g = createGameState(def, { frames: { a: frame.cells } });
+      const f = g.player;
+      const d = launcherReach(f);
+      const walls = g.walls;
+      for (let k = 0; k < 36; k++) {
+        f.angle = (k / 36) * Math.PI * 2;
+        seatLauncher(f, def.tee);
+        // The charge is the pivot: the body is a muzzle's length behind it, along the aim.
+        assert.ok(Math.abs(Math.hypot(f.x - def.tee.x, f.y - def.tee.y) - d) < 1e-9, `${def.title}: the body sits ${d} px behind the tee`);
+        assert.ok(Math.abs(Math.atan2(def.tee.y - f.y, def.tee.x - f.x) - f.angle) < 1e-9 || Math.abs(Math.abs(Math.atan2(def.tee.y - f.y, def.tee.x - f.x) - f.angle) - Math.PI * 2) < 1e-9, `${def.title}: the aim points from the body at the charge`);
+        // And wherever it is turned, the frame is inside the room and clear of every wall.
+        assert.ok(pointInPolygon(f.x, f.y, def.boundary), `${def.title}: the ${frame.name} at ${k * 10}deg swings out of the room`);
+        for (const w of walls) {
+          const c = closestPointOnSegment(f.x, f.y, w.ax, w.ay, w.bx, w.by);
+          assert.ok(Math.hypot(c.x - f.x, c.y - f.y) >= f.r, `${def.title}: the ${frame.name} at ${k * 10}deg swings into a wall`);
+        }
+      }
+    }
   }
 });

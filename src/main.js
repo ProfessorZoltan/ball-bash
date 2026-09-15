@@ -7,7 +7,7 @@ import { SEQUENCE, VERSUS_CONDUITS, levelLabel, shortId, campaignNextIndex } fro
 import { COURSE, COURSE_PAR, GOLF, holeLabel, toPar } from './golf.js';
 import { LORE } from './lore.js';
 import { SYSTEMS, TIERS, FRAME_CELLS, STANDARD, DEFAULT_FRAME, CUSTOM_ID, allFrames, frameById, withinBudget, cellsSpent, systemValue } from './frames.js';
-import { createGameState, rebuildWalls as rebuildWallsState, bodyHitCounts, tickCamp, versusSpawns, rotateSpawns, versusColors, VERSUS_IDS, nodeAccepts, objectiveDone, constrainToRail, wellsDrag, wellsAccel, swallowingWell, dronePhased } from './gamestate.js';
+import { createGameState, rebuildWalls as rebuildWallsState, bodyHitCounts, tickCamp, versusSpawns, rotateSpawns, versusColors, VERSUS_IDS, nodeAccepts, objectiveDone, constrainToRail, wellsDrag, wellsAccel, swallowingWell, dronePhased, seatLauncher } from './gamestate.js';
 import { NetClient, relayConfig, saveRelay } from './net.js';
 import { buildSnapshot, applySnapshot } from './netstate.js';
 import { Input } from './input.js';
@@ -183,6 +183,8 @@ function step(dt) {
   for (const f of g.humans) {
     const wasIdle = f.lungeState === 'idle';
     f.update(dt, intents[f.slot]);
+    // Aiming on the course: the charge is the pivot, and the frame swings round it.
+    if (g.golf && g.golf.phase === 'aim') seatLauncher(f, g.def.tee);
     if (wasIdle && f.lungeState === 'out') {
       onWhack();
       // Volley: the thrust is also the trigger. Rotating the shield never fires.
@@ -3743,21 +3745,16 @@ function golfTee() {
   gf.trace = [];
   gf.held = true; // whatever is being held now does not launch the next shot
   f.phased = false;
-  const m = golfMuzzle(f);
+  seatLauncher(f, g.def.tee);
+  f.markRender();
   g.ball.held = true;
   g.ball.vx = 0;
   g.ball.vy = 0;
-  g.ball.x = m.x;
-  g.ball.y = m.y;
+  g.ball.x = g.def.tee.x;
+  g.ball.y = g.def.tee.y;
   g.ball.trail.length = 0;
   g.ball.markRender();
   f.resetCamp();
-}
-
-/** Where the charge sits in front of the launcher's shield. */
-function golfMuzzle(f) {
-  const d = f.paddleOffset + f.paddleThick / 2 + GOLF.muzzle + BALL.radius;
-  return { x: f.x + Math.cos(f.angle) * d, y: f.y + Math.sin(f.angle) * d, d };
 }
 
 /**
@@ -3785,7 +3782,7 @@ function golfLaunch() {
   const g = game;
   const gf = g.golf;
   const f = g.player;
-  const m = golfMuzzle(f);
+  const m = g.def.tee; // the charge leaves from where it rests
   gf.launches++;
   gf.fuel = g.def.fuel;
   gf.heading = f.angle;

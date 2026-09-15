@@ -6,6 +6,7 @@ import { polygonEdges, pointInPolygon, closestPointOnSegment } from './physics.j
 import { angleDiff } from './vec.js';
 import { obstaclePoly, ellipse } from './levels.js';
 import { BALL, PLAYER, COOP } from './config.js';
+import { GOLF } from './golf.js';
 import { frameStats, STANDARD, MAX_HULL } from './frames.js';
 
 /** A human fighter's stats: where they start, and the frame they wear. */
@@ -221,6 +222,24 @@ export function objectiveDone(g) {
   return true;
 }
 
+/** How far behind the charge the launcher's centre sits: its shield, the muzzle gap and the charge's own radius. */
+export function launcherReach(f) {
+  return f.paddleBase + f.paddleThick / 2 + GOLF.muzzle + BALL.radius;
+}
+
+/**
+ * Put the launcher behind the tee along its aim, so the charge resting on the
+ * tee is the pivot: turning the frame swings the body round the charge and
+ * the charge stays where it is.
+ */
+export function seatLauncher(f, tee) {
+  const d = launcherReach(f);
+  f.x = tee.x - Math.cos(f.angle) * d;
+  f.y = tee.y - Math.sin(f.angle) * d;
+  f.prevX = f.x;
+  f.prevY = f.y;
+}
+
 /** Player ids in versus, in seating order: the host, then the guests by relay id. */
 export const VERSUS_IDS = ['a', 'c', 'd'];
 
@@ -379,6 +398,7 @@ export function createGameState(def, { pvp = false, coop = false, volley = false
     // A hole has no opponent. The one human is the launcher: it stands on the
     // tee, turns to aim and never moves, whatever frame it wears.
     player = new Fighter({ ...playerStats(def, def.player, frameFor('a')), moveSpeed: 0, name: 'You', kind: 'player', slot: 'a', team: 'us', color: def.palette.wall });
+    seatLauncher(player, def.tee);
     boss = null;
     fighters = [player];
   } else if (pvp) {

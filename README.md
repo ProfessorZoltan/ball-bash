@@ -533,8 +533,9 @@ back through the tee every lap. Every flight is spent after the hole's own
 clock (`flightSeconds`, nine seconds unless the hole says otherwise; the orbit
 gets eighteen).
 
-Controls on the course: **A / D** aim the tee, and in flight steer the heading
-the next pulse pushes along; **W** or **Space** launches, then spends one pulse
+Controls on the course: **A / D** aim, and in flight steer the heading the
+next pulse pushes along — the charge on the tee is the pivot, so turning
+swings the frame round the charge and the charge stays exactly where it is; **W** or **Space** launches, then spends one pulse
 per press; **S** runs a spent flight out at triple speed once the gauge is empty
 and the outcome is fixed; **R** re-tees (abandoning a flight, or restarting the
 hole from the tee); **P**, or the ❚❚ button in the HUD, brings up the hole as a
