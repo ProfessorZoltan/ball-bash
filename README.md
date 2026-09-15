@@ -491,7 +491,7 @@ existing `ellipse`) live next to the arenas, and every arena is fired at in
 ## Galactic Golf (the Outer Course)
 
 A solo mode that is not Pong at all. Out past the last room the Architect drew
-there is a short course: a tee, a charge, and six holes with nothing in them
+there is a short course: a tee, a charge, and seven holes with nothing in them
 to deflect. Tilt the frame to pick a line, thrust once to launch, and from then
 on the only say you have is the **ion gauge** — six pulses that shove the charge
 sideways mid-flight. Reach the cup and the hole is done; the launches it took
@@ -508,7 +508,9 @@ the charge reaches one:
 
 A **wormhole** is a pair of mouths that hands the charge on at the speed and
 heading it arrived with, which is the whole difficulty of it: the line you take
-into the near mouth is the line you leave the far one on.
+into the near mouth is the line you leave the far one on. A hole with more than
+one pair colours each, and a mouth leads only to the one in its own colour; the
+map names both mouths of a pair alike, since a mouth works both ways.
 
 The course as it stands:
 
@@ -520,6 +522,7 @@ The course as it stands:
 | 4 | Aftermouth | 3 | 9 s | The far mouth faces a maw; burn against your flight before the mouth and come out slow enough for the stone to swing you round | `COURSE[3]` in `src/golf.js` |
 | 5 | Carom | 3 | 9 s | Straight into the mouth is straight into the maw; bank off the plate first so the far mouth points at the cup | `COURSE[4]` in `src/golf.js` |
 | 6 | Long Orbit | 4 | 18 s | A body big enough to hold an orbit; ride it round, then burn outward when the pocket comes by | `COURSE[5]` in `src/golf.js` |
+| 7 | Matched Pair | 3 | 9 s | Two pairs of mouths in two colours; the gold pair drops you into a sealed box, the rose pair is the only way out and across | `COURSE[6]` in `src/golf.js` |
 
 On the last three the direct line is proved not to work: the tests fly the
 straight shot into hole 4's and hole 5's mouths and require it to end in the
@@ -602,6 +605,7 @@ nowhere else in the game, and drums that come in late if at all.
 | 4 | Aftermouth (Slow Stone Theme) | E mixolydian | 104 | `TRACKS.aftermouth` |
 | 5 | Carom (Bank Theme) | G lydian | 110 | `TRACKS.carom` |
 | 6 | Long Orbit (Body Theme) | D major | 80 | `TRACKS.orbit` |
+| 7 | Matched Pair (Two Colours Theme) | B minor | 98 | `TRACKS.pair` |
 
 To get there the engine gained a few knobs a track may set, all of which the
 level tracks leave at their old defaults: `fx` sizes the room (the reverb and

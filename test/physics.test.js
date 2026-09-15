@@ -1602,7 +1602,9 @@ test('volley: a shield moves a charge like it moves the ball, and the arena cap 
  * then the ball step, then the horizons and the wormhole mouths. `pulses` are
  * ion pulses as {at, a} — the time they are spent and the heading they push.
  */
-async function golfFly(def, angle, { pulses = [], maxT = null } = {}) {
+async function golfFly(def, angle, { pulses = [], maxT = null, events = false } = {}) {
+  let warps = 0;
+  void events;
   const { createGameState, wellsAccel, swallowingWell } = await import('../src/gamestate.js');
   const { PHYSICS_DT, SURFACE_VELOCITY_FACTOR } = await import('../src/config.js');
   const { GOLF } = await import('../src/golf.js');
@@ -1634,8 +1636,8 @@ async function golfFly(def, angle, { pulses = [], maxT = null } = {}) {
     b.clampSpeed(BALL.minSpeed, g.maxSpeed);
     closest = Math.min(closest, Math.hypot(b.x - cup.x, b.y - cup.y));
     const took = swallowingWell(g.wells, b.x, b.y);
-    if (took) return { end: took.cup ? 'cup' : took.hazard ? 'maw' : 'horizon', t, closest };
-    if (!pointInPolygon(b.x, b.y, def.boundary)) return { end: 'out', t, closest };
+    if (took) return { end: took.cup ? 'cup' : took.hazard ? 'maw' : 'horizon', t, closest, warps };
+    if (!pointInPolygon(b.x, b.y, def.boundary)) return { end: 'out', t, closest, warps };
     if (warp > 0) warp -= PHYSICS_DT;
     else
       for (const w of g.wormholes) {
@@ -1645,10 +1647,11 @@ async function golfFly(def, angle, { pulses = [], maxT = null } = {}) {
           b.x = tx + (b.vx / s) * (w.r + b.r + 6);
           b.y = ty + (b.vy / s) * (w.r + b.r + 6);
           warp = GOLF.warpHold;
+          warps++;
         }
       }
   }
-  return { end: 'spent', t, closest };
+  return { end: 'spent', t, closest, warps };
 }
 
 test('golf: a hole is a level with no opponent - a launcher bolted to the tee, no boss, no drones, and its cup among its bodies', async () => {
@@ -1916,4 +1919,31 @@ test('golf: aiming turns the frame round the charge, which stays on the tee, and
       }
     }
   }
+});
+
+test('golf: two pairs of mouths, each in its own colour, and a hole that can only be crossed by taking them in order', async () => {
+  const { createGameState } = await import('../src/gamestate.js');
+  const { COURSE } = await import('../src/golf.js');
+  const def = COURSE.find((h) => h.id === 'g7');
+  const g = createGameState(def, {});
+  assert.equal(g.wormholes.length, 2, 'two pairs');
+  const colors = g.wormholes.map((w) => w.color || def.palette.warp);
+  assert.notEqual(colors[0], colors[1], 'the pairs are told apart by colour');
+  // The box is sealed: no line from the tee reaches the rose mouth inside it
+  // without going through the gold one first, and every sink goes through both.
+  const sinks = [];
+  for (let deg = -180; deg < 180; deg += 1) {
+    const r = await golfFly(def, (deg * Math.PI) / 180, { events: true });
+    if (r.end === 'cup') sinks.push(r);
+  }
+  assert.ok(sinks.length > 0, 'the hole can be sunk');
+  for (const s of sinks) assert.equal(s.warps, 2, `a sink that went through ${s.warps} mouths: the box leaks`);
+  // The one line: into the gold mouth so the box is left pointed at the rose mouth, which leaves the far side pointed at the cup.
+  const gold = def.wormholes[0];
+  const line = Math.atan2(gold.ay - def.tee.y, gold.ax - def.tee.x);
+  const one = await golfFly(def, line, { events: true });
+  assert.equal(one.end, 'cup', `the line through the gold mouth goes down (${one.end})`);
+  assert.equal(one.warps, 2);
+  assert.ok(one.t < 3, 'and quickly');
+  assert.notEqual((await golfFly(def, def.tee.angle)).end, 'cup', 'the tee does not point at it');
 });

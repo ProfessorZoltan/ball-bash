@@ -50,10 +50,17 @@ function cup(x, y, extra = {}) {
   return { x, y, r: 26, range: 125, pull: 48000, drag: 0, ...extra };
 }
 
-/** A wormhole pair. The charge enters either mouth and leaves the other on the same heading. */
-function warp(ax, ay, bx, by, r = 36) {
-  return { ax, ay, bx, by, r };
+/**
+ * A wormhole pair. The charge enters either mouth and leaves the other on the
+ * same heading. A hole with more than one pair colours each, and a mouth
+ * leads to the one in its own colour.
+ */
+function warp(ax, ay, bx, by, r = 36, color = null) {
+  return { ax, ay, bx, by, r, color };
 }
+
+/** The second pair's colour on a hole that has two. The first wears the palette's. */
+const GOLD = '#ffd23f';
 
 const VOID_PALETTE = {
   floor: '#04060f',
@@ -244,6 +251,30 @@ export const COURSE = [
     ],
     wells: [planet(800, 450, { r: 90, range: 600, pull: 184900 })],
     cup: cup(1420, 170),
+  }),
+  hole({
+    id: 'g7',
+    hole: 7,
+    par: 3,
+    title: 'Matched Pair',
+    track: 'pair',
+    intro: 'Two pairs of mouths, coloured so you can tell them apart: a mouth leads to the one in its own colour and nowhere else. The gold pair drops you into a sealed box on this side of the wall. The rose pair is what gets you out of it, and across. Come into the gold mouth on the one line that leaves the box pointed at the rose mouth, and the rose mouth leaves the far side pointed at the cup. Three mouths, one line.',
+    record: 'The void kept two pairs on one hole once, and coloured them so it could tell them apart. It is not known whether that was for the void\'s benefit or ours.',
+    sunk: 'Gold, then rose, then down. Read in the right order, the hole is one line.',
+    boundary: ROOM,
+    tee: { x: 200, y: 450, angle: 0.15 },
+    obstacles: [
+      rect(840, 450, 24, 780), // the wall, sealed
+      // The box: sealed on every side. The gold pair is the only way in and the rose pair the only way out.
+      rect(510, 520, 440, 16),
+      rect(510, 760, 440, 16),
+      rect(298, 640, 16, 256),
+      rect(722, 640, 16, 256),
+      rect(1180, 260, 220, 18, 28), // a plate on the far side, for a line off the rose mouth that comes out too high
+    ],
+    wells: [maw(1300, 730, { r: 40, range: 250, pull: 56000 })],
+    cup: cup(1350, 426),
+    wormholes: [warp(560, 250, 380, 700, 36, GOLD), warp(620, 567, 1000, 620)],
   }),
 ];
 

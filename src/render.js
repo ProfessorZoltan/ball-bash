@@ -629,7 +629,7 @@ export class Renderer {
   /** A wormhole pair: two turning mouths and the faint thread between them. */
   drawWormhole(w, palette, time) {
     const ctx = this.ctx;
-    const color = palette.warp || '#ff8df0';
+    const color = w.color || palette.warp || '#ff8df0';
     ctx.save();
     // The thread: which mouth leads where, without claiming a path.
     ctx.setLineDash([2, 16]);
@@ -788,8 +788,12 @@ export class Renderer {
       else if (w.solid) label(w.x, w.y, 'STONE', p.planet || '#ffb347', w.r + 16);
       else label(w.x, w.y, 'MAW', p.well || '#b49cff', w.r + 16);
     }
-    for (const w of game.wormholes) {
-      ctx.strokeStyle = p.warp || '#ff8df0';
+    // Each pair in its own colour, both mouths named for the pair: a mouth
+    // works both ways, and leads only to the one that matches it.
+    game.wormholes.forEach((w, i) => {
+      const color = w.color || p.warp || '#ff8df0';
+      const name = game.wormholes.length > 1 ? `MOUTH ${String.fromCharCode(65 + i)}` : 'MOUTH';
+      ctx.strokeStyle = color;
       ctx.globalAlpha = 0.6;
       ctx.lineWidth = 2;
       ctx.setLineDash([8, 8]);
@@ -799,9 +803,9 @@ export class Renderer {
       ctx.lineTo(w.bx, w.by);
       ctx.stroke();
       ctx.setLineDash([]);
-      label(w.ax, w.ay, 'IN', p.warp || '#ff8df0', w.r + 12);
-      label(w.bx, w.by, 'OUT', p.warp || '#ff8df0', w.r + 12);
-    }
+      label(w.ax, w.ay, name, color, w.r + 12);
+      label(w.bx, w.by, name, color, w.r + 12);
+    });
     label(level.tee.x, level.tee.y, 'TEE', p.wall || '#8fd4ff', 46);
     ctx.restore();
   }

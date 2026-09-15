@@ -3927,7 +3927,7 @@ function golfWarp() {
       b.markRender();
       gf.warpHold = GOLF.warpHold;
       gf.trace.push({ x: ex, y: ey }, { warp: true }, { x: b.x, y: b.y });
-      const color = g.def.palette.warp || '#ff8df0';
+      const color = w.color || g.def.palette.warp || '#ff8df0';
       g.fx.ring(ex, ey, color, 90, 0.35);
       g.fx.ring(tx, ty, color, 110, 0.45);
       g.fx.burst(b.x, b.y, b.vx / s, b.vy / s, 14, color, 260, 0.7, 0.4);
@@ -4098,7 +4098,7 @@ function golfMap(brief) {
       <li><span class="k cup"></span>The cup — get the charge past its horizon</li>
       ${g.wells.some((w) => w.hazard) ? '<li><span class="k maw"></span>A maw — its horizon ends the shot</li>' : ''}
       ${g.wells.some((w) => w.solid) ? '<li><span class="k planet"></span>A stone — solid, and its field bends what passes</li>' : ''}
-      ${g.wormholes.length ? '<li><span class="k warp"></span>Wormhole mouths — paired, and they keep your heading</li>' : ''}
+      ${g.wormholes.length > 1 ? '<li><span class="k warp"></span>Wormhole mouths — a mouth leads to the one in its own colour, and keeps your heading</li>' : g.wormholes.length ? '<li><span class="k warp"></span>Wormhole mouths — paired, and they keep your heading</li>' : ''}
       <li><span class="k tee"></span>The tee</li>
     </ul>
     <p class="small muted"><b>A / D</b> aim, and steer the ion pulses in flight · <b>W</b> or <b>Space</b> launch, then one pulse per press · <b>S</b> runs a spent flight out · <b>R</b> re-tees · <b>P</b> this map</p>

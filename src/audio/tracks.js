@@ -797,4 +797,45 @@ export const TRACKS = {
     ],
     loopFrom: 1,
   },
+
+  pair: {
+    key: 'B minor',
+    title: 'Matched Pair (Two Colours Theme)',
+    bpm: 98,
+    fx: { reverb: 0.7, delay: 0.72, feedback: 0.64, tone: 3000, delayBeats: 0.75 },
+    pad: { attack: 1.8, release: 2.6, lfoRate: 0.13, lfoDepth: 480, cutoff: 500, detune: 14 },
+    progression: [
+      { chord: [59, 62, 66, 69], pad: [47, 54, 59, 62], bass: 35, bars: 2 }, // Bm7
+      { chord: [55, 59, 62, 66], pad: [43, 50, 55, 59], bass: 31, bars: 2 }, // Gmaj7: the other colour
+      { chord: [59, 62, 66, 69], pad: [47, 54, 59, 62], bass: 35, bars: 2 }, // Bm7
+      { chord: [57, 61, 64, 67], pad: [45, 52, 57, 61], bass: 33, bars: 2 }, // A7, the way through
+    ],
+    // Two voices trading places: the arp climbs the odd steps and falls the even ones.
+    arp: { octave: 12, gate: 0.65, wave: 'triangle', delay: 0.6, reverb: 0.25, pattern: [0, 5, 1, 4, 2, 3, 3, 2, 4, 1, 5, 0, 0, 5, 1, 4] },
+    bell: { octave: 24, ring: 10, pattern: [0, null, null, null, 2, null, null, null, null, null, 1, null, null, null, 3, null] },
+    bass: { pattern: [[0, 3], 0, 0, [0, 1], 0, 0, [0, 2], 0, [0, 3], 0, 0, [7, 1], 0, 0, [0, 2], 0] },
+    drums: {
+      kick: [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0],
+      snare: [0, 0, 0, 0, 0.45, 0, 0, 0, 0, 0, 0, 0, 0.45, 0, 0, 0],
+      hat: [0.4, 0, 0.5, 0, 0.4, 0, 0.5, 0, 0.4, 0, 0.5, 0, 0.4, 0, 0.5, 0.3],
+      hatOpen: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+    },
+    lead: {
+      length: 128,
+      notes: [
+        [0, 74, 6], [8, 78, 8], [16, 81, 12], [30, 78, 2],
+        [32, 79, 12], [48, 83, 8], [56, 81, 8],
+        [64, 78, 12], [80, 74, 8], [88, 76, 8],
+        [96, 73, 8], [104, 76, 8], [112, 78, 14],
+      ],
+    },
+    sections: [
+      { name: 'two colours', bars: 8, layers: ['pad', 'bell'] },
+      { name: 'gold', bars: 8, layers: ['pad', 'bell', 'arp', 'kick'], arpDensity: 8 },
+      { name: 'rose', bars: 16, layers: ['pad', 'bell', 'arp', 'kick', 'bass', 'hat', 'snare'], padBright: 0.4 },
+      { name: 'the box', bars: 8, layers: ['pad', 'bell', 'lead', 'arp'], arpDensity: 8, arpOctave: 12 },
+      { name: 'through', bars: 16, layers: ['pad', 'bell', 'arp', 'kick', 'bass', 'hat', 'snare', 'lead'], padBright: 0.5 },
+    ],
+    loopFrom: 1,
+  },
 };
