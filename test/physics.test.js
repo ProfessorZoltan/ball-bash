@@ -1602,14 +1602,17 @@ test('volley: a shield moves a charge like it moves the ball, and the arena cap 
  * then the ball step, then the horizons and the wormhole mouths. `pulses` are
  * ion pulses as {at, a} — the time they are spent and the heading they push.
  */
-async function golfFly(def, angle, { pulses = [], maxT = null, events = false, watch = null } = {}) {
+async function golfFly(def, angle, { pulses = [], maxT = null, events = false, watch = null, launchAt = 0 } = {}) {
   let warps = 0;
   let inWatch = 0; // seconds spent inside `watch`'s reach, a body to keep an eye on
+  let bounces = 0; // walls and movers touched
   void events;
-  const { createGameState, wellsAccel, swallowingWell } = await import('../src/gamestate.js');
+  const { createGameState, wellsAccel, swallowingWell, solidPolysNow } = await import('../src/gamestate.js');
   const { PHYSICS_DT, SURFACE_VELOCITY_FACTOR } = await import('../src/config.js');
   const { GOLF } = await import('../src/golf.js');
   const g = createGameState(def, {});
+  // A launch some seconds into the level: whatever moves on it has moved that far.
+  for (let k = 0; k < Math.round(launchAt / PHYSICS_DT); k++) for (const m of g.movers) m.update(PHYSICS_DT);
   const f = g.player;
   f.angle = angle;
   const b = g.ball;
@@ -1633,13 +1636,13 @@ async function golfFly(def, angle, { pulses = [], maxT = null, events = false, w
       b.vx += a.ax * PHYSICS_DT;
       b.vy += a.ay * PHYSICS_DT;
     }
-    advanceBall(b, g.walls, [], PHYSICS_DT, SURFACE_VELOCITY_FACTOR, {}, g.movers, g.solidPolys);
+    advanceBall(b, g.walls, [], PHYSICS_DT, SURFACE_VELOCITY_FACTOR, { onWall: () => bounces++, onMover: () => bounces++ }, g.movers, solidPolysNow(g));
     b.clampSpeed(BALL.minSpeed, g.maxSpeed);
     closest = Math.min(closest, Math.hypot(b.x - cup.x, b.y - cup.y));
     if (watch && Math.hypot(b.x - watch.x, b.y - watch.y) < watch.range) inWatch += PHYSICS_DT;
     const took = swallowingWell(g.wells, b.x, b.y);
-    if (took) return { end: took.cup ? 'cup' : took.hazard ? 'maw' : 'horizon', t, closest, warps, inWatch };
-    if (!pointInPolygon(b.x, b.y, def.boundary)) return { end: 'out', t, closest, warps, inWatch };
+    if (took) return { end: took.cup ? 'cup' : took.hazard ? 'maw' : 'horizon', t, closest, warps, inWatch, bounces, x: b.x, y: b.y };
+    if (!pointInPolygon(b.x, b.y, def.boundary)) return { end: 'out', t, closest, warps, inWatch, bounces, x: b.x, y: b.y };
     if (warp > 0) warp -= PHYSICS_DT;
     else
       for (const w of g.wormholes) {
@@ -1653,7 +1656,7 @@ async function golfFly(def, angle, { pulses = [], maxT = null, events = false, w
         }
       }
   }
-  return { end: 'spent', t, closest, warps, inWatch };
+  return { end: 'spent', t, closest, warps, inWatch, bounces, x: b.x, y: b.y };
 }
 
 test('golf: a hole is a level with no opponent - a launcher bolted to the tee, no boss, no drones, and its cup among its bodies', async () => {
@@ -2040,4 +2043,70 @@ test('golf: a one-way pair only lets go at its far mouth, and a hole that scroll
     assert.ok(def.width > def.view.w || def.height > def.view.h, `${def.title} is bigger than its window`);
     assert.ok(pointInPolygon(def.tee.x, def.tee.y, def.boundary) && pointInPolygon(def.cup.x, def.cup.y, def.boundary));
   }
+});
+
+test('golf, the back nine: open space, a heavy charge against the clock, and two stones on rails', async () => {
+  const { createGameState, StoneMover } = await import('../src/gamestate.js');
+  const { COURSE, GOLF } = await import('../src/golf.js');
+  const { PHYSICS_DT } = await import('../src/config.js');
+  const byId = (id) => COURSE.find((h) => h.id === id);
+  const rad = (d) => (d * Math.PI) / 180;
+  // The Deep: no walls, nothing to bank off. A line that misses flies on and
+  // is never turned back; one that is aimed goes down touching nothing.
+  const deep = byId('g10');
+  assert.ok(deep.open && deep.area && deep.obstacles.length === 0, 'open space, with a map area and no walls');
+  assert.ok(deep.width >= 20000, 'and a room no line the clock allows can reach');
+  const away = await golfFly(deep, rad(180));
+  assert.equal(away.end, 'spent');
+  assert.equal(away.bounces, 0, 'a stray charge touches nothing on its way out');
+  assert.ok(Math.hypot(away.x - deep.tee.x, away.y - deep.tee.y) > 4000, 'and is a long way gone when the clock takes it');
+  assert.ok(pointInPolygon(away.x, away.y, deep.boundary), 'still inside the room it never sees');
+  const aimed = await golfFly(deep, rad(-26));
+  assert.equal(aimed.end, 'cup', `the aimed line goes down (${aimed.end})`);
+  assert.equal(aimed.bounces, 0);
+  assert.notEqual((await golfFly(deep, deep.tee.angle)).end, 'cup');
+  // The Long Way: the charge cannot be hurried past 440 px/s, so six forward
+  // pulses do not beat the clock; one clean line does, a third of a degree
+  // wide, and a degree either side of it bounces and runs out of time. The
+  // mouth is the other way in, and it leaves time for a pulse or two.
+  const long = byId('g11');
+  assert.equal(createGameState(long, {}).maxSpeed, 440);
+  const hurried = await golfFly(long, rad(1.35), { pulses: [0.5, 0.8, 1.1, 1.4, 1.7, 2.0].map((at) => ({ at, a: 0 })) });
+  assert.notEqual(hurried.end, 'cup', 'six pulses straight ahead do not get it there any sooner');
+  const clean = await golfFly(long, rad(1.35));
+  assert.equal(clean.end, 'cup', `the clean line makes the cup inside the clock (${clean.end} at ${clean.t.toFixed(2)} s)`);
+  assert.equal(clean.bounces, 0, 'without touching a wall');
+  assert.ok(clean.t > long.flightSeconds - 0.6, `with the clock all but spent: ${clean.t.toFixed(2)} of ${long.flightSeconds} s`);
+  for (const off of [-1, 1]) assert.notEqual((await golfFly(long, rad(1.35 + off))).end, 'cup', `a degree off (${off}) runs out of clock`);
+  const mouth = long.wormholes[0];
+  const into = Math.atan2(mouth.ay - long.tee.y, mouth.ax - long.tee.x);
+  let fixed = null;
+  for (let t = 1.2; t <= 4 && !fixed; t += 0.4) for (let hd = 0; hd < 360 && !fixed; hd += 45) for (const k of [1, 2]) {
+    const r = await golfFly(long, into, { pulses: Array.from({ length: k }, (_, i) => ({ at: t + i * 0.3, a: rad(hd) })) });
+    if (r.end === 'cup') { fixed = { t, hd, k, at: r.t }; break; }
+  }
+  assert.ok(fixed, 'the mouth and a pulse or two get there');
+  assert.ok(fixed.at < long.flightSeconds - 1, `with time to spare: ${fixed.at.toFixed(1)} s`);
+  // Binary: two stones of one size on one rail, half a turn apart, moving
+  // from the start of the level and carrying their speed into the physics.
+  const bin = byId('g12');
+  const g = createGameState(bin, {});
+  const stones = g.movers.filter((m) => m instanceof StoneMover);
+  assert.equal(stones.length, 2, 'two bodies on rails, as movers');
+  const [a, b] = stones;
+  assert.equal(a.well.rail.period, b.well.rail.period);
+  assert.ok(Math.abs(Math.abs(a.angle - b.angle) - Math.PI) < 1e-9, 'half a turn apart');
+  const before = [a.well.x, a.well.y, b.well.x, b.well.y];
+  for (let k = 0; k < Math.round((a.well.rail.period / 2) / PHYSICS_DT); k++) for (const m of stones) m.update(PHYSICS_DT);
+  assert.ok(Math.hypot(a.well.x - before[2], a.well.y - before[3]) < 1 && Math.hypot(b.well.x - before[0], b.well.y - before[1]) < 1, 'after half a period they have swapped places');
+  const sv = a.surfaceVelocityAt();
+  assert.ok(Math.abs(Math.hypot(sv.x, sv.y) - (2 * Math.PI * a.well.rail.R) / a.well.rail.period) < 1e-6, 'the body carries its rail speed');
+  assert.ok(g.staticWalls.every((w) => w.kind !== 'planet'), 'a body on a rail is not a static wall');
+  // Timing is aim: the straight line goes down at one moment of the turn and not at another.
+  const moment = await golfFly(bin, 0, { launchAt: 3.5 });
+  assert.equal(moment.end, 'cup', `launched at 3.5 s the line goes between the stones (${moment.end})`);
+  assert.equal(moment.bounces, 0);
+  const wrong = await golfFly(bin, 0, { launchAt: 0 });
+  assert.notEqual(wrong.end, 'cup', 'launched as the level opens, a stone is in the way');
+  assert.ok(GOLF.fineTurn > 0 && GOLF.fineTurn < 0.25, 'and fine aim is there to find lines this narrow');
 });

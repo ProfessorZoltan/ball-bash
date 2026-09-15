@@ -27,6 +27,7 @@ export const GOLF = {
   pulse: 125, // px/s a pulse adds along the held heading
   aimRay: 250, // px of the launch line shown at the tee: the first leg, and no more
   headTurn: 3.6, // rad/s the pulse heading swings during flight
+  fineTurn: 0.12, // the turn's share while S is held: a tap of a frame moves the aim under half a degree
   flightSeconds: 9, // a flight this long is spent; the shot is over (a hole may set its own)
   muzzle: 16, // px beyond the shield's face the charge leaves from
   warpHold: 0.14, // seconds a warped charge ignores every wormhole mouth
@@ -57,6 +58,15 @@ function cup(x, y, extra = {}) {
  */
 function warp(ax, ay, bx, by, r = 36, color = null, extra = {}) {
   return { ax, ay, bx, by, r, color, ...extra };
+}
+
+/**
+ * Two equal solid bodies circling each other: each rides a rail round their
+ * common centre, half a turn apart, once every `period` seconds.
+ */
+function binary(cx, cy, R, period, body = {}) {
+  const one = (phase) => planet(cx + Math.cos(phase) * R, cy + Math.sin(phase) * R, { ...body, rail: { cx, cy, R, period, phase } });
+  return [one(0), one(Math.PI)];
 }
 
 /** A pair whose far mouth only lets go: nothing that reaches it is taken back. For a mouth that sits on an orbit. */
@@ -105,6 +115,10 @@ function hole(spec) {
     // A hole bigger than one screen says how much of itself the screen shows
     // at once, in world units; the camera does the rest.
     view: spec.view || null,
+    // Open space: no walls drawn and none the charge could reach inside its
+    // clock; `area` is the part of it the map shows.
+    open: !!spec.open,
+    area: spec.area || null,
     track: spec.track,
     maxBallSpeed: spec.maxBallSpeed || GOLF.maxSpeed,
     fuel: spec.fuel === undefined ? GOLF.fuel : spec.fuel,
@@ -360,6 +374,68 @@ export const COURSE = [
     wells: [planet(900, 1250, { r: 90, range: 600, pull: 184900 }), planet(2300, 550, { r: 90, range: 600, pull: 184900 })],
     // The longest hole gathers a rough approach: the cup reaches further and pulls harder than any other.
     cup: cup(2960, 250, { range: 240, pull: 72000 }),
+  }),
+  // ------------------------------------------------------------ the back nine
+  hole({
+    id: 'g10',
+    hole: 10,
+    par: 3,
+    title: 'The Deep',
+    track: 'deep',
+    open: true,
+    width: 20000,
+    height: 20000,
+    view: SCREEN,
+    area: { x: 9000, y: 9250, w: 3100, h: 1500 },
+    flightSeconds: 12,
+    intro: 'No walls. Nothing out here to bank off, nothing to stop a line that misses: a stray charge goes on into the dark until the clock takes it. Two stones, a maw, and the cup past them. Every line is the whole line.',
+    record: 'The void does have walls, somewhere. No charge has flown far enough in its own time to find one, and the course does not expect that to change.',
+    sunk: 'Nothing held it, nothing turned it back, and it went down anyway. That was all aim.',
+    boundary: room(20000, 20000),
+    tee: { x: 9400, y: 10000, angle: 0.1 },
+    wells: [planet(10250, 9760, { r: 60, range: 460, pull: 66000 }), planet(10950, 9430, { r: 48, range: 380, pull: 50000 }), maw(10800, 10440, { r: 44, range: 360, pull: 60000 })],
+    cup: cup(11500, 9820),
+  }),
+  hole({
+    id: 'g11',
+    hole: 11,
+    par: 2,
+    title: 'The Long Way',
+    track: 'longway',
+    width: 4800,
+    height: 900,
+    view: SCREEN,
+    maxBallSpeed: 440,
+    flightSeconds: 10.4,
+    intro: 'Three screens of open floor between the tee and the cup, and a heavy charge: out here nothing can push it past the speed it leaves at, so a pulse can turn it but never hurry it. A straight line makes the cup with the clock all but spent, if nothing on the way bends it wrong. The mouth up by the tee is a shortcut, and comes with the time to fix what it does to your line.',
+    record: 'The long way is faster than it looks and slower than it needs to be. The mouth was cut later, by someone who had run out of clock one time too many.',
+    sunk: 'Down, one way or the other. The clock never says which.',
+    boundary: room(4800, 900),
+    tee: { x: 200, y: 450, angle: 0 },
+    obstacles: [
+      rect(3550, 130, 260, 18, -20), // a plate near the far end, for a line that comes in high
+    ],
+    // The stones sit a little off the straight line and bend it a little: the
+    // line that makes the cup is not quite the line that points at it.
+    wells: [planet(1500, 210, { r: 50, range: 420, pull: 10000 }), planet(2800, 690, { r: 50, range: 420, pull: 10000 }), maw(2200, 790, { r: 36, range: 220, pull: 50000 })],
+    cup: cup(4550, 450),
+    wormholes: [warp(700, 150, 3900, 700)],
+  }),
+  hole({
+    id: 'g12',
+    hole: 12,
+    par: 3,
+    title: 'Binary',
+    track: 'binary',
+    flightSeconds: 14,
+    intro: 'Two stones of one size, circling each other. They were turning before you got here and they will be turning after; the line to the cup runs straight through the middle of them, and whether the middle is open or a stone is standing in it is a matter of when you launch. Watch a turn, and choose your moment.',
+    record: 'The only things on the course that move on their own. The void set them going and forgot to stop them, or never meant to.',
+    sunk: 'Through the pair, between one stone and the next, and down. Timing is aim too.',
+    boundary: ROOM,
+    tee: { x: 200, y: 450, angle: 0 },
+    wells: binary(800, 450, 220, 16, { r: 56, range: 380, pull: 56000 }).concat([maw(1500, 450, { r: 36, range: 150, pull: 50000 })]),
+    // A miss is not handed back by the wall behind the cup: the maw there takes it.
+    cup: cup(1330, 450),
   }),
 ];
 

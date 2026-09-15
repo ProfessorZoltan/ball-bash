@@ -7,7 +7,7 @@ import { SEQUENCE, VERSUS_CONDUITS, levelLabel, shortId, campaignNextIndex } fro
 import { COURSE, COURSE_PAR, GOLF, holeLabel, toPar } from './golf.js';
 import { LORE } from './lore.js';
 import { SYSTEMS, TIERS, FRAME_CELLS, STANDARD, DEFAULT_FRAME, CUSTOM_ID, allFrames, frameById, withinBudget, cellsSpent, systemValue } from './frames.js';
-import { createGameState, rebuildWalls as rebuildWallsState, bodyHitCounts, tickCamp, versusSpawns, rotateSpawns, versusColors, VERSUS_IDS, nodeAccepts, objectiveDone, constrainToRail, wellsDrag, wellsAccel, swallowingWell, dronePhased, seatLauncher } from './gamestate.js';
+import { createGameState, rebuildWalls as rebuildWallsState, bodyHitCounts, tickCamp, versusSpawns, rotateSpawns, versusColors, VERSUS_IDS, nodeAccepts, objectiveDone, constrainToRail, wellsDrag, wellsAccel, swallowingWell, dronePhased, seatLauncher, solidPolysNow } from './gamestate.js';
 import { NetClient, relayConfig, saveRelay } from './net.js';
 import { buildSnapshot, applySnapshot } from './netstate.js';
 import { Input } from './input.js';
@@ -943,7 +943,7 @@ function moveBall(dt) {
       },
     },
     pulsers.length ? g.movers.concat(pulsers) : g.movers,
-    g.solidPolys,
+    solidPolysNow(g),
   );
   if (stopped) return;
 
@@ -3606,7 +3606,7 @@ function showTitle() {
           <li><b>W</b> or <b>Space</b> — thrust the shield</li>
           <li><b>S</b> — pull the shield in (soft return)</li>
           <li><b>P</b> pause · <b>M</b> mute · <b>R</b> restart</li>
-          <li><b>Galactic Golf</b>: A / D aim, W launches then spends one ion pulse a press, P is the hole map</li>
+          <li><b>Galactic Golf</b>: A / D aim (hold S for fine aim), W launches then spends one ion pulse a press, P is the hole map</li>
           <li><b>Controller</b>: left stick moves, right stick or <b>LT</b>/<b>RT</b> rotate, <b>A</b> thrusts, <b>X</b> pulls in, <b>Start</b> pauses <span id="pad-state" class="small muted">${input.pad.connected ? `· detected: ${input.pad.id.slice(0, 40)}` : '· none detected yet (press any button on it)'}</span></li>
         </ul>
       </div>
@@ -3767,14 +3767,19 @@ function golfIntent(local, dt) {
   const down = !!local.lunge;
   const edge = down && !gf.held;
   gf.held = down;
+  // Fine aim: with S held the turn is a fraction of itself, so a line a
+  // fraction of a degree wide can be found by hand. In flight S does the
+  // same for the pulse heading until the gauge is empty, when it runs the
+  // flight out instead.
+  const fine = local.retract ? GOLF.fineTurn : 1;
   if (gf.phase === 'flight') {
-    gf.heading = wrapAngle(gf.heading + local.turn * GOLF.headTurn * dt);
+    gf.heading = wrapAngle(gf.heading + local.turn * fine * GOLF.headTurn * dt);
     if (edge) golfPulse();
     return ZERO_INTENT;
   }
   if (gf.phase !== 'aim') return ZERO_INTENT;
   // The launcher is bolted to the tee: it turns, and that is all it does.
-  return { mx: 0, my: 0, turn: local.turn, lunge: local.lunge, retract: false };
+  return { mx: 0, my: 0, turn: local.turn * fine, lunge: local.lunge, retract: false };
 }
 
 /** Thrust on the tee: the charge goes, and the launch is counted whatever becomes of it. */
@@ -4065,7 +4070,7 @@ function showCourse() {
       <div>
         <h3>The round</h3>
         <p class="small">${COURSE.length} holes, par ${COURSE_PAR}. Every launch counts, and the card at the end reads each hole against its par.${best.total ? ` Your best round is <b>${best.total}</b> (${toPar(best.total - COURSE_PAR)}).` : ''}</p>
-        <p class="small muted"><b>A / D</b> aim · <b>W</b> or <b>Space</b> launch, then one ion pulse per press · <b>S</b> runs a spent flight out · <b>R</b> re-tees · <b>P</b> the hole map</p>
+        <p class="small muted"><b>A / D</b> aim, <b>S</b> held for fine aim · <b>W</b> or <b>Space</b> launch, then one ion pulse per press · <b>S</b> runs a spent flight out · <b>R</b> re-tees · <b>P</b> the hole map</p>
       </div>
     </div>
     <div class="row"><button id="btn-course" class="primary">Play the course</button><button id="btn-menu">Main menu</button></div>
@@ -4102,7 +4107,7 @@ function golfMap(brief) {
       ${g.wormholes.length > 1 ? '<li><span class="k warp"></span>Wormhole mouths — a mouth leads to the one in its own colour, and keeps your heading</li>' : g.wormholes.length ? '<li><span class="k warp"></span>Wormhole mouths — paired, and they keep your heading</li>' : ''}
       <li><span class="k tee"></span>The tee</li>
     </ul>
-    <p class="small muted"><b>A / D</b> aim, and steer the ion pulses in flight · <b>W</b> or <b>Space</b> launch, then one pulse per press · <b>S</b> runs a spent flight out · <b>R</b> re-tees · <b>P</b> this map</p>
+    <p class="small muted"><b>A / D</b> aim, and steer the ion pulses in flight · hold <b>S</b> for fine aim · <b>W</b> or <b>Space</b> launch, then one pulse per press · <b>S</b> runs a spent flight out · <b>R</b> re-tees · <b>P</b> this map</p>
     <div class="row"><button id="btn-resume" class="primary">${brief ? 'Tee off' : 'Resume'}</button>${brief ? '' : '<button id="btn-restart">Restart hole</button>'}<button id="btn-course">The course</button><button id="btn-menu">Main menu</button></div>
   `);
   $('overlay').classList.add('map'); // the scrim lifts so the hole shows through

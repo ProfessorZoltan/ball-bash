@@ -919,4 +919,125 @@ export const TRACKS = {
     ],
     loopFrom: 1,
   },
+
+  deep: {
+    key: 'C# minor',
+    title: 'The Deep (Open Space Theme)',
+    bpm: 74,
+    fx: { reverb: 1, delay: 0.55, feedback: 0.78, tone: 1900, delayBeats: 2 },
+    pad: { attack: 5, release: 7, lfoRate: 0.03, lfoDepth: 300, cutoff: 380, detune: 24, q: 1.4 },
+    progression: [
+      { chord: [49, 52, 56, 59], pad: [37, 44, 49, 52, 56], bass: 25, bars: 4 }, // C#m7, held
+      { chord: [45, 49, 52, 56], pad: [33, 40, 45, 49], bass: 21, bars: 4 }, // Amaj7
+      { chord: [52, 56, 59, 63], pad: [40, 47, 52, 56], bass: 28, bars: 4 }, // Emaj7
+      { chord: [47, 51, 54, 57], pad: [35, 42, 47, 51], bass: 23, bars: 4 }, // Bsus, the dark
+    ],
+    arp: { octave: 12, gate: 1, wave: 'triangle', delay: 0.4, reverb: 0.55, pattern: [0, 2, 4, 5, 3, 1, 0, 4, 2, 5, 1, 3, 0, 2, 4, 5] },
+    bell: { octave: 24, ring: 16, pattern: [0, null, null, null, null, null, null, null, null, null, null, null, 4, null, null, null] },
+    bass: { pattern: [[0, 8], 0, 0, 0, 0, 0, 0, 0, [0, 8], 0, 0, 0, 0, 0, 0, 0] },
+    drums: {
+      kick: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      snare: [0, 0, 0, 0, 0, 0, 0, 0, 0.25, 0, 0, 0, 0, 0, 0, 0],
+      hat: [0, 0, 0, 0, 0, 0, 0, 0, 0.25, 0, 0, 0, 0, 0, 0, 0],
+      hatOpen: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    },
+    lead: {
+      length: 256,
+      notes: [
+        [0, 73, 32], [40, 76, 24], [64, 80, 32],
+        [104, 78, 24], [128, 73, 32],
+        [168, 71, 24], [192, 75, 32], [232, 68, 24],
+      ],
+    },
+    sections: [
+      { name: 'dark', bars: 8, layers: ['pad', 'bell'] },
+      { name: 'drift', bars: 16, layers: ['pad', 'bell', 'arp'], arpDensity: 8 },
+      { name: 'stones', bars: 16, layers: ['pad', 'bell', 'arp', 'kick', 'bass'], arpDensity: 8, padBright: 0.15 },
+      { name: 'the line', bars: 16, layers: ['pad', 'bell', 'lead', 'arp'], arpDensity: 8, arpOctave: 12 },
+      { name: 'gone', bars: 16, layers: ['pad', 'bell', 'arp', 'kick', 'bass', 'hat', 'snare', 'lead'], arpDensity: 8, padBright: 0.3 },
+    ],
+    loopFrom: 1,
+  },
+
+  longway: {
+    key: 'G major',
+    title: 'The Long Way (Clock Theme)',
+    bpm: 108,
+    fx: { reverb: 0.65, delay: 0.7, feedback: 0.6, tone: 3400, delayBeats: 0.5 },
+    pad: { attack: 1.4, release: 2, lfoRate: 0.17, lfoDepth: 500, cutoff: 560, detune: 12 },
+    progression: [
+      { chord: [55, 59, 62, 66], pad: [43, 50, 55, 59], bass: 31, bars: 2 }, // Gmaj7
+      { chord: [50, 54, 57, 60], pad: [38, 45, 50, 54], bass: 26, bars: 2 }, // D7
+      { chord: [52, 55, 59, 62], pad: [40, 47, 52, 55], bass: 28, bars: 2 }, // Em7
+      { chord: [48, 52, 55, 59], pad: [36, 43, 48, 52], bass: 24, bars: 2 }, // Cmaj7, the far end
+    ],
+    // A ticking figure: the clock, on every step, going somewhere.
+    arp: { octave: 12, gate: 0.35, wave: 'triangle', delay: 0.6, reverb: 0.15, pattern: [0, 3, 0, 4, 0, 5, 0, 4, 1, 3, 1, 4, 1, 5, 1, 4] },
+    bell: { octave: 24, ring: 6, pattern: [0, null, null, null, 2, null, null, null, 4, null, null, null, 1, null, null, null] },
+    bass: { pattern: [[0, 1], 0, [0, 1], 0, [0, 1], 0, [0, 1], 0, [0, 1], 0, [0, 1], 0, [7, 1], 0, [0, 1], 0] },
+    drums: {
+      kick: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0],
+      snare: [0, 0, 0, 0, 0.5, 0, 0, 0, 0, 0, 0, 0, 0.5, 0, 0, 0.2],
+      hat: [0.6, 0.3, 0.4, 0.3, 0.6, 0.3, 0.4, 0.3, 0.6, 0.3, 0.4, 0.3, 0.6, 0.3, 0.4, 0.5],
+      hatOpen: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+    },
+    lead: {
+      length: 128,
+      notes: [
+        [0, 78, 4], [4, 81, 4], [8, 83, 8], [16, 81, 4], [20, 78, 4], [24, 74, 8],
+        [32, 77, 6], [38, 78, 2], [40, 81, 8], [48, 83, 8], [56, 81, 8],
+        [64, 79, 8], [72, 83, 4], [76, 79, 4], [80, 76, 8], [88, 74, 8],
+        [96, 76, 8], [104, 79, 8], [112, 84, 12], [124, 83, 4],
+      ],
+    },
+    sections: [
+      { name: 'tee', bars: 8, layers: ['pad', 'bell', 'arp'], arpDensity: 8 },
+      { name: 'the clock', bars: 8, layers: ['pad', 'bell', 'arp', 'kick', 'bass'] },
+      { name: 'the long way', bars: 16, layers: ['pad', 'bell', 'arp', 'kick', 'bass', 'hat', 'snare', 'stab'], padBright: 0.6 },
+      { name: 'the mouth', bars: 8, layers: ['pad', 'bell', 'lead', 'arp'], arpDensity: 8, arpOctave: 12 },
+      { name: 'spent', bars: 16, layers: ['pad', 'bell', 'arp', 'kick', 'bass', 'hat', 'snare', 'lead', 'stab'], padBright: 0.7 },
+    ],
+    loopFrom: 1,
+  },
+
+  binary: {
+    key: 'F lydian',
+    title: 'Binary (Two Stones Theme)',
+    bpm: 90,
+    fx: { reverb: 0.8, delay: 0.66, feedback: 0.62, tone: 2800, delayBeats: 0.75 },
+    pad: { attack: 2.4, release: 3.2, lfoRate: 0.0625, lfoDepth: 520, cutoff: 480, detune: 16 }, // the wobble turns once every 16 s: the stones' own period
+    progression: [
+      { chord: [53, 57, 60, 64], pad: [41, 48, 53, 57, 59], bass: 29, bars: 2 }, // Fmaj7 with the lydian B
+      { chord: [55, 59, 62, 65], pad: [43, 50, 55, 59], bass: 31, bars: 2 }, // G7: the other stone
+      { chord: [53, 57, 60, 64], pad: [41, 48, 53, 57, 59], bass: 29, bars: 2 }, // Fmaj7
+      { chord: [57, 60, 64, 67], pad: [45, 52, 57, 60], bass: 33, bars: 2 }, // Am7
+    ],
+    // Two voices a half-turn apart: the pattern's second half is its first, inverted.
+    arp: { octave: 12, gate: 0.6, wave: 'triangle', delay: 0.55, reverb: 0.3, pattern: [0, 2, 4, 5, 1, 3, 5, 4, 5, 3, 1, 0, 4, 2, 0, 1] },
+    bell: { octave: 24, ring: 10, pattern: [0, null, null, null, null, null, null, null, 3, null, null, null, null, null, null, null] },
+    bass: { pattern: [[0, 4], 0, 0, 0, [0, 2], 0, [0, 2], 0, [0, 4], 0, 0, 0, [7, 2], 0, [12, 2], 0] },
+    drums: {
+      kick: [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0],
+      snare: [0, 0, 0, 0, 0.4, 0, 0, 0, 0, 0, 0, 0, 0.4, 0, 0, 0],
+      hat: [0.4, 0, 0.5, 0, 0.4, 0, 0.5, 0, 0.4, 0, 0.5, 0, 0.4, 0, 0.5, 0.3],
+      hatOpen: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+    },
+    lead: {
+      length: 128,
+      notes: [
+        [0, 77, 8], [8, 81, 8], [16, 83, 12], [30, 81, 2],
+        [32, 79, 12], [48, 76, 8], [56, 74, 8],
+        [64, 77, 8], [72, 81, 8], [80, 84, 12], [92, 83, 4],
+        [96, 81, 8], [104, 79, 8], [112, 77, 16],
+      ],
+    },
+    sections: [
+      { name: 'a turn', bars: 8, layers: ['pad', 'bell'] },
+      { name: 'watch', bars: 8, layers: ['pad', 'bell', 'arp'], arpDensity: 8 },
+      { name: 'the moment', bars: 16, layers: ['pad', 'bell', 'arp', 'kick', 'bass', 'hat'], arpDensity: 8, padBright: 0.35 },
+      { name: 'between', bars: 8, layers: ['pad', 'bell', 'lead', 'arp'], arpDensity: 8, arpOctave: 12 },
+      { name: 'through', bars: 16, layers: ['pad', 'bell', 'arp', 'kick', 'bass', 'hat', 'snare', 'lead'], padBright: 0.5 },
+    ],
+    loopFrom: 1,
+  },
 };

@@ -491,7 +491,7 @@ existing `ellipse`) live next to the arenas, and every arena is fired at in
 ## Galactic Golf (the Outer Course)
 
 A solo mode that is not Pong at all. Out past the last room the Architect drew
-there is a course: a tee, a charge, and nine holes with nothing in them to
+there is a course: a tee, a charge, and twelve holes with nothing in them to
 deflect. Tilt the frame to pick a line, thrust once to launch, and from then
 on the only say you have is the **ion gauge** — six pulses that shove the charge
 sideways mid-flight. Reach the cup and the hole is done; the launches it took
@@ -527,7 +527,27 @@ The course as it stands:
 | 9 | Twin Bodies | 5 | 30 s | Two screens each way. Orbit the first body, burn to transfer to the second, orbit that, burn into the cup's corner; a lucky slingshot off the second body gets there in one burn | `COURSE[8]` in `src/golf.js` |
 
 Those nine are the front nine: every mechanic on the course, one or two at a
-time, in the order they are easiest to learn.
+time, in the order they are easiest to learn. The back nine begins:
+
+| Hole | Name | Par | Clock | What it adds | Source |
+|---|---|---|---|---|---|
+| 10 | The Deep | 3 | 12 s | Open space: no walls, nothing to bank off; a line that misses flies on into the dark until the clock takes it | `COURSE[9]` in `src/golf.js` |
+| 11 | The Long Way | 2 | 10.4 s | Three screens long, and a heavy charge that nothing can push past the speed it leaves at: the straight line makes the cup with the clock all but spent, and the mouth by the tee is a shortcut that comes with time to fix your line | `COURSE[10]` in `src/golf.js` |
+| 12 | Binary | 3 | 14 s | Two equal stones circling each other on rails; the line to the cup runs between them, and whether it is open is a matter of when you launch | `COURSE[11]` in `src/golf.js` |
+
+**Open space** (`open: true`) draws no floor and no walls, only a starfield at
+two depths; the hole's room is twenty thousand pixels square so that no line
+the clock allows can reach an edge, and the map fits the hole's `area`, the
+part of space it is played in, rather than the room. **A heavy charge** is
+just the hole's own speed cap (`maxBallSpeed`) set to a hair above the launch
+speed: a pulse can turn it, gravity can bend it, nothing can hurry it, so the
+clock is exactly the straight line's length. **Bodies on rails** (`rail` on a
+body, or `binary()` for two of a size half a turn apart) circle a centre from
+the start of the level; a solid one is a mover in the physics, a disc of wall
+that carries its own velocity into the ball like a spinner's bar, and its
+field moves with it. They are turning while you aim, so a launch is timed
+against them, and the ghost of the last flight shows what a different moment
+did.
 
 On the last three the direct line is proved not to work: the tests fly the
 straight shot into hole 4's and hole 5's mouths and require it to end in the
@@ -543,7 +563,10 @@ gets eighteen).
 
 Controls on the course: **A / D** aim, and in flight steer the heading the
 next pulse pushes along — the charge on the tee is the pivot, so turning
-swings the frame round the charge and the charge stays exactly where it is; **W** or **Space** launches, then spends one pulse
+swings the frame round the charge and the charge stays exactly where it is;
+**S** held while aiming (or steering, while the gauge has anything left)
+makes the turn a fraction of itself, so a line a fraction of a degree wide
+can be found by hand; **W** or **Space** launches, then spends one pulse
 per press; **S** runs a spent flight out at triple speed once the gauge is empty
 and the outcome is fixed; **R** re-tees (abandoning a flight, or restarting the
 hole from the tee); **P**, or the ❚❚ button in the HUD, brings up the hole as a
@@ -632,6 +655,9 @@ nowhere else in the game, and drums that come in late if at all.
 | 7 | Matched Pair (Two Colours Theme) | B minor | 98 | `TRACKS.pair` |
 | 8 | Relay (Long Hole Theme) | E minor | 96 | `TRACKS.relay` |
 | 9 | Twin Bodies (Transfer Theme) | A major | 78 | `TRACKS.twins` |
+| 10 | The Deep (Open Space Theme) | C# minor | 74 | `TRACKS.deep` |
+| 11 | The Long Way (Clock Theme) | G major | 108 | `TRACKS.longway` |
+| 12 | Binary (Two Stones Theme) | F lydian | 90 | `TRACKS.binary` |
 
 To get there the engine gained a few knobs a track may set, all of which the
 level tracks leave at their old defaults: `fx` sizes the room (the reverb and
@@ -718,7 +744,7 @@ static Vercel deployment cannot relay, so the button is disabled there.
 | Thrust the shield forward ("whack") | **W** or **Space** |
 | Pull the shield in (soft return, slows the ball) | **S** |
 | Pause / mute / restart | **P** (or the ❚❚ button in the HUD, which is how a phone pauses) / **M** / **R** |
-| Galactic Golf: launch, then one ion pulse per press | **W** or **Space** (**A** / **D** aim and steer, **S** runs a spent flight out, **P** is the hole map) |
+| Galactic Golf: launch, then one ion pulse per press | **W** or **Space** (**A** / **D** aim and steer, **S** held for fine aim, **S** runs a spent flight out, **P** is the hole map) |
 | Controller (Xbox or any standard gamepad) | **left stick** moves, **right stick** or **LT** / **RT** rotate like A and D (further is faster), **A** thrusts, **X** pulls the shield in, **Start** pauses, **A** also confirms on menus |
 
 On touch devices, touch anywhere on the arena and drag: the first touch becomes

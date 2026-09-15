@@ -203,7 +203,70 @@ export function levelWells(def) {
     solid: !!w.solid,
     hazard: !!w.hazard,
     cup: def.cup ? w === def.cup : false,
+    // A body on a rail: it circles (cx, cy) at R, once every `period` seconds, from `phase`.
+    rail: w.rail ? { cx: w.rail.cx, cy: w.rail.cy, R: w.rail.R, period: w.rail.period, phase: w.rail.phase || 0 } : null,
   }));
+}
+
+/**
+ * A solid body on a rail, as a mover: the physics sees a disc of wall
+ * segments that moves with the body and lends the ball its speed, exactly as
+ * a spinner's bar does. The body's field moves with it since the well's x and
+ * y are the ones being driven. Runs from the start of the level, so a launch
+ * is timed against it.
+ */
+export class StoneMover {
+  constructor(well) {
+    this.well = well;
+    this.kind = 'stone';
+    this.thick = 0;
+    this.t = 0;
+    this.angle = 0;
+    this.omega = (Math.PI * 2) / well.rail.period;
+    this.set(0);
+  }
+
+  set(t) {
+    const r = this.well.rail;
+    this.angle = r.phase + this.omega * t;
+    this.well.x = r.cx + Math.cos(this.angle) * r.R;
+    this.well.y = r.cy + Math.sin(this.angle) * r.R;
+  }
+
+  update(dt) {
+    this.t += dt;
+    this.set(this.t);
+  }
+
+  get x() {
+    return this.well.x;
+  }
+
+  get y() {
+    return this.well.y;
+  }
+
+  polygon() {
+    return ellipse(this.well.x, this.well.y, this.well.r, this.well.r, 22);
+  }
+
+  segments() {
+    const segs = polygonEdges(this.polygon(), 'planet');
+    for (const sg of segs) sg.well = this.well;
+    return segs;
+  }
+
+  /** The body's own velocity along its rail; every point of it moves alike. */
+  surfaceVelocityAt() {
+    const r = this.well.rail;
+    return { x: -Math.sin(this.angle) * r.R * this.omega, y: Math.cos(this.angle) * r.R * this.omega };
+  }
+}
+
+/** The solid outlines the ball is kept out of this step: the static ones, and every moving body's where it is now. */
+export function solidPolysNow(g) {
+  const moving = g.movers.filter((m) => m.polygon);
+  return moving.length ? g.solidPolys.concat(moving.map((m) => m.polygon())) : g.solidPolys;
 }
 
 /** A phasing drone's clock: solid for `on` seconds, then intangible for `off`, from the start of the level. */
@@ -381,14 +444,15 @@ export function createGameState(def, { pvp = false, coop = false, volley = false
   const wells = levelWells(def);
   const wellPolys = [];
   for (const w of wells) {
-    if (!w.solid) continue;
+    if (!w.solid || w.rail) continue;
     const poly = ellipse(w.x, w.y, w.r, w.r, 22);
     const segs = polygonEdges(poly, 'planet');
     for (const sg of segs) sg.well = w;
     staticWalls.push(...segs);
     wellPolys.push(poly);
   }
-  const movers = (def.movers || []).map(createMover);
+  // A solid body on a rail is a mover, not a wall.
+  const movers = (def.movers || []).map(createMover).concat(wells.filter((w) => w.solid && w.rail).map((w) => new StoneMover(w)));
   let player;
   let boss;
   let fighters;

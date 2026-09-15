@@ -147,11 +147,16 @@ export class Renderer {
       shy = (Math.random() - 0.5) * game.fx.shake;
     }
     this.updateCamera(game, time);
-    if (!this.staticLayer) this.buildStaticLayer();
     ctx.fillStyle = '#03050c';
     ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-    const L = this.staticLayer;
-    ctx.drawImage(L, 0, 0, L.width, L.height, (v.ox + shx) * v.dpr, (v.oy + shy) * v.dpr, level.width * v.scale * v.dpr, level.height * v.scale * v.dpr);
+    if (level.open) {
+      // Open space: no floor, no walls, only stars, and those at two depths so the window's drift shows.
+      this.drawStars(shx, shy);
+    } else {
+      if (!this.staticLayer) this.buildStaticLayer();
+      const L = this.staticLayer;
+      ctx.drawImage(L, 0, 0, L.width, L.height, (v.ox + shx) * v.dpr, (v.oy + shy) * v.dpr, level.width * v.scale * v.dpr, level.height * v.scale * v.dpr);
+    }
     ctx.setTransform(v.dpr * v.scale, 0, 0, v.dpr * v.scale, (v.ox + shx) * v.dpr, (v.oy + shy) * v.dpr);
 
     for (const w of game.wells || []) {
@@ -192,6 +197,45 @@ export class Renderer {
 
     if (game.golf && state === 'paused') this.drawGolfMap(game, level, time);
     if (joystick && joystick.active) this.drawJoystick(joystick, (game.local && game.local.color) || game.player.color);
+  }
+
+  /**
+   * A starfield for open space, drawn in screen space from a hash of the cell
+   * each star sits in, so it is the same every frame and needs no storage.
+   * Two layers: the far one scrolls at half the window's speed.
+   */
+  drawStars(shx, shy) {
+    const ctx = this.ctx;
+    const v = this.view;
+    ctx.save();
+    ctx.setTransform(v.dpr, 0, 0, v.dpr, 0, 0);
+    for (const [p, count, size, alpha] of [[0.45, 5, 1.1, 0.35], [1, 3, 1.8, 0.7]]) {
+      const cell = 260;
+      const ox = (v.ox + shx) * p;
+      const oy = (v.oy + shy) * p;
+      const x0 = Math.floor(-ox / cell) - 1;
+      const x1 = Math.floor((v.w - ox) / cell) + 1;
+      const y0 = Math.floor(-oy / cell) - 1;
+      const y1 = Math.floor((v.h - oy) / cell) + 1;
+      ctx.fillStyle = '#dfe8ff';
+      for (let cy = y0; cy <= y1; cy++) {
+        for (let cx = x0; cx <= x1; cx++) {
+          let h = (cx * 73856093) ^ (cy * 19349663) ^ Math.round(p * 1000);
+          for (let i = 0; i < count; i++) {
+            h = (h * 1103515245 + 12345) & 0x7fffffff;
+            const fx = (h % 1000) / 1000;
+            h = (h * 1103515245 + 12345) & 0x7fffffff;
+            const fy = (h % 1000) / 1000;
+            h = (h * 1103515245 + 12345) & 0x7fffffff;
+            const fs = (h % 1000) / 1000;
+            ctx.globalAlpha = alpha * (0.4 + 0.6 * fs);
+            const r = size * (0.5 + fs);
+            ctx.fillRect(cx * cell + fx * cell + ox - r / 2, cy * cell + fy * cell + oy - r / 2, r, r);
+          }
+        }
+      }
+    }
+    ctx.restore();
   }
 
   /**
@@ -619,6 +663,24 @@ export class Renderer {
     const ctx = this.ctx;
     const color = palette.planet || palette.obstacle || '#ffb347';
     ctx.save();
+    if (w.rail) {
+      // The rail: where the body goes, and a tick at the centre it goes round.
+      ctx.setLineDash([2, 10]);
+      ctx.lineWidth = 1.5;
+      ctx.globalAlpha = 0.22;
+      ctx.strokeStyle = color;
+      ctx.beginPath();
+      ctx.arc(w.rail.cx, w.rail.cy, w.rail.R, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(w.rail.cx - 6, w.rail.cy);
+      ctx.lineTo(w.rail.cx + 6, w.rail.cy);
+      ctx.moveTo(w.rail.cx, w.rail.cy - 6);
+      ctx.lineTo(w.rail.cx, w.rail.cy + 6);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
     ctx.translate(w.x, w.y);
     ctx.strokeStyle = color;
     ctx.setLineDash([3, 11]);
@@ -805,9 +867,11 @@ export class Renderer {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.fillStyle = 'rgba(3, 5, 12, 0.88)';
       ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-      s = Math.min(v.w / level.width, v.h / level.height) * 0.9;
-      const mx = (v.w - level.width * s) / 2;
-      const my = (v.h - level.height * s) / 2 - v.h * 0.04;
+      // An open hole has no edges worth showing: the map fits the part of space the hole is played in.
+      const area = level.open && level.area ? level.area : { x: 0, y: 0, w: level.width, h: level.height };
+      s = Math.min(v.w / area.w, v.h / area.h) * 0.9;
+      const mx = (v.w - area.w * s) / 2 - area.x * s;
+      const my = (v.h - area.h * s) / 2 - v.h * 0.04 - area.y * s;
       ctx.setTransform(v.dpr * s, 0, 0, v.dpr * s, mx * v.dpr, my * v.dpr);
       this.drawMapSchematic(game, level, time, s);
     } else {
@@ -870,13 +934,23 @@ export class Renderer {
     const v = this.view;
     const p = level.palette;
     ctx.save();
-    ctx.beginPath();
-    polyPath(ctx, level.boundary);
-    ctx.fillStyle = 'rgba(12, 20, 40, 0.9)';
-    ctx.fill();
-    ctx.lineWidth = 3 / s;
-    ctx.strokeStyle = p.wall;
-    ctx.stroke();
+    if (level.open) {
+      // Nothing to draw but the reach of the map itself.
+      const a = level.area;
+      ctx.setLineDash([10 / s, 10 / s]);
+      ctx.lineWidth = 1 / s;
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
+      ctx.strokeRect(a.x, a.y, a.w, a.h);
+      ctx.setLineDash([]);
+    } else {
+      ctx.beginPath();
+      polyPath(ctx, level.boundary);
+      ctx.fillStyle = 'rgba(12, 20, 40, 0.9)';
+      ctx.fill();
+      ctx.lineWidth = 3 / s;
+      ctx.strokeStyle = p.wall;
+      ctx.stroke();
+    }
     for (const o of level.obstacles) {
       ctx.beginPath();
       polyPath(ctx, Array.isArray(o) ? o : o.poly);
@@ -887,6 +961,7 @@ export class Renderer {
       ctx.stroke();
     }
     for (const m of game.movers || []) {
+      if (m.kind === 'stone') continue; // drawn as the body it is
       for (const sg of m.segments()) {
         ctx.beginPath();
         ctx.moveTo(sg.ax, sg.ay);
@@ -898,6 +973,16 @@ export class Renderer {
     }
     for (const w of game.wells) {
       const color = w.cup ? p.cup || '#7dffc4' : w.solid ? p.planet || '#ffb347' : p.well || '#b49cff';
+      if (w.rail) {
+        ctx.setLineDash([3 / s, 8 / s]);
+        ctx.lineWidth = 1.5 / s;
+        ctx.strokeStyle = color;
+        ctx.globalAlpha = 0.5;
+        ctx.beginPath();
+        ctx.arc(w.rail.cx, w.rail.cy, w.rail.R, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
       ctx.setLineDash([6 / s, 10 / s]);
       ctx.lineWidth = 1.5 / s;
       ctx.strokeStyle = color;
@@ -1297,6 +1382,7 @@ export class Renderer {
   }
 
   drawMover(m, color) {
+    if (m.kind === 'stone') return; // a body on a rail is drawn as the body it is
     if (m.kind === 'piston') return this.drawPiston(m, color);
     if (m.kind === 'orbiter') return this.drawOrbiter(m, color);
     const ctx = this.ctx;
