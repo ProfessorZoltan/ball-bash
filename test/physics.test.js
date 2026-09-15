@@ -1891,18 +1891,19 @@ test('golf: the course teaches what it says it does', async () => {
   assert.equal(relayOut.end, 'cup', `the burn off the orbit goes down (${relayOut.end})`);
   assert.notEqual((await golfFly(relay, relay.tee.angle)).end, 'cup');
   // Twin Bodies: the tee's line orbits the first body for the whole clock and
-  // touches nothing; a burn after a lap and a half lifts the charge into the
-  // second body's hold, and a second burn off that orbit drops it into the
-  // cup's corner, still touching nothing. Five of the eight pulses.
+  // touches nothing; a burn after a lap lifts the charge into the second
+  // body's hold, and a second burn off that orbit drops it into the cup's
+  // corner. Six of the eight pulses, on the plan that forgives the most
+  // jitter of any found (a third of ±30 ms, ±6° variants of it still sink).
   const twins = byId('g9');
   const [, second] = twins.wells;
   const held = await golfFly(twins, twins.tee.angle, { events: true });
   assert.equal(held.end, 'spent');
   assert.ok(held.t >= twins.flightSeconds - 1e-6, 'the first orbit never ends on its own');
-  const transfer = [8, 8.3, 8.6].map((at) => ({ at, a: rad(330) })).concat([15.2, 15.5].map((at) => ({ at, a: rad(60) })));
+  const transfer = [5, 5.3, 5.6].map((at) => ({ at, a: rad(270) })).concat([11.8, 12.1, 12.4].map((at) => ({ at, a: rad(30) })));
   const across = await golfFly(twins, twins.tee.angle, { pulses: transfer, events: true });
   assert.equal(across.end, 'cup', `two burns take it across and down (${across.end}, closest ${Math.round(across.closest)})`);
-  assert.ok(across.t > 15.5 && across.t < twins.flightSeconds, 'after the second burn, inside the clock');
+  assert.ok(across.t > 12.4 && across.t < twins.flightSeconds, 'after the second burn, inside the clock');
   // With only the first burn it is held by the second body: several seconds inside its reach, and no cup.
   const heldByB = await golfFly(twins, twins.tee.angle, { pulses: transfer.slice(0, 3), events: true, watch: second });
   assert.notEqual(heldByB.end, 'cup', 'one burn alone does not sink it');

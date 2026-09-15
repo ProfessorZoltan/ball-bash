@@ -524,7 +524,7 @@ The course as it stands:
 | 6 | Long Orbit | 4 | 18 s | A body big enough to hold an orbit; ride it round, then burn outward when the pocket comes by | `COURSE[5]` in `src/golf.js` |
 | 7 | Matched Pair | 3 | 9 s | Two pairs of mouths in two colours; the gold pair drops you into a sealed box, the rose pair is the only way out and across | `COURSE[6]` in `src/golf.js` |
 | 8 | Relay | 4 | 22 s | Two screens wide. A narrow gap, a mouth past it that is the only way past a second wall, and a far mouth that sets you down on an orbit; ride it to the pocket and burn out | `COURSE[7]` in `src/golf.js` |
-| 9 | Twin Bodies | 5 | 30 s | Two screens each way. Orbit the first body, burn to transfer to the second, orbit that, burn into the cup's corner, which only the second orbit reaches | `COURSE[8]` in `src/golf.js` |
+| 9 | Twin Bodies | 5 | 30 s | Two screens each way. Orbit the first body, burn to transfer to the second, orbit that, burn into the cup's corner; a lucky slingshot off the second body gets there in one burn | `COURSE[8]` in `src/golf.js` |
 
 Those nine are the front nine: every mechanic on the course, one or two at a
 time, in the order they are easiest to learn.

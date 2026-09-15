@@ -353,14 +353,13 @@ export const COURSE = [
     tee: { x: 600, y: 1250, angle: -Math.PI / 2 },
     noBareLine: true,
     obstacles: [
-      // A wall from the ceiling to below the second body's orbit, and a shelf
-      // from the far wall: the corner the cup sits in is entered through the
-      // gap between them, from underneath, on a line only the second orbit gives.
+      // A wall from the ceiling to below the second body's orbit: the corner the
+      // cup sits in is entered from underneath, which the second orbit gives.
       rect(2700, 380, 24, 640),
-      rect(3000, 700, 280, 18),
     ],
     wells: [planet(900, 1250, { r: 90, range: 600, pull: 184900 }), planet(2300, 550, { r: 90, range: 600, pull: 184900 })],
-    cup: cup(2960, 250),
+    // The longest hole gathers a rough approach: the cup reaches further and pulls harder than any other.
+    cup: cup(2960, 250, { range: 240, pull: 72000 }),
   }),
 ];
 
