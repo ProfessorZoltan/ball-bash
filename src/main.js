@@ -9,7 +9,8 @@ import { LORE } from './lore.js';
 import { SYSTEMS, TIERS, FRAME_CELLS, STANDARD, DEFAULT_FRAME, CUSTOM_ID, allFrames, frameById, withinBudget, cellsSpent, systemValue } from './frames.js';
 import { createGameState, rebuildWalls as rebuildWallsState, bodyHitCounts, tickCamp, versusSpawns, rotateSpawns, versusColors, VERSUS_IDS, nodeAccepts, objectiveDone, constrainToRail, wellsDrag, wellsAccel, swallowingWell, dronePhased, seatLauncher, solidPolysNow } from './gamestate.js';
 import { NetClient, relayConfig, saveRelay } from './net.js';
-import { buildSnapshot, applySnapshot } from './netstate.js';
+import { buildSnapshot, applySnapshot, bracket, lerpView } from './netstate.js';
+import { rewoundContact, usableLag } from './lagcomp.js';
 import { Input } from './input.js';
 import { Renderer } from './render.js';
 import { Effects } from './fx.js';
@@ -60,6 +61,8 @@ function buildGame(def, pvp = false, rules = { ownBallLoss: ownBallLoss() }, coo
     guidePath: null,
     drops: 0, // frames this level that took far longer than the display's refresh interval
     lastPlayed: 0, // when a shield last touched the ball; the stuck-ball watchdog reads it
+    lastBounceAt: 0, // when the ball last changed course off anything: a rewind for a lagging guest never reaches back past it
+    lagComps: 0, // host: contacts played for a guest at the ball they saw rather than the ball as it was
     lossReason: null, // 'hit' | 'camp' | 'touch' once the level is lost
     note: null, // { text, until }: a passing HUD notice (the unplayed serve bouncing off a boss or a node)
   };
@@ -128,6 +131,7 @@ function launchBall() {
   game.history.reset();
   game.history.push(simTime, game.ball);
   game.lastPlayed = simTime;
+  game.lastBounceAt = simTime;
   for (const f of game.fighters) f.resetCamp();
   state = 'playing';
   $('countdown').hidden = true;
@@ -949,6 +953,7 @@ function moveBall(dt) {
 
   b.clampSpeed(BALL.minSpeed, g.maxSpeed);
   if (b.speed > g.topSpeed) g.topSpeed = b.speed;
+  if (net.mode === 'host' && state === 'playing' && !g.golf) lagCompensate();
   if (g.wells.length && state === 'playing') {
     const took = swallowingWell(g.wells, b.x, b.y);
     if (took) {
@@ -961,6 +966,49 @@ function moveBall(dt) {
   // Safety net: the arena is sealed, but if numerical trouble ever pushed the
   // ball through a wall, put it back in play rather than losing it.
   if (!pointInPolygon(b.x, b.y, g.def.boundary)) respawnBall();
+}
+
+/**
+ * Latency compensation. A guest sees the ball where it was `lag` seconds ago
+ * (half their round trip, plus their render buffer), and plays that ball. If
+ * their shield, where they have it now, would have met the ball then, the
+ * host plays the contact they saw: the ball is rewound to it, reflected off
+ * the shield, and carried forward again through whatever walls it would have
+ * met since. Never past the ball's last change of course, and never for the
+ * host's own shield, which sees the ball as it is.
+ */
+function lagCompensate() {
+  const g = game;
+  const b = g.ball;
+  for (const f of g.humans) {
+    if (f.slot === net.localSlot || f.down || f.phased || f.kind !== 'player') continue;
+    const lag = net.remoteLag[f.slot] || 0;
+    if (!lag || simTime - g.lastBounceAt < lag) continue;
+    const past = g.history.sample(simTime - lag);
+    if (!past || past.t > simTime - lag + PHYSICS_DT * 2) continue; // nothing kept from that far back
+    const h = rewoundContact(past, f, b.r);
+    if (!h) continue;
+    b.x = past.x + h.nx * h.depth;
+    b.y = past.y + h.ny * h.depth;
+    b.vx = past.vx;
+    b.vy = past.vy;
+    const sv = f.surfaceVelocityAt(h.cx, h.cy);
+    const before = b.speed;
+    if (!reflect(b, h.nx, h.ny, sv.x, sv.y, 1, SURFACE_VELOCITY_FACTOR)) continue;
+    b.played = true;
+    onPaddleHit(f, h, before);
+    g.lagComps++;
+    // Forward again to now, off the walls alone: other shields had their chance as it went.
+    const polys = solidPolysNow(g);
+    for (let k = Math.round(lag / PHYSICS_DT); k > 0; k--) {
+      advanceBall(b, g.walls, [], PHYSICS_DT, SURFACE_VELOCITY_FACTOR, { onWall: onWallBounce, onMover: onMoverHit }, g.movers, polys);
+      b.clampSpeed(BALL.minSpeed, g.maxSpeed);
+    }
+    b.markRender(); // it moved on the host's screen; let it move, not streak
+    g.history.reset();
+    g.history.push(simTime, b);
+    return;
+  }
 }
 
 function speedNorm(s) {
@@ -984,6 +1032,7 @@ function onWallBounce(h, seg, before) {
   wallFx(h.cx, h.cy, h.nx, h.ny, n, color);
   netEvent({ e: 'wall', x: h.cx, y: h.cy, nx: h.nx, ny: h.ny, n, c: color });
   g.ball.lastHitBy = 'wall';
+  g.lastBounceAt = simTime;
   guideFrame = 0;
 }
 
@@ -1107,6 +1156,7 @@ function onMoverHit(m, h, before) {
   moverFx(m.kind, h.cx, h.cy, h.nx, h.ny, strength, Math.abs(delta) > 120);
   netEvent({ e: 'mover', k: m.kind, x: h.cx, y: h.cy, nx: h.nx, ny: h.ny, s: strength, d: Math.abs(delta) > 120 ? 1 : 0 });
   g.ball.lastHitBy = 'mover';
+  g.lastBounceAt = simTime;
   guideFrame = 0;
 }
 
@@ -1130,6 +1180,7 @@ function onPaddleHit(f, h, before) {
   g.ball.lastTeam = f.team;
   g.ball.banked = false;
   g.lastPlayed = simTime; // the watchdog's clock: any shield touch resets it
+  g.lastBounceAt = simTime;
   if (!isBoss) g.paddleHits++;
   if (g.tutorial && !isBoss) tutorialPaddle(before, after);
   // The ice trail follows the boss's blocks; in PvP, either player's.
@@ -1848,7 +1899,7 @@ function updateHud() {
   setText('hud-bpm', audio.currentBpm ? `♪ ${Math.round(audio.currentBpm)} BPM` : '♪');
   const health = `${Math.round(fps)} FPS${g.drops ? ` · ${g.drops} DROPPED` : ''}${renderer.low ? ` · LOW Q${autoLow && qualitySetting() === 'auto' ? ' (AUTO)' : ''}` : ''}`;
   const padTag = input.pad.connected ? ' · 🎮' : '';
-  setText('hud-fps', (net.mode ? `${health} · ${Math.round(net.client.rtt)} MS` : health) + padTag);
+  setText('hud-fps', (net.mode ? `${health} · ${linkLabel()}` : health) + padTag);
   const me = localFighter(); // null while watching a versus match you were eliminated from
   const frozen = !!me && me.frozen > 0;
   const campLeft = me ? PLAYER.campSeconds - me.campTimer : Infinity;
@@ -1872,6 +1923,14 @@ function updateHud() {
   setText('hud-status', status);
   $('hud-status').style.color = last ? net.colors[last.id] : camping ? '#ff4d6d' : '';
   $('hud-status').classList.toggle('on', frozen || camping || !!lost || state === 'roundEnd' || (!me && g.pvp) || !!note);
+}
+
+/** The HUD's word on the link: a guest's round trip to the host and its buffer; a host's round trip to each guest. */
+function linkLabel() {
+  const c = net.client;
+  if (!c) return '';
+  if (c.role === 'host') return net.roster.map((r) => `${esc(r.name).toUpperCase()} ${c.link(r.id).label}`).join(' · ') || `${Math.round(c.rtt)} MS`;
+  return `${c.link('a').label} · BUFFER ${Math.round(net.interp * 1000)} MS`;
 }
 
 function formatTime(t) {
@@ -2445,10 +2504,49 @@ const net = {
   winner: null,
   pending: null, // latest snapshot not yet applied (guest)
   snapAt: 0,
-  ballBase: null,
+  // Guest-side render buffer: snapshots kept for a short while so the ball and
+  // the other fighters are drawn a little in the past, between two snapshots
+  // that have both arrived, rather than at the newest one as it lands. A late
+  // packet then never shows, so long as it is less late than the buffer.
+  buffer: [], // [{ s, time, at, ev, played }] in arrival order
+  interp: 0.05, // seconds behind the newest snapshot the view is drawn
+  clock: null, // how steadily snapshots arrive: { off, jit, gap, lastTime, n }
+  remoteLag: {}, // host: how far behind the host each guest's view runs, seconds, by id
+  legs: {}, // host: each guest's own round trip to the relay, [mean, jitter] ms, by id
+  tick: null, // the room's timer: pings, and the lobby's ping readout
   lastPing: 0,
   frame: 0,
 };
+
+const INTERP_MIN = 0.04; // seconds: never less than a couple of snapshots
+const INTERP_MAX = 0.16; // seconds: past this a link is not worth smoothing, only tolerating
+
+/**
+ * Note a snapshot's arrival: how far its host time sits from our clock (the
+ * swing of that is the jitter), and the host's gap between snapshots. The
+ * buffer is sized from both: two gaps, plus twice the jitter.
+ */
+function trackClock(msg, now) {
+  const off = now - msg.time * 1000;
+  let c = net.clock;
+  if (!c || msg.time < c.lastTime - 1) c = net.clock = { off, jit: 0, gap: 1 / 60, lastTime: msg.time, n: 0 };
+  else {
+    c.jit += (Math.abs(off - c.off) - c.jit) * 0.1;
+    c.off += (off - c.off) * 0.05;
+    const gap = msg.time - c.lastTime;
+    if (gap > 0 && gap < 0.5) c.gap += (gap - c.gap) * 0.1;
+    c.lastTime = msg.time;
+  }
+  c.n++;
+  net.interp = clamp(2 * c.gap + (2 * c.jit) / 1000, INTERP_MIN, INTERP_MAX);
+}
+
+/** Forget the render buffer: a new round, a new match, or leaving the room. */
+function clearBuffer() {
+  net.buffer = [];
+  net.clock = null;
+  net.interp = INTERP_MIN;
+}
 
 /**
  * End the match but stay in the room: everything about the match that just
@@ -2472,7 +2570,7 @@ function endMatch() {
   net.out = {};
   net.last = null;
   net.pending = null;
-  net.ballBase = null;
+  clearBuffer();
   net.leaveAt = 0;
   disarmLeave();
 }
@@ -2488,6 +2586,58 @@ function netReset() {
   net.room = false;
   net.roster = [];
   net.frames = {};
+  net.legs = {};
+  net.remoteLag = {};
+  clearBuffer();
+  if (net.tick) clearInterval(net.tick);
+  net.tick = null;
+}
+
+/**
+ * While a room is open: ping the peers and the relay twice a second, a guest
+ * tells the host how its own leg is doing every two, and the host's lobby
+ * shows what it knows.
+ */
+function startRoomTick() {
+  if (net.tick) clearInterval(net.tick);
+  let n = 0;
+  net.tick = setInterval(() => {
+    const c = net.client;
+    if (!c || !c.connected || !net.room) return;
+    c.ping();
+    if (++n % 4) return;
+    if (c.role === 'guest') c.send({ t: 'stat', id: c.id || 'c', leg: [Math.round(c.relay.mean), Math.round(c.relay.jitter)] });
+    renderPings();
+  }, 500);
+}
+
+/**
+ * The lobby's ping readout. Each player's own leg to the relay is what tells
+ * them apart: the relay sits near the host, so a guest's leg is their link
+ * plus the distance, and the host's is their link alone. A host whose leg is
+ * far less steady than a guest's is told so: the host's link is everyone's.
+ */
+function pingsHtml() {
+  const c = net.client;
+  if (!c) return '';
+  if (c.role === 'host') {
+    const parts = [`you: ${c.relay.label} to the relay`];
+    let hint = '';
+    for (const r of net.roster) {
+      const leg = net.legs[r.id];
+      parts.push(`${esc(r.name)}: ${leg ? `${leg[0]} ms ±${leg[1]}` : '—'} to the relay, ${c.link(r.id).label} to you`);
+      if (!hint && leg && c.relay.samples >= 4 && c.relay.jitter > 2 * leg[1] + 8) {
+        hint = ` <b>${esc(r.name)}'s connection is steadier than yours (±${leg[1]} against ±${Math.round(c.relay.jitter)} ms). A room ${esc(r.name)} creates would run smoother for everyone: the host's link is every player's link.</b>`;
+      }
+    }
+    return parts.join(' · ') + hint;
+  }
+  return `you: ${c.relay.label} to the relay · ${c.link('a').label} to ${esc(net.names.host)}`;
+}
+
+function renderPings() {
+  const el = $('mp-pings');
+  if (el) el.innerHTML = pingsHtml();
 }
 
 /** Everything versus can be played on: its own arenas first, then the campaign levels. */
@@ -2680,15 +2830,26 @@ async function connectClient() {
   client.on('result', onCoopResult);
   client.on('s', (msg) => {
     if (net.mode !== 'guest') return;
-    if (msg.ev) for (const ev of msg.ev) playEvent(ev);
+    const now = performance.now();
+    trackClock(msg, now);
+    // Its events play when the view reaches its moment, so a spark lands where the ball is drawn.
+    net.buffer.push({ s: msg, time: msg.time, at: now, ev: msg.ev || [], played: false });
+    if (net.buffer.length > 90) net.buffer.shift();
     net.pending = msg;
-    net.snapAt = performance.now();
+    net.snapAt = now;
   });
   client.on('i', (msg) => {
     if (net.mode !== 'host') return;
     const id = msg.id || 'c';
     net.remoteIntents[id] = { mx: msg.mx, my: msg.my, turn: msg.turn, lunge: !!msg.lunge, retract: !!msg.retract };
     if (typeof msg.seq === 'number') net.remoteSeqs[id] = msg.seq;
+    net.remoteLag[id] = usableLag(msg.lag);
+  });
+  client.on('stat', (msg) => {
+    // A guest's own leg to the relay, for the lobby's readout.
+    if (net.client.role !== 'host' || !Array.isArray(msg.leg)) return;
+    net.legs[msg.id || 'c'] = [Number(msg.leg[0]) || 0, Number(msg.leg[1]) || 0];
+    renderPings();
   });
   await client.connect();
   return client;
@@ -2702,6 +2863,7 @@ async function hostRoom() {
     client.on('created', (msg) => {
       net.room = true;
       net.names.host = name;
+      startRoomTick();
       const urls = lanInfo && lanInfo.online ? [`${location.origin}${location.pathname}?room=${msg.code}`] : lanInfo ? lanInfo.addresses.map((a) => `http://${a}:${lanInfo.port}/?relay=local&room=${msg.code}`) : [];
       lobbyStatus(`
         <div class="mp-code">${msg.code}</div>
@@ -2749,6 +2911,7 @@ function renderHostLobby(client) {
       lobbyStatus(`
         <div class="mp-code">${client.code}</div>
         <p>${names} joined${net.roster.length < COOP.maxAllies ? ` · room for ${COOP.maxAllies - net.roster.length} more` : ' · the room is full'}.</p>
+        <p class="small muted" id="mp-pings">${pingsHtml()}</p>
         <div class="row"><label class="mp-field">Mode <select id="mp-mode"><option value="versus">Versus · ${people} players, last one standing</option><option value="volley">Volley · ${people} players, no ball, every shield loaded</option><option value="coop">Co-op · ${people} of you against the boss</option></select></label></div>
         <div class="row" id="mp-versus-opts"><label class="mp-field">Arena <select id="mp-level">${arenaOptions}</select></label><label class="mp-field">Shields each <select id="mp-shields">${VERSUS_SHIELDS.map((n) => `<option value="${n}" ${n === versusShieldsSetting() ? 'selected' : ''}>${n}</option>`).join('')}</select></label><label class="mp-field" title="How fast the ball is allowed to get. Every setting scales the arena's own campaign limit, so Standard plays exactly as the campaign does.">Ball speed <select id="mp-speed">${VERSUS_SPEEDS.map((sp) => `<option value="${sp.id}" ${sp.id === versusSpeedSetting() ? 'selected' : ''}>${sp.name} · ${sp.blurb}</option>`).join('')}</select></label></div>
         <p class="small muted" id="mp-speed-note"></p>
@@ -2819,12 +2982,13 @@ async function joinRoom(code) {
     const client = await connectClient();
     const renderGuestLobby = () => {
       const others = client.peers.map((p) => `<b>${esc(p.name)}</b>`);
-      lobbyStatus(`<div class="mp-code">${client.code}</div><p>Joined <b>${esc(net.names.host)}</b>'s room${others.length ? ` with ${others.join(' and ')}` : ''}. Waiting for ${esc(net.names.host)} to start…</p>`);
+      lobbyStatus(`<div class="mp-code">${client.code}</div><p>Joined <b>${esc(net.names.host)}</b>'s room${others.length ? ` with ${others.join(' and ')}` : ''}. Waiting for ${esc(net.names.host)} to start…</p><p class="small muted" id="mp-pings">${pingsHtml()}</p>`);
     };
     client.on('joined', (msg) => {
       net.room = true;
       net.names.guest = name;
       net.names.host = msg.peerName;
+      startRoomTick();
       sendFrame();
       renderGuestLobby();
     });
@@ -2885,7 +3049,7 @@ function onSetup(msg) {
     net.rules = { ownBallLoss: !msg.rules || msg.rules.ownBallLoss !== false };
     net.frames = msg.frames || {};
     net.pending = null;
-    net.ballBase = null;
+    clearBuffer();
     campaign = null; // the host owns the campaign; this side mirrors it
     beginCoopLevel(difficultyById(msg.difficulty) || difficultySetting(), msg.shields);
     return;
@@ -2904,7 +3068,7 @@ function onSetup(msg) {
   net.frames = msg.frames || {};
   net.localSlot = net.client.id || 'c';
   net.pending = null;
-  net.ballBase = null;
+  clearBuffer();
   beginNetRound();
 }
 
@@ -3093,7 +3257,8 @@ function guestSend() {
   if (!f) return;
   const it = input.intent(f);
   net.seq++;
-  net.client.send({ t: 'i', id: net.client.id || 'c', seq: net.seq, mx: +it.mx.toFixed(3), my: +it.my.toFixed(3), turn: it.turn, lunge: it.lunge ? 1 : 0, retract: it.retract ? 1 : 0 });
+  // `lag`: how far behind the host this view runs, half a round trip plus the buffer, so the host can meet the ball where we saw it.
+  net.client.send({ t: 'i', id: net.client.id || 'c', seq: net.seq, mx: +it.mx.toFixed(3), my: +it.my.toFixed(3), turn: it.turn, lunge: it.lunge ? 1 : 0, retract: it.retract ? 1 : 0, lag: Math.round(net.client.rtt / 2 + net.interp * 1000) });
   pingMaybe();
 }
 
@@ -3120,7 +3285,6 @@ function guestApply(now) {
     for (const f of g.fighters) if (f !== me) f.markRender();
     if (me) guestReconcile(s.ak && typeof s.ak === 'object' ? s.ak[net.client.id || 'c'] : s.ak, predX, predY);
     if (me && state === 'playing') campTick(leftBefore, PLAYER.campSeconds - me.campTimer);
-    net.ballBase = { x: g.ball.x, y: g.ball.y, vx: g.ball.vx, vy: g.ball.vy };
     if (s.sh) net.shields = s.sh;
     if (s.ot) net.out = s.ot;
     net.round = s.rd;
@@ -3143,12 +3307,44 @@ function guestApply(now) {
     if (state === 'matchEnd' && wasState !== 'matchEnd') showNetMatchEnd();
     if (state === 'matchEnd' && wasState !== 'matchEnd') setInGame(false);
   }
-  if (net.ballBase && state === 'playing') {
-    const lag = Math.min((now - net.snapAt) / 1000, 0.06);
-    game.ball.x = net.ballBase.x + net.ballBase.vx * lag;
-    game.ball.y = net.ballBase.y + net.ballBase.vy * lag;
-  }
+  interpolateView(now);
   game.ball.markRender();
+}
+
+/**
+ * Draw the world a little in the past. The view runs `net.interp` seconds
+ * behind the newest snapshot, between two that have both arrived, so a late
+ * one costs nothing until it is later than the buffer. Events play as the
+ * view reaches their snapshot, so a spark lands where the ball is drawn. If
+ * the buffer runs dry the ball carries on along its last velocity for a
+ * moment, as it always did, and everything else holds.
+ */
+function interpolateView(now) {
+  const buf = net.buffer;
+  if (!buf.length) return;
+  const g = game;
+  const newest = buf[buf.length - 1];
+  const renderT = newest.time + (now - newest.at) / 1000 - net.interp;
+  for (const e of buf) {
+    if (e.played || e.time > renderT) continue;
+    e.played = true;
+    for (const ev of e.ev) playEvent(ev);
+  }
+  const me = localFighter();
+  const skip = me ? me.slot : null;
+  const br = bracket(buf, renderT);
+  if (br) lerpView(g, br.a, br.b, br.u, skip);
+  else if (renderT > newest.time && state === 'playing' && !g.ball.held) {
+    const lag = Math.min(renderT - newest.time, 0.06);
+    g.ball.x = newest.s.ball[0] + newest.s.ball[2] * lag;
+    g.ball.y = newest.s.ball[1] + newest.s.ball[3] * lag;
+  }
+  for (const f of g.fighters) if (f.slot !== skip) f.markRender();
+  // What is well behind the view is done with; anything unplayed in it plays now rather than never.
+  while (buf.length > 2 && buf[1].time < renderT - 1) {
+    const e = buf.shift();
+    if (!e.played) for (const ev of e.ev) playEvent(ev);
+  }
 }
 
 /** Guest: one physics step of its own character from its own input, remembered for reconciliation. */
@@ -3509,6 +3705,7 @@ function renderGuestRoom(status = '') {
     ${code}
     ${status ? `<p class="small">${status}</p>` : ''}
     <p>Waiting for <b>${esc(net.names.host)}</b> to pick the next match…</p>
+    <p class="small muted" id="mp-pings">${pingsHtml()}</p>
     <div class="row">${frameFieldHtml('mp-frame-room')}</div>
   `);
   bindFrameField('mp-frame-room');

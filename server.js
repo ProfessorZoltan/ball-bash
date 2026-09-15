@@ -178,7 +178,7 @@ class WsConn {
 const rooms = new Map(); // code -> { code, host, guests: [] }
 const MAX_GUESTS = 2; // a host and up to two friends (three-player co-op)
 const GUEST_IDS = ['c', 'd']; // relay identity of each guest; the game uses the same letters as slots
-const PROTOCOL = 2; // bumped when the relay protocol changes; the game warns about a stale relay
+const PROTOCOL = 3; // bumped when the relay protocol changes; the game warns about a stale relay
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 function makeCode() {
@@ -232,6 +232,12 @@ function handleMessage(conn, text) {
   }
   if (msg.t === 'leave') {
     leaveRoom(conn);
+    return;
+  }
+  // A ping for the relay itself: answered here, never forwarded, so a client
+  // can measure its own leg apart from the other player's.
+  if (msg.t === 'rping') {
+    sendJson(conn, { t: 'rpong', ts: msg.ts });
     return;
   }
   // Everything else is relayed untouched: a guest's messages go to the host,

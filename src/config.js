@@ -140,4 +140,4 @@ export const COOP = {
 
 // The relay protocol this build speaks; a relay reporting an older version in
 // /health is out of date (redeploy relay/).
-export const RELAY_PROTOCOL = 2;
+export const RELAY_PROTOCOL = 3;

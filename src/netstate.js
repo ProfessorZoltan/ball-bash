@@ -1,6 +1,7 @@
 // Snapshots of the host's game state for the guest to mirror, and the
 // inverse. Everything is rounded to keep the JSON small; positions to 0.1 px.
 import { rebuildWalls } from './gamestate.js';
+import { wrapAngle } from './vec.js';
 
 const r1 = (v) => Math.round(v * 10) / 10;
 const r3 = (v) => Math.round(v * 1000) / 1000;
@@ -45,7 +46,7 @@ export function buildSnapshot(g, meta, events = [], includeIce = true) {
   const s = {
     t: 's',
     ...meta,
-    time: r1(g.time || 0),
+    time: r3(g.time || 0), // to the millisecond: a guest interpolates between two of these
     ball: [r1(b.x), r1(b.y), r1(b.vx), r1(b.vy), b.held ? 1 : 0],
     f: g.fighters.map(fighterState),
     mv: g.movers.map(moverState),
@@ -62,6 +63,60 @@ export function buildSnapshot(g, meta, events = [], includeIce = true) {
   if (includeIce && g.ice) s.ice = { u: r1(g.ice.layUntil), o: g.ice.owner, p: g.ice.points.map((p) => [r1(p.x), r1(p.y), r1(p.t)]), q: g.ice.patches.map((p) => [r1(p.x), r1(p.y), p.r, r1(p.t)]) };
   if (events.length) s.ev = events;
   return s;
+}
+
+/**
+ * The two buffered snapshots either side of host time `t`, and how far
+ * between them it falls. `buffer` is [{ time, s }] in arrival order. Null
+ * when `t` is not bracketed: before the first, or past the newest.
+ */
+export function bracket(buffer, t) {
+  for (let i = buffer.length - 1; i >= 1; i--) {
+    const a = buffer[i - 1];
+    const b = buffer[i];
+    if (a.time <= t && t <= b.time) {
+      const span = b.time - a.time;
+      return { a, b, u: span > 1e-6 ? (t - a.time) / span : 1 };
+    }
+  }
+  return null;
+}
+
+/**
+ * Set the view of a mirror to a point `u` of the way from snapshot `a` to
+ * snapshot `b`: the ball, every fighter but `skipSlot` (the guest's own,
+ * which it predicts), the moving parts and the charges. Everything that is
+ * not a position (shields, state, who is down) comes from the newest
+ * snapshot through applySnapshot; this only decides where things are drawn.
+ */
+export function lerpView(g, a, b, u, skipSlot = null) {
+  const sa = a.s;
+  const sb = b.s;
+  const L = (x, y) => x + (y - x) * u;
+  const ball = g.ball;
+  ball.x = L(sa.ball[0], sb.ball[0]);
+  ball.y = L(sa.ball[1], sb.ball[1]);
+  for (let i = 0; i < g.fighters.length && i < sa.f.length && i < sb.f.length; i++) {
+    const f = g.fighters[i];
+    if (f.slot === skipSlot) continue;
+    const fa = sa.f[i];
+    const fb = sb.f[i];
+    f.x = L(fa[0], fb[0]);
+    f.y = L(fa[1], fb[1]);
+    f.angle = fa[2] + wrapAngle(fb[2] - fa[2]) * u;
+    f.paddleOffset = L(fa[3], fb[3]);
+  }
+  for (let i = 0; i < g.movers.length && i < sa.mv.length && i < sb.mv.length; i++) {
+    const m = g.movers[i];
+    if (m.kind === 'piston') m.t = L(sa.mv[i], sb.mv[i]);
+    else if (m.kind !== 'stone') m.angle = sa.mv[i] + wrapAngle(sb.mv[i] - sa.mv[i]) * u;
+  }
+  if (sa.pj && sb.pj && sa.pj.length === sb.pj.length && g.shots.length === sb.pj.length) {
+    for (let i = 0; i < g.shots.length; i++) {
+      g.shots[i].x = L(sa.pj[i][0], sb.pj[i][0]);
+      g.shots[i].y = L(sa.pj[i][1], sb.pj[i][1]);
+    }
+  }
 }
 
 /** Apply a snapshot to a mirror game state. Returns true if glass changed. */

@@ -722,10 +722,41 @@ free. A match sends about 120 messages a second, which is a few hours of play
 a day inside the free plan's daily allowance. Test the Worker locally with
 `npm run dev` in `relay/` and `?relay=ws://127.0.0.1:8787` on the game.
 
-Latency: the host runs the simulation, so the guest feels the round trip on
-its own character. Its own character is predicted locally and reconciled with
-the host's state as snapshots arrive, so movement responds immediately; what
-lags is the ball and the other players, by about half a round trip.
+Latency: the host runs the simulation, so a guest would feel the round trip
+on everything. Three things take the edge off it, the same three most
+networked games use:
+
+* **Prediction.** A guest's own character is simulated locally and reconciled
+  with the host's state as snapshots arrive, so movement responds at once.
+* **A render buffer.** A guest draws the ball and the other players a little
+  in the past, between two snapshots that have both arrived, rather than at
+  the newest as it lands. The buffer is sized from the link itself: two
+  snapshot gaps plus twice the measured jitter, between 40 and 160 ms. A late
+  packet then never shows, so long as it is less late than the buffer; a
+  packet later than that holds the picture for a moment, as it used to. The
+  sparks and sounds of a hit are played as the view reaches their snapshot,
+  so they land where the ball is drawn (`bracket`, `lerpView` in
+  `src/netstate.js`).
+* **Latency compensation.** A guest sees the ball where it was half a round
+  trip plus the buffer ago, and plays that ball. Each input carries that lag;
+  when a guest's shield, where they have it now, would have met the ball
+  where it was then, the host plays the contact they saw: the ball is rewound
+  to it, reflected off the shield, and carried forward again through the
+  walls it would have met since (`src/lagcomp.js`, `lagCompensate` in
+  `src/main.js`). The host never rewinds past the ball's last change of
+  course, past a quarter of a second, or for its own shield, which sees the
+  ball as it is. The cost is the usual one: on the host's screen a ball that
+  had just passed a lagging guest's shield can come back off it.
+
+The HUD shows the round trip and its jitter (`84 ms ±6`), and on a guest the
+buffer. In the lobby every player's own leg to the relay is measured
+separately (the relay answers a ping for itself), which is what tells the
+links apart: the relay sits near the host, so a guest's leg is their link
+plus the distance, and the host's is their link alone. A host whose leg is
+far less steady than a guest's is told that a room the guest creates would
+run smoother for everyone, since the host's link is every player's link.
+That readout needs relay protocol 3: an older deployed relay still relays,
+and the lobby says to redeploy it.
 
 How it works: the server is also a tiny WebSocket relay (`/ws`, no
 dependencies). The host's browser runs the physics exactly as in single

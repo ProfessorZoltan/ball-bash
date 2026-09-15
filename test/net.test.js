@@ -215,3 +215,102 @@ test('relay: a room takes two guests with ids, fans the host out to both, and re
     server.kill();
   }
 });
+
+test('link stats: a steady link has no jitter, a swinging one does, and the label reads as the HUD shows it', async () => {
+  const { LinkStats } = await import('../src/net.js');
+  const steady = new LinkStats();
+  for (let i = 0; i < 20; i++) steady.add(80);
+  assert.equal(Math.round(steady.mean), 80);
+  assert.equal(Math.round(steady.jitter), 0);
+  assert.equal(steady.label, '80 ms ±0');
+  const swinging = new LinkStats();
+  for (let i = 0; i < 40; i++) swinging.add(i % 2 ? 100 : 60);
+  assert.ok(Math.abs(swinging.mean - 80) < 6, `mean settles near 80: ${swinging.mean}`);
+  assert.ok(swinging.jitter > 12, `jitter shows the swing: ${swinging.jitter}`);
+  const fresh = new LinkStats();
+  assert.equal(fresh.label, '—');
+  fresh.add(-5);
+  fresh.add(NaN);
+  assert.equal(fresh.samples, 0, 'nonsense is ignored');
+});
+
+test('relay: a ping for the relay itself is answered by the relay and never forwarded', async () => {
+  const port = 19080 + Math.floor(Math.random() * 1000);
+  const server = spawn(process.execPath, ['server.js', String(port)], { stdio: ['ignore', 'pipe', 'inherit'] });
+  await once(server.stdout, 'data');
+  try {
+    const host = await openSocket(port);
+    host.send({ t: 'create', name: 'Ann' });
+    const created = await host.next();
+    const guest = await openSocket(port);
+    guest.send({ t: 'join', code: created.code, name: 'Bo' });
+    assert.equal((await guest.next()).t, 'joined');
+    assert.equal((await host.next()).t, 'peer');
+    guest.send({ t: 'rping', ts: 1234.5 });
+    const pong = await guest.next();
+    assert.deepEqual(pong, { t: 'rpong', ts: 1234.5 }, 'the relay answers for itself');
+    // The host hears nothing of it: the next thing it gets is what the guest sends after.
+    guest.send({ t: 'i', id: 'c', seq: 1, mx: 0, my: 0, turn: 0, lunge: 0, retract: 0, lag: 60 });
+    const heard = await host.next();
+    assert.equal(heard.t, 'i', `the host's next message is the input, not the ping (${heard.t})`);
+    assert.equal(heard.lag, 60, 'and the input carries the guest\'s view lag');
+    // A peer ping still goes to the other side, and its answer names who answered.
+    host.send({ t: 'ping', ts: 7 });
+    const ping = await guest.next();
+    assert.equal(ping.t, 'ping');
+    guest.send({ t: 'pong', ts: ping.ts, id: 'c' });
+    const answer = await host.next();
+    assert.equal(answer.t, 'pong');
+    assert.equal(answer.id, 'c');
+    host.ws.close();
+    guest.ws.close();
+  } finally {
+    server.kill();
+  }
+});
+
+test('render buffer: a view between two snapshots, the guest\'s own fighter left alone, and nothing outside the bracket', async () => {
+  const { bracket, lerpView } = await import('../src/netstate.js');
+  const def = LEVELS[0];
+  const g = createGameState(def, { pvp: true });
+  const snap = (time, bx, by, fx, angle) => ({ time, s: buildSnapshot({ ...g, ball: { ...g.ball, x: bx, y: by, vx: 100, vy: 0, held: false }, fighters: g.fighters.map((f, i) => (i === 1 ? { ...f, x: fx, angle, paddleOffset: f.paddleOffset } : f)) }, { st: 'playing' }, [], false) });
+  // buildSnapshot reads fighter methods through the spread; give the fakes what it needs.
+  const a = { time: 1.0, s: { ball: [100, 200, 100, 0, 0], f: [[300, 450, 0, 36], [1200, 450, 3.0, 36]], mv: [] } };
+  const b = { time: 1.05, s: { ball: [110, 200, 100, 0, 0], f: [[320, 450, 0, 36], [1180, 470, -3.0, 40]], mv: [] } };
+  void snap;
+  const buf = [a, b];
+  assert.equal(bracket(buf, 0.9), null, 'before the first snapshot');
+  assert.equal(bracket(buf, 1.1), null, 'past the newest');
+  const br = bracket(buf, 1.025);
+  assert.ok(br && br.a === a && br.b === b && Math.abs(br.u - 0.5) < 1e-9);
+  g.fighters[0].x = 999; // the guest's own fighter, predicted: the view must not touch it
+  lerpView(g, a, b, 0.5, 'a');
+  assert.equal(g.ball.x, 105);
+  assert.equal(g.fighters[0].x, 999, 'skipSlot is left alone');
+  assert.equal(g.fighters[1].x, 1190);
+  assert.equal(g.fighters[1].y, 460);
+  assert.equal(g.fighters[1].paddleOffset, 38);
+  // Angles interpolate the short way round: from 3.0 to -3.0 is 0.28 rad through pi, not 6 rad back through 0.
+  assert.ok(Math.abs(Math.abs(g.fighters[1].angle) - Math.PI) < 0.15, `the short way round: ${g.fighters[1].angle}`);
+});
+
+test('latency compensation: a shield that would have met the ball the guest saw is played, one the ball was leaving is not', async () => {
+  const { rewoundContact, usableLag, MAX_LAG } = await import('../src/lagcomp.js');
+  const { Fighter } = await import('../src/entities.js');
+  const f = new Fighter({ x: 500, y: 450, angle: 0, paddleBase: 36, paddleThick: 6, paddleWidth: 116 });
+  const seg = f.paddleSegment();
+  const face = Math.min(seg.ax, seg.bx); // the shield stands upright, its face this far along x
+  // The ball as the guest saw it: just short of the face and closing on it.
+  const hit = rewoundContact({ x: face - 8, y: 450, vx: 300, vy: 0 }, f, 11);
+  assert.ok(hit, 'a closing ball meets the shield');
+  assert.ok(hit.nx < 0, 'and the contact pushes it back the way it came');
+  // The same spot, moving away: no contact is played.
+  assert.equal(rewoundContact({ x: face - 8, y: 450, vx: -300, vy: 0 }, f, 11), null);
+  // Well past the shield: nothing.
+  assert.equal(rewoundContact({ x: face + 200, y: 450, vx: 300, vy: 0 }, f, 11), null);
+  // How much lag the host honours: nothing under a couple of steps, and never more than a quarter second.
+  assert.equal(usableLag(10), 0);
+  assert.equal(usableLag(60), 0.06);
+  assert.equal(usableLag(900), MAX_LAG);
+  assert.equal(usableLag('junk'), 0);
+});

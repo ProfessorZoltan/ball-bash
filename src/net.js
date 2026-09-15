@@ -62,6 +62,35 @@ async function probe(url) {
   }
 }
 
+/**
+ * A running picture of one link: its round trip, smoothed, and its jitter,
+ * the typical swing of a sample away from that mean. Jitter is what a player
+ * feels; the mean is what they see in the HUD.
+ */
+export class LinkStats {
+  constructor(alpha = 0.2) {
+    this.alpha = alpha;
+    this.mean = 0;
+    this.jitter = 0;
+    this.samples = 0;
+  }
+
+  add(rtt) {
+    if (!Number.isFinite(rtt) || rtt < 0) return;
+    if (this.samples === 0) this.mean = rtt;
+    else {
+      this.jitter += (Math.abs(rtt - this.mean) - this.jitter) * this.alpha;
+      this.mean += (rtt - this.mean) * this.alpha;
+    }
+    this.samples++;
+  }
+
+  /** "84 ms ±6", or a dash before anything has been measured. */
+  get label() {
+    return this.samples ? `${Math.round(this.mean)} ms ±${Math.round(this.jitter)}` : '—';
+  }
+}
+
 export class NetClient {
   constructor() {
     this.ws = null;
@@ -72,7 +101,15 @@ export class NetClient {
     this.id = null; // 'a' as host, 'c' or 'd' as a guest
     this.peerName = null;
     this.peers = []; // guests in the room other than this client: [{ id, name }]
-    this.rtt = 0;
+    this.rtt = 0; // the latest round trip to a peer through the relay, ms
+    this.links = {}; // round trips to each peer by id, as LinkStats: a host sees every guest, a guest sees the host
+    this.relay = new LinkStats(); // this client's own leg: the round trip to the relay itself
+  }
+
+  /** The stats for the peer `id`, made on first use. */
+  link(id) {
+    if (!this.links[id]) this.links[id] = new LinkStats();
+    return this.links[id];
   }
 
   /**
@@ -156,10 +193,16 @@ export class NetClient {
         this.peers = this.peers.filter((p) => p.id !== msg.id);
         break;
       case 'ping':
-        this.send({ t: 'pong', ts: msg.ts });
+        this.send({ t: 'pong', ts: msg.ts, id: this.id });
         return;
-      case 'pong':
+      case 'pong': {
         this.rtt = performance.now() - msg.ts;
+        this.link(msg.id || (this.role === 'host' ? 'c' : 'a')).add(this.rtt);
+        return;
+      }
+      case 'rpong':
+        // The relay answered for itself: this is our own leg alone.
+        this.relay.add(performance.now() - msg.ts);
         return;
       default:
         break;
@@ -179,12 +222,16 @@ export class NetClient {
     this.send({ t: 'join', code, name });
   }
 
+  /** Ping the peers through the relay, and the relay itself. */
   ping() {
-    this.send({ t: 'ping', ts: performance.now() });
+    const ts = performance.now();
+    this.send({ t: 'ping', ts });
+    this.send({ t: 'rping', ts });
   }
 
   leave() {
     this.send({ t: 'leave' });
+    this.links = {};
     this.role = null;
     this.id = null;
     this.code = null;
