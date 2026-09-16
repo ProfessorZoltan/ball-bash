@@ -561,16 +561,19 @@ back through the tee every lap. Every flight is spent after the hole's own
 clock (`flightSeconds`, nine seconds unless the hole says otherwise; the orbit
 gets eighteen).
 
-Controls on the course: **A / D** aim, and in flight steer the heading the
-next pulse pushes along — the charge on the tee is the pivot, so turning
-swings the frame round the charge and the charge stays exactly where it is;
-**S** held while aiming (or steering, while the gauge has anything left)
-makes the turn a fraction of itself, so a line a fraction of a degree wide
-can be found by hand; **W** or **Space** launches, then spends one pulse
-per press; **S** runs a spent flight out at triple speed once the gauge is empty
-and the outcome is fixed; **R** re-tees (abandoning a flight, or restarting the
+Controls on the course: the **mouse** (sideways travel, or the wheel) aims,
+and in flight steers the heading the next pulse pushes along — the charge on
+the tee is the pivot, so turning swings the frame round the charge and the
+charge stays exactly where it is; the **right button** held while aiming (or
+steering, while the gauge has anything left) makes the turn a fraction of
+itself, so a line a fraction of a degree wide can be found by hand; a **left
+click** or **Space** launches, then spends one pulse per click; the **right
+button** runs a spent flight out at triple speed once the gauge is empty and
+the outcome is fixed; **R** re-tees (abandoning a flight, or restarting the
 hole from the tee); **P**, or the ❚❚ button in the HUD, brings up the hole as a
-map, with every body named and the wormhole mouths paired.
+map, with every body named and the wormhole mouths paired. On a controller
+and a phone the course plays as the arena does: rotate to aim, thrust to
+launch, pull in for fine aim.
 
 The **Galactic Golf** button opens the course: the holes as a roster, each
 with its par and your best on it, and the round as one button. Play the round
@@ -748,6 +751,16 @@ networked games use:
   ball as it is. The cost is the usual one: on the host's screen a ball that
   had just passed a lagging guest's shield can come back off it.
 
+Each of the three has a switch, so one can be tested without the others:
+under **Netcode** in the multiplayer lobby (remembered in that browser), or
+**1**, **2** and **3** during a match, with the HUD naming whichever are off.
+Prediction and the buffer act on a guest's own screen (a guest with prediction
+off is drawn where the host last put them, a full round trip late; with the
+buffer off every snapshot is drawn as it lands and its sparks play at once,
+as before the buffer existed). Compensation is the host's rewinding: the
+host's switch turns it off for everyone, and a guest's switch sends a lag of
+zero, so only their own shield goes uncompensated.
+
 The HUD shows the round trip and its jitter (`84 ms ±6`), and on a guest the
 buffer. In the lobby every player's own leg to the relay is measured
 separately (the relay answers a ping for itself), which is what tells the
@@ -770,13 +783,24 @@ static Vercel deployment cannot relay, so the button is disabled there.
 
 | Action | Keys / pointer |
 | --- | --- |
-| Move | Arrow keys, or hold the mouse button / drag a finger toward where you want to go |
-| Rotate character and shield | **A** (counter-clockwise) / **D** (clockwise) |
-| Thrust the shield forward ("whack") | **W** or **Space** |
-| Pull the shield in (soft return, slows the ball) | **S** |
+| Move | **W A S D** (the arrow keys do the same), or drag a finger on a phone |
+| Rotate character and shield | **Mouse** left (counter-clockwise) / right (clockwise), or **scroll** up (clockwise) / down (counter-clockwise) |
+| Thrust the shield forward ("whack") | **Left click** or **Space** |
+| Pull the shield in (soft return, slows the ball) | **Right click** |
 | Pause / mute / restart | **P** (or the ❚❚ button in the HUD, which is how a phone pauses) / **M** / **R** |
-| Galactic Golf: launch, then one ion pulse per press | **W** or **Space** (**A** / **D** aim and steer, **S** held for fine aim, **S** runs a spent flight out, **P** is the hole map) |
-| Controller (Xbox or any standard gamepad) | **left stick** moves, **right stick** or **LT** / **RT** rotate like A and D (further is faster), **A** thrusts, **X** pulls the shield in, **Start** pauses, **A** also confirms on menus |
+| Galactic Golf: launch, then one ion pulse per click | **Left click** or **Space** (the mouse aims and steers, **right click** held for fine aim, **right click** runs a spent flight out, **P** is the hole map) |
+| Controller (Xbox or any standard gamepad) | **left stick** moves, **right stick** or **LT** / **RT** rotate (further is faster), **A** thrusts, **X** pulls the shield in, **Start** pauses, **A** also confirms on menus |
+| Netcode switches (online play) | **1** prediction, **2** render buffer, **3** latency compensation, each on or off; also in the lobby under Netcode |
+
+The mouse turns the frame at the frame's own turn speed, the same top rate a
+stick or a touch button gets, so no input out-spins another: a slow travel
+turns by exactly as much as the hand moved (a full turn in about 630 px), a
+flick turns at full rate until the travel is used up, and a flick longer
+than the frame can follow is cut short rather than spinning on after the
+hand has stopped. A wheel notch is fifteen degrees. While a level runs, the
+first click captures the mouse (so the hand can keep going in one
+direction); **Esc** gives it back, and the game lets it go on every pause
+and menu.
 
 On touch devices, touch anywhere on the arena and drag: the first touch becomes
 a floating joystick and the drag direction steers, so your finger never has to
@@ -1122,7 +1146,7 @@ src/frames.js              the four frames, the eight cells and what they buy
 src/golf.js                Galactic Golf: the Outer Course, its holes and its tunables
 src/camera.js              the camera for a level bigger than the screen (pure)
 src/lore.js                worldbuilding: the bulletin, the record's chapters, status words
-src/input.js               keyboard, mouse, touch -> one intent object
+src/input.js               keyboard, mouse, touch, gamepad -> one intent object
 src/render.js              Canvas 2D neon renderer with 2.5D wall extrusion
 src/fx.js                  particles, rings, screen shake
 src/audio/engine.js        Web Audio synths, sequencer, tempo-follow, SFX

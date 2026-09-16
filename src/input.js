@@ -1,8 +1,33 @@
 // Input layer. Produces a single "intent" object per frame so the game logic
-// never touches raw events. Mouse, keyboard and touch all funnel through here,
-// which is what will let the mobile build reuse the same game code.
+// never touches raw events. Mouse, keyboard, touch and gamepad all funnel
+// through here, which is what lets the mobile build reuse the same game code.
 
 import { clamp } from './vec.js';
+
+/** Mouse: radians of turn per pixel of sideways travel (a full turn in about 630 px). */
+export const MOUSE_SENS = 0.01;
+/** Scroll wheel: radians per notch (fifteen degrees). */
+export const WHEEL_STEP = Math.PI / 12;
+/** The rate the mouse's turn is paced to when no fighter says otherwise, radians per second; in play it is the fighter's own turn speed, so a mouse never out-spins a stick or a touch button. */
+export const MOUSE_TURN_RATE = 5;
+/** The most sideways travel one event is believed, pixels: more is a pointer-lock artefact (the cursor being re-centred), not a hand. */
+export const MOUSE_MAX_STEP = 300;
+/** Milliseconds after the pointer is captured or released during which its travel is ignored: browsers report a jump then. */
+export const LOCK_SETTLE_MS = 120;
+/** The most turn the mouse can be owed, radians: past this a flick is cut, so the frame never spins on after the hand has stopped. */
+export const SPIN_BACKLOG = 0.6;
+
+/**
+ * One frame's turn command from the turn the mouse has asked for and not yet
+ * had: as much of it as the rate allows this frame, and the rest carried,
+ * cut to the backlog. Pure, so a test can read it.
+ */
+export function spinToTurn(spin, dt, rate = MOUSE_TURN_RATE, backlog = SPIN_BACKLOG) {
+  const room = rate * Math.max(dt, 1 / 240);
+  const turn = clamp(spin / room, -1, 1);
+  const left = clamp(spin - turn * room, -backlog, backlog);
+  return { turn, left };
+}
 
 export class Input {
   constructor(canvas, screenToWorld) {
@@ -15,11 +40,18 @@ export class Input {
     // centre and dragging away from it sets the direction. Screen pixels.
     this.joystick = { active: false, ox: 0, oy: 0, dx: 0, dy: 0, radius: 64, dead: 8 };
     this.touchButtons = { left: false, right: false, whack: false, retract: false };
+    // Mouse: sideways travel turns (right is clockwise), the wheel turns a
+    // notch at a time (up is clockwise), the left button thrusts and the
+    // right pulls the shield in. `spin` is the turn asked for and not yet
+    // had; pollMouse() paces it into `turn`, this frame's command. While a
+    // match is on the first click captures the pointer, so the hand can keep
+    // going in one direction; Escape gives it back.
+    this.mouse = { left: false, right: false, spin: 0, turn: 0, locked: false, wantLock: false, settleUntil: 0 };
     // Gamepad (standard mapping, e.g. an Xbox controller): read once per
     // frame by pollGamepad(). Left stick moves; right stick, or the LT and RT
-    // triggers, turn (left and right, like A and D, at a rate set by how far
-    // they are pushed); A thrusts, X pulls the shield in, Start pauses, A also
-    // acts as Enter on menus.
+    // triggers, turn (left and right, at a rate set by how far they are
+    // pushed); A thrusts, X pulls the shield in, Start pauses, A also acts as
+    // Enter on menus.
     this.pad = { connected: false, id: '', mapping: '', turn: 0, mx: 0, my: 0, lunge: false, retract: false, buttons: [], rightAxes: [2, 3], error: '' };
     window.addEventListener('gamepadconnected', () => {
       this.pad.connected = true;
@@ -35,7 +67,20 @@ export class Input {
       if (PREVENT.has(k)) e.preventDefault();
     });
     window.addEventListener('keyup', (e) => this.keys.delete(normalizeKey(e)));
-    window.addEventListener('blur', () => this.keys.clear());
+    window.addEventListener('blur', () => {
+      this.keys.clear();
+      this.mouse.left = false;
+      this.mouse.right = false;
+      this.mouse.spin = 0;
+    });
+    document.addEventListener('pointerlockchange', () => {
+      this.mouse.locked = document.pointerLockElement === canvas;
+      this.mouse.spin = 0;
+      this.mouse.settleUntil = performance.now() + LOCK_SETTLE_MS;
+    });
+    document.addEventListener('pointerlockerror', () => {
+      this.mouse.locked = false;
+    });
 
     const toWorld = (e) => {
       const rect = canvas.getBoundingClientRect();
@@ -45,25 +90,42 @@ export class Input {
       const rect = canvas.getBoundingClientRect();
       return { x: e.clientX - rect.left, y: e.clientY - rect.top };
     };
-    canvas.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0 && e.pointerType === 'mouse') return;
-      if (this.pointer.id !== null && this.pointer.id !== e.pointerId) return;
-      this.pointer.id = e.pointerId;
-      this.pointer.down = true;
-      this.pointer.type = e.pointerType;
-      Object.assign(this.pointer, toWorld(e));
-      if (e.pointerType === 'touch') {
-        const sp = toScreen(e);
-        Object.assign(this.joystick, { active: true, ox: sp.x, oy: sp.y, dx: 0, dy: 0 });
-      }
+    const capture = (e) => {
       try {
         canvas.setPointerCapture?.(e.pointerId);
       } catch (_) {
         // Synthetic or already-released pointers cannot be captured; harmless.
       }
+    };
+    canvas.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse') {
+        if (e.button === 0) this.mouse.left = true;
+        else if (e.button === 2) this.mouse.right = true;
+        else return;
+        capture(e);
+        if (this.mouse.wantLock && !this.mouse.locked) this.lockPointer();
+        e.preventDefault();
+        return;
+      }
+      if (this.pointer.id !== null && this.pointer.id !== e.pointerId) return;
+      this.pointer.id = e.pointerId;
+      this.pointer.down = true;
+      this.pointer.type = e.pointerType;
+      Object.assign(this.pointer, toWorld(e));
+      const sp = toScreen(e);
+      Object.assign(this.joystick, { active: true, ox: sp.x, oy: sp.y, dx: 0, dy: 0 });
+      capture(e);
       e.preventDefault();
     });
     canvas.addEventListener('pointermove', (e) => {
+      if (e.pointerType === 'mouse') {
+        // Sideways travel turns. A jump no hand makes in one frame, or any
+        // travel just as the pointer is captured or freed, is the browser
+        // re-centring the cursor and is ignored.
+        const dx = typeof e.movementX === 'number' ? e.movementX : 0;
+        if (dx && Math.abs(dx) <= MOUSE_MAX_STEP && performance.now() >= this.mouse.settleUntil) this.mouse.spin += dx * MOUSE_SENS;
+        return;
+      }
       if (this.pointer.id !== null && this.pointer.id !== e.pointerId) return;
       Object.assign(this.pointer, toWorld(e));
       const j = this.joystick;
@@ -84,6 +146,11 @@ export class Input {
       }
     });
     const release = (e) => {
+      if (e.pointerType === 'mouse') {
+        if (e.type === 'pointercancel' || e.button === 0) this.mouse.left = false;
+        if (e.type === 'pointercancel' || e.button === 2) this.mouse.right = false;
+        return;
+      }
       if (this.pointer.id !== null && this.pointer.id !== e.pointerId) return;
       this.pointer.down = false;
       this.pointer.id = null;
@@ -94,6 +161,16 @@ export class Input {
     canvas.addEventListener('pointerup', release);
     canvas.addEventListener('pointercancel', release);
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    canvas.addEventListener(
+      'wheel',
+      (e) => {
+        // A notch up is clockwise, a notch down counter-clockwise; a trackpad's finer steps add up the same way.
+        const notches = e.deltaMode === 1 ? e.deltaY / 3 : e.deltaMode === 2 ? e.deltaY : e.deltaY / 100;
+        if (notches) this.mouse.spin -= notches * WHEEL_STEP;
+        e.preventDefault();
+      },
+      { passive: false }
+    );
   }
 
   /** Wire an on-screen button (touch) to an intent flag. */
@@ -112,7 +189,35 @@ export class Input {
     el.addEventListener('pointerleave', off);
   }
 
-  /** True once for the frame the key went down. */
+  /** Whether a click on the arena should capture the mouse (a match is on); off, a captured mouse is let go. */
+  captureMouse(on) {
+    this.mouse.wantLock = !!on;
+    if (!on && this.mouse.locked) {
+      try {
+        document.exitPointerLock?.();
+      } catch (_) {
+        // nothing to release
+      }
+    }
+  }
+
+  lockPointer() {
+    try {
+      const p = this.canvas.requestPointerLock?.();
+      if (p && typeof p.catch === 'function') p.catch(() => {});
+    } catch (_) {
+      // Pointer lock is a courtesy: without it the mouse still turns within the page.
+    }
+  }
+
+  /** Pace the mouse's travel since last frame into this frame's turn command, at the fighter's own turn rate. Call once per frame. */
+  pollMouse(dt, rate = MOUSE_TURN_RATE) {
+    const m = this.mouse;
+    const r = spinToTurn(m.spin, dt, rate > 0 ? rate : MOUSE_TURN_RATE);
+    m.turn = r.turn;
+    m.spin = r.left;
+  }
+
   /** Read the first connected gamepad. Call once per frame; intent() uses the result. Never throws. */
   pollGamepad() {
     try {
@@ -191,6 +296,7 @@ export class Input {
     pad.buttons = now;
   }
 
+  /** True once for the frame the key went down. */
   consumePress(key) {
     if (this.pressed.has(key)) {
       this.pressed.delete(key);
@@ -205,35 +311,25 @@ export class Input {
 
   /** Build the movement intent for the player this frame. */
   intent(player) {
+    void player;
     const k = this.keys;
     let mx = 0;
     let my = 0;
-    if (k.has('ArrowLeft')) mx -= 1;
-    if (k.has('ArrowRight')) mx += 1;
-    if (k.has('ArrowUp')) my -= 1;
-    if (k.has('ArrowDown')) my += 1;
+    // WASD moves; the arrows do the same.
+    if (k.has('a') || k.has('ArrowLeft')) mx -= 1;
+    if (k.has('d') || k.has('ArrowRight')) mx += 1;
+    if (k.has('w') || k.has('ArrowUp')) my -= 1;
+    if (k.has('s') || k.has('ArrowDown')) my += 1;
 
-    if (mx === 0 && my === 0 && this.pointer.down) {
+    if (mx === 0 && my === 0 && this.joystick.active) {
+      // Touch: direction and speed come from the drag offset, not from
+      // where the finger is on the map.
       const j = this.joystick;
-      if (j.active) {
-        // Touch: direction and speed come from the drag offset, not from
-        // where the finger is on the map.
-        const len = Math.hypot(j.dx, j.dy);
-        if (len > j.dead) {
-          const mag = Math.min(1, (len - j.dead) / (j.radius - j.dead));
-          mx = (j.dx / len) * mag;
-          my = (j.dy / len) * mag;
-        }
-      } else {
-        // Mouse: hold to move toward the cursor.
-        const dx = this.pointer.x - player.x;
-        const dy = this.pointer.y - player.y;
-        const d = Math.hypot(dx, dy);
-        if (d > 6) {
-          const k2 = Math.min(1, d / 50) / d; // slow down when nearly there
-          mx = dx * k2;
-          my = dy * k2;
-        }
+      const len = Math.hypot(j.dx, j.dy);
+      if (len > j.dead) {
+        const mag = Math.min(1, (len - j.dead) / (j.radius - j.dead));
+        mx = (j.dx / len) * mag;
+        my = (j.dy / len) * mag;
       }
     }
 
@@ -244,14 +340,16 @@ export class Input {
       my = pad.my;
     }
 
+    // Turning: the touch buttons, else the mouse (paced by pollMouse), else
+    // the gamepad's right stick or triggers, faster the further they go.
     let turn = 0;
-    if (k.has('a') || this.touchButtons.left) turn -= 1;
-    if (k.has('d') || this.touchButtons.right) turn += 1;
-    // Gamepad: the right stick turns like A and D, faster the further it is pushed.
+    if (this.touchButtons.left) turn -= 1;
+    if (this.touchButtons.right) turn += 1;
+    if (turn === 0 && this.mouse.turn) turn = this.mouse.turn;
     if (turn === 0 && pad.connected && pad.turn) turn = clamp(pad.turn, -1, 1);
 
-    const lunge = k.has('w') || k.has(' ') || this.touchButtons.whack || (pad.connected && pad.lunge);
-    const retract = k.has('s') || this.touchButtons.retract || (pad.connected && pad.retract);
+    const lunge = this.mouse.left || k.has(' ') || this.touchButtons.whack || (pad.connected && pad.lunge);
+    const retract = this.mouse.right || this.touchButtons.retract || (pad.connected && pad.retract);
     return { mx, my, turn, lunge, retract };
   }
 }

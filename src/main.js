@@ -978,6 +978,7 @@ function moveBall(dt) {
  * host's own shield, which sees the ball as it is.
  */
 function lagCompensate() {
+  if (!netcode.lagcomp) return;
   const g = game;
   const b = g.ball;
   for (const f of g.humans) {
@@ -1324,6 +1325,8 @@ function frame(now) {
   const rawDt = (now - last) / 1000;
   const dt = Math.min(rawDt, 0.05);
   last = now;
+  const mine = game ? localFighter() : null;
+  input.pollMouse(dt, mine ? mine.turnSpeed : undefined); // the mouse turns at the frame's own rate
   if (dt > 0) fps += (1 / dt - fps) * 0.05;
   let alpha = 1; // how far through the current physics step this frame is drawn
 
@@ -1720,6 +1723,14 @@ function handleGlobalKeys() {
     else startLevel(levelIndex);
   }
   if (input.consumePress('f')) toggleFullscreen();
+  if (net.mode) {
+    // 1, 2, 3 flip the netcode switches mid-match, for trying one without the others.
+    NETCODE.forEach((n, i) => {
+      if (!input.consumePress(String(i + 1))) return;
+      setNetcode(n.id, !netcode[n.id]);
+      netNote(`${n.name.toUpperCase()} ${netcode[n.id] ? 'ON' : 'OFF'}`);
+    });
+  }
   if (input.consumePress('Enter') && !net.mode) {
     if (state === 'title') begin();
     else if (golfRound && state === 'cleared') {
@@ -1771,6 +1782,7 @@ function goToMenu() {
 /** Touch controls are only shown while a level is actually being played. */
 function setInGame(on) {
   document.body.classList.toggle('in-game', on);
+  input.captureMouse(on); // the mouse turns the frame: while a level runs a click captures it
 }
 
 const IS_IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -1929,8 +1941,10 @@ function updateHud() {
 function linkLabel() {
   const c = net.client;
   if (!c) return '';
-  if (c.role === 'host') return net.roster.map((r) => `${esc(r.name).toUpperCase()} ${c.link(r.id).label}`).join(' · ') || `${Math.round(c.rtt)} MS`;
-  return `${c.link('a').label} · BUFFER ${Math.round(net.interp * 1000)} MS`;
+  // Whichever switches are off, apart from what the line says anyway: a host's screen has no prediction or buffer, and a guest's BUFFER field speaks for itself.
+  const off = NETCODE.filter((n) => !netcode[n.id] && (c.role === 'host' ? n.id === 'lagcomp' : n.id !== 'buffer')).map((n) => ` · ${n.name.toUpperCase()} OFF`).join('');
+  if (c.role === 'host') return (net.roster.map((r) => `${esc(r.name).toUpperCase()} ${c.link(r.id).label}`).join(' · ') || `${Math.round(c.rtt)} MS`) + off;
+  return `${c.link('a').label} · BUFFER ${netcode.buffer ? `${Math.round(net.interp * 1000)} MS` : 'OFF'}${off}`;
 }
 
 function formatTime(t) {
@@ -2294,7 +2308,7 @@ const TUTORIAL_STEPS = [
     title: 'Move and aim',
     text: COARSE
       ? 'Touch anywhere and <b>drag</b> to move. The <b>⟲ ⟳</b> buttons turn you and your shield. Move a little and turn around.'
-      : '<b>Arrow keys</b> move you (or hold the mouse). <b>A</b> and <b>D</b> turn you and your shield. Move a little and turn all the way around.',
+      : '<b>W A S D</b> move you. <b>Move the mouse</b> left or right (or scroll) to turn you and your shield. Move a little and turn all the way around.',
   },
   {
     title: 'Block',
@@ -2304,7 +2318,7 @@ const TUTORIAL_STEPS = [
     title: 'Whack',
     text: COARSE
       ? 'A shield <b>moving toward the ball</b> adds its speed. Tap <b>WHACK</b> as the ball lands, or swing with ⟲ ⟳. Send it back at least <b>120 px/s faster</b> than it came.'
-      : 'A shield <b>moving toward the ball</b> adds its speed. Press <b>W</b> to thrust as the ball lands, or swing with <b>A</b>/<b>D</b> so a tip meets it. Send it back at least <b>120 px/s faster</b> than it came.',
+      : 'A shield <b>moving toward the ball</b> adds its speed. <b>Left click</b> to thrust as the ball lands, or swing with the <b>mouse</b> so a tip meets it. Send it back at least <b>120 px/s faster</b> than it came.',
   },
   {
     title: 'Bank shot',
@@ -2521,6 +2535,71 @@ const net = {
 const INTERP_MIN = 0.04; // seconds: never less than a couple of snapshots
 const INTERP_MAX = 0.16; // seconds: past this a link is not worth smoothing, only tolerating
 
+// ------------------------------------------------------- netcode switches
+
+/**
+ * The three things that hide the round trip, each with a switch so any one
+ * can be tried without the others. Remembered in this browser; 1, 2 and 3
+ * flip them in a live match. Prediction and the buffer act on a guest's
+ * screen; compensation on the host's rewinding, and a guest's switch covers
+ * their own shield alone.
+ */
+const NETCODE = [
+  { id: 'predict', key: 'deflector.net.predict', name: 'Prediction', blurb: 'Your own fighter moves the moment you press, without waiting for the host to confirm it. Off: it moves when the host says so, a full round trip later.' },
+  { id: 'buffer', key: 'deflector.net.buffer', name: 'Render buffer', blurb: 'The ball and the other players are drawn a fraction of a second in the past, between two updates that have both arrived, so a late one never makes them stutter. Off: every update is drawn the moment it lands, and a late one holds the picture.' },
+  { id: 'lagcomp', key: 'deflector.net.lagcomp', name: 'Latency compensation', blurb: 'When your shield meets the ball where you saw it, the host rewinds the ball to there and counts the hit. Off: only where the ball really is counts, so a player with lag has to swing early. The host\'s switch covers everyone; a guest\'s, their own shield.' },
+];
+const netcode = { predict: true, buffer: true, lagcomp: true };
+
+function loadNetcode() {
+  for (const n of NETCODE) {
+    try {
+      netcode[n.id] = localStorage.getItem(n.key) !== 'off';
+    } catch (_) {
+      netcode[n.id] = true;
+    }
+  }
+}
+
+function setNetcode(id, on) {
+  netcode[id] = !!on;
+  const n = NETCODE.find((x) => x.id === id);
+  try {
+    localStorage.setItem(n.key, on ? 'on' : 'off');
+  } catch (_) {
+    // storage unavailable; the choice lasts for this page load only
+  }
+  if (id === 'buffer') net.interp = on ? INTERP_MIN : 0; // the next snapshot sizes it again
+  if (id === 'predict' && !on) {
+    net.inputs = [];
+    net.smooth = { x: 0, y: 0 };
+  }
+  const el = $(`opt-net-${id}`);
+  if (el) el.checked = netcode[id];
+}
+
+/** The buffer's floor: a couple of snapshots, or nothing at all with the buffer off. */
+function baseInterp() {
+  return netcode.buffer ? INTERP_MIN : 0;
+}
+
+function netcodeHtml() {
+  const rows = NETCODE.map((n, i) => `<label class="opt netcode" title="${n.name}: press ${i + 1} in a match to flip it"><input type="checkbox" id="opt-net-${n.id}" ${netcode[n.id] ? 'checked' : ''} /><span><b>${n.name}</b> <span class="small muted">[${i + 1}]</span><br /><span class="small muted">${n.blurb}</span></span></label>`).join('');
+  return `<details class="mp-adv"><summary>Netcode</summary><p class="small muted">What hides the round trip, each with its own switch so one can be tested without the others. Prediction and the buffer act on a guest's screen; compensation is the host's rewinding. Press <b>1</b>, <b>2</b> or <b>3</b> during a match to flip one; the HUD says which are off.</p>${rows}</details>`;
+}
+
+function bindNetcode() {
+  for (const n of NETCODE) {
+    const el = $(`opt-net-${n.id}`);
+    if (el) el.onchange = () => setNetcode(n.id, el.checked);
+  }
+}
+
+/** A word in the HUD for a moment (a switch flipped mid-match). */
+function netNote(text, secs = 2) {
+  if (game) game.note = { text, until: (game.time || 0) + secs };
+}
+
 /**
  * Note a snapshot's arrival: how far its host time sits from our clock (the
  * swing of that is the jitter), and the host's gap between snapshots. The
@@ -2538,14 +2617,14 @@ function trackClock(msg, now) {
     c.lastTime = msg.time;
   }
   c.n++;
-  net.interp = clamp(2 * c.gap + (2 * c.jit) / 1000, INTERP_MIN, INTERP_MAX);
+  net.interp = netcode.buffer ? clamp(2 * c.gap + (2 * c.jit) / 1000, INTERP_MIN, INTERP_MAX) : 0;
 }
 
 /** Forget the render buffer: a new round, a new match, or leaving the room. */
 function clearBuffer() {
   net.buffer = [];
   net.clock = null;
-  net.interp = INTERP_MIN;
+  net.interp = baseInterp();
 }
 
 /**
@@ -2778,7 +2857,9 @@ async function openLobby(prefillCode = '') {
       <p class="small muted">For play over the internet, paste the address of a deployed relay (see the README); it is remembered in this browser. Enter <b>local</b> to use the server that serves this page instead (${IS_DESKTOP ? 'the app\'s built-in LAN server' : `LAN play with <code>npm start</code>`}), a friend's LAN address such as <b>192.168.1.20:27411</b> when they host from the desktop app, or leave it empty for the game's default.</p>
       <div class="row"><label class="mp-field">Relay <input id="mp-relay" maxlength="120" value="${relay ? relay.label.replace(/"/g, '') : ''}" placeholder="deflector-relay.example.workers.dev" style="width:20em" /></label><button id="mp-relay-set">Use</button></div>
     </details>
+    ${netcodeHtml()}
   `);
+  bindNetcode();
   if (lanInfo && lanInfo.unreachable) lobbyStatus(`<span class="small">The relay at <b>${lanInfo.unreachable}</b> did not answer, so this is same-network play through ${IS_DESKTOP ? 'the app\'s built-in server' : 'this page\'s server'}.</span>`);
   if (online && (lanInfo.v || 1) < RELAY_PROTOCOL) lobbyStatus(`<span class="mp-error">This relay is out of date (protocol ${lanInfo.v || 1}, the game needs ${RELAY_PROTOCOL}). Redeploy it: see "Online multiplayer" in the README.</span>`);
   $('btn-menu').onclick = exitAction();
@@ -3258,7 +3339,7 @@ function guestSend() {
   const it = input.intent(f);
   net.seq++;
   // `lag`: how far behind the host this view runs, half a round trip plus the buffer, so the host can meet the ball where we saw it.
-  net.client.send({ t: 'i', id: net.client.id || 'c', seq: net.seq, mx: +it.mx.toFixed(3), my: +it.my.toFixed(3), turn: it.turn, lunge: it.lunge ? 1 : 0, retract: it.retract ? 1 : 0, lag: Math.round(net.client.rtt / 2 + net.interp * 1000) });
+  net.client.send({ t: 'i', id: net.client.id || 'c', seq: net.seq, mx: +it.mx.toFixed(3), my: +it.my.toFixed(3), turn: it.turn, lunge: it.lunge ? 1 : 0, retract: it.retract ? 1 : 0, lag: netcode.lagcomp ? Math.round(net.client.rtt / 2 + net.interp * 1000) : 0 });
   pingMaybe();
 }
 
@@ -3282,8 +3363,9 @@ function guestApply(now) {
     const predX = me ? me.x : 0;
     const predY = me ? me.y : 0;
     applySnapshot(g, s);
-    for (const f of g.fighters) if (f !== me) f.markRender();
-    if (me) guestReconcile(s.ak && typeof s.ak === 'object' ? s.ak[net.client.id || 'c'] : s.ak, predX, predY);
+    const predict = !!me && netcode.predict;
+    for (const f of g.fighters) if (f !== me || !predict) f.markRender();
+    if (predict) guestReconcile(s.ak && typeof s.ak === 'object' ? s.ak[net.client.id || 'c'] : s.ak, predX, predY);
     if (me && state === 'playing') campTick(leftBefore, PLAYER.campSeconds - me.campTimer);
     if (s.sh) net.shields = s.sh;
     if (s.ot) net.out = s.ot;
@@ -3331,7 +3413,7 @@ function interpolateView(now) {
     for (const ev of e.ev) playEvent(ev);
   }
   const me = localFighter();
-  const skip = me ? me.slot : null;
+  const skip = me && netcode.predict ? me.slot : null; // a predicted fighter is its own; an unpredicted one is drawn like the rest
   const br = bracket(buf, renderT);
   if (br) lerpView(g, br.a, br.b, br.u, skip);
   else if (renderT > newest.time && state === 'playing' && !g.ball.held) {
@@ -3351,7 +3433,7 @@ function interpolateView(now) {
 function guestStep(dt) {
   const g = game;
   const me = localFighter();
-  if (!me) return;
+  if (!me || !netcode.predict) return; // unpredicted, the character is wherever the host last said
   let intent = input.intent(me);
   if (state === 'countdown') intent = { ...intent, mx: 0, my: 0, lunge: false };
   me.markRender();
@@ -3650,7 +3732,9 @@ function roomShell(note = '') {
     ${note ? `<p class="small">${note}</p>` : ''}
     <div id="mp-status" class="mp-status"></div>
     <div class="row"><button id="btn-leave-room">Leave the room</button></div>
+    ${netcodeHtml()}
   `);
+  bindNetcode();
   $('btn-leave-room').onclick = leaveRoom;
 }
 
@@ -3798,12 +3882,12 @@ function showTitle() {
       <div>
         <h3>Controls</h3>
         <ul class="controls">
-          <li><b>Arrows</b>, <b>mouse</b> or <b>drag</b> — move</li>
-          <li><b>A / D</b> — rotate (swing to whack)</li>
-          <li><b>W</b> or <b>Space</b> — thrust the shield</li>
-          <li><b>S</b> — pull the shield in (soft return)</li>
+          <li><b>W A S D</b> (or the arrows), or <b>drag</b> on a phone — move</li>
+          <li><b>Mouse</b> left / right, or <b>scroll</b> — rotate (swing to whack); a click captures the mouse, <b>Esc</b> frees it</li>
+          <li><b>Left click</b> or <b>Space</b> — thrust the shield</li>
+          <li><b>Right click</b> — pull the shield in (soft return)</li>
           <li><b>P</b> pause · <b>M</b> mute · <b>R</b> restart</li>
-          <li><b>Galactic Golf</b>: A / D aim (hold S for fine aim), W launches then spends one ion pulse a press, P is the hole map</li>
+          <li><b>Galactic Golf</b>: the mouse aims (hold right click for fine aim), a left click launches then spends one ion pulse a click, P is the hole map</li>
           <li><b>Controller</b>: left stick moves, right stick or <b>LT</b>/<b>RT</b> rotate, <b>A</b> thrusts, <b>X</b> pulls in, <b>Start</b> pauses <span id="pad-state" class="small muted">${input.pad.connected ? `· detected: ${input.pad.id.slice(0, 40)}` : '· none detected yet (press any button on it)'}</span></li>
         </ul>
       </div>
@@ -4267,7 +4351,7 @@ function showCourse() {
       <div>
         <h3>The round</h3>
         <p class="small">${COURSE.length} holes, par ${COURSE_PAR}. Every launch counts, and the card at the end reads each hole against its par.${best.total ? ` Your best round is <b>${best.total}</b> (${toPar(best.total - COURSE_PAR)}).` : ''}</p>
-        <p class="small muted"><b>A / D</b> aim, <b>S</b> held for fine aim · <b>W</b> or <b>Space</b> launch, then one ion pulse per press · <b>S</b> runs a spent flight out · <b>R</b> re-tees · <b>P</b> the hole map</p>
+        <p class="small muted"><b>Mouse</b> aims, <b>right click</b> held for fine aim · <b>left click</b> or <b>Space</b> launches, then one ion pulse per click · <b>right click</b> runs a spent flight out · <b>R</b> re-tees · <b>P</b> the hole map</p>
       </div>
     </div>
     <div class="row"><button id="btn-course" class="primary">Play the course</button><button id="btn-menu">Main menu</button></div>
@@ -4304,7 +4388,7 @@ function golfMap(brief) {
       ${g.wormholes.length > 1 ? '<li><span class="k warp"></span>Wormhole mouths — a mouth leads to the one in its own colour, and keeps your heading</li>' : g.wormholes.length ? '<li><span class="k warp"></span>Wormhole mouths — paired, and they keep your heading</li>' : ''}
       <li><span class="k tee"></span>The tee</li>
     </ul>
-    <p class="small muted"><b>A / D</b> aim, and steer the ion pulses in flight · hold <b>S</b> for fine aim · <b>W</b> or <b>Space</b> launch, then one pulse per press · <b>S</b> runs a spent flight out · <b>R</b> re-tees · <b>P</b> this map</p>
+    <p class="small muted"><b>Mouse</b> aims, and steers the ion pulses in flight · hold <b>right click</b> for fine aim · <b>left click</b> or <b>Space</b> launches, then one pulse per click · <b>right click</b> runs a spent flight out · <b>R</b> re-tees · <b>P</b> this map</p>
     <div class="row"><button id="btn-resume" class="primary">${brief ? 'Tee off' : 'Resume'}</button>${brief ? '' : '<button id="btn-restart">Restart hole</button>'}<button id="btn-course">The course</button><button id="btn-menu">Main menu</button></div>
   `);
   $('overlay').classList.add('map'); // the scrim lifts so the hole shows through
@@ -4580,6 +4664,7 @@ for (const [id, name] of [['tb-left', 'left'], ['tb-right', 'right'], ['tb-whack
 }
 renderer.setLevel(SEQUENCE[levelIndex]);
 applyQuality();
+loadNetcode();
 renderer.resize();
 showTitle();
 requestAnimationFrame(frame);
@@ -4591,4 +4676,4 @@ NetClient.available().then((info) => {
 });
 
 // Expose for debugging / automated smoke tests.
-window.__game = { get state() { return state; }, get game() { return game; }, get net() { return net; }, get golfRound() { return golfRound; }, audio, renderer, input, startLevel, startGolf, startGolfHole, golfPulse };
+window.__game = { get state() { return state; }, get game() { return game; }, get net() { return net; }, get golfRound() { return golfRound; }, netcode, setNetcode, audio, renderer, input, startLevel, startGolf, startGolfHole, golfPulse };
