@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { createGameState, rebuildWalls } from '../src/gamestate.js';
-import { buildSnapshot, applySnapshot } from '../src/netstate.js';
+import { buildSnapshot, applySnapshot, noteArrival, bufferFor, advanceRenderClock, INTERP_MIN, INTERP_MAX, EXTRAPOLATE_MAX } from '../src/netstate.js';
 import { LEVELS } from '../src/levels.js';
 
 function openSocket(port) {
@@ -313,4 +313,58 @@ test('latency compensation: a shield that would have met the ball the guest saw 
   assert.equal(usableLag(60), 0.06);
   assert.equal(usableLag(900), MAX_LAG);
   assert.equal(usableLag('junk'), 0);
+});
+
+test('render clock: arrivals set a smoothed host clock, a late packet raises the buffer and it fades back', () => {
+  let c = null;
+  // Sixty snapshots a second, each arriving 100 ms after its host time, dead steady.
+  for (let i = 0; i < 120; i++) c = noteArrival(c, i / 60, 100 + (i / 60) * 1000);
+  assert.ok(Math.abs(c.off - 100) < 1e-6);
+  assert.ok(c.peak < 1e-6);
+  assert.ok(Math.abs(c.gap - 1 / 60) < 1e-6);
+  assert.ok(bufferFor(c) >= INTERP_MIN && bufferFor(c) < 0.05); // two gaps and a little: the floor
+  // One packet 150 ms late: the buffer opens up to cover it, and the clock barely moves.
+  c = noteArrival(c, 2, 100 + 2000 + 150);
+  assert.ok(c.peak > 140);
+  assert.ok(c.off < 104);
+  const opened = bufferFor(c);
+  assert.ok(opened > 0.15 && opened <= INTERP_MAX);
+  // Steady again for three seconds: the worst lateness fades and the buffer closes.
+  for (let i = 121; i < 300; i++) c = noteArrival(c, i / 60, 100 + (i / 60) * 1000);
+  assert.ok(bufferFor(c) < opened);
+  // An early packet costs nothing: the buffer covers lateness alone.
+  const peakBefore = c.peak;
+  c = noteArrival(c, 5, 100 + 5000 - 120);
+  assert.ok(c.peak <= peakBefore);
+  // Host time standing still for a second and a half (a round's end) is not lateness: the clock re-anchors when it moves again.
+  const offBefore = c.off;
+  for (let i = 0; i < 90; i++) c = noteArrival(c, 5, 100 + 5000 + 16 + i * 16.7);
+  assert.ok(c.stalled);
+  assert.ok(Math.abs(c.off - offBefore) < 1e-9);
+  c = noteArrival(c, 5 + 1 / 60, 100 + 5000 + 1520 + 1000 / 60);
+  assert.ok(!c.stalled);
+  assert.ok(Math.abs(c.off - (100 + 1520)) < 1e-6); // the host's clock now sits 1.5 s further behind the wall, and that is all
+  assert.ok(c.peak <= peakBefore);
+  // A break in host time (a new match) starts the clock afresh.
+  const fresh = noteArrival(c, 0.5, 9000);
+  assert.equal(fresh.n, 1);
+  assert.equal(fresh.peak, 0);
+});
+
+test('render clock: the view\'s clock never jumps or runs backwards, catches up within a quarter, and holds a little past the newest', () => {
+  const dt = 1 / 60;
+  // Sitting exactly on target it advances at real time.
+  assert.ok(Math.abs(advanceRenderClock(10, 10, dt, 10.1) - (10 + dt)) < 1e-9);
+  // Well behind the target (after a stall) it runs at most a quarter fast; well ahead, at most a quarter slow, never backwards.
+  assert.ok(Math.abs(advanceRenderClock(10, 10.4, dt, 11) - (10 + dt * 1.25)) < 1e-9);
+  assert.ok(Math.abs(advanceRenderClock(10, 9.6, dt, 11) - (10 + dt * 0.75)) < 1e-9);
+  assert.ok(advanceRenderClock(10, 9.6, dt, 11) > 10);
+  // A late packet that moves the target by 20 ms moves the clock by a few percent of a frame, not 20 ms.
+  const nudged = advanceRenderClock(10, 10 + dt - 0.02, dt, 11);
+  assert.ok(Math.abs(nudged - (10 + dt)) < dt * 0.05);
+  // It never runs past what has arrived plus the carry.
+  assert.equal(advanceRenderClock(10.05, 10.2, dt, 10), 10 + EXTRAPOLATE_MAX);
+  // A break of more than half a second starts it afresh, at the target.
+  assert.equal(advanceRenderClock(10, 20, dt, 25), 20);
+  assert.equal(advanceRenderClock(null, 5, dt, 6), 5);
 });

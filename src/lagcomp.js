@@ -9,7 +9,7 @@
 import { circleVsCapsule } from './physics.js';
 
 /** The most lag the host will honour: past this a connection is a problem, not a viewpoint. */
-export const MAX_LAG = 0.25;
+export const MAX_LAG = 0.35;
 
 /**
  * Would the ball, at `past` ({x, y, vx, vy}), be meeting `fighter`'s shield

@@ -5,8 +5,10 @@
 // definition (see tracks.js). Because each step's duration is computed at the
 // moment it is scheduled, the tempo can follow the ball speed continuously.
 
-const LOOKAHEAD = 0.16; // seconds of audio scheduled ahead of the clock
+const LOOKAHEAD = 0.3; // seconds of audio scheduled ahead of the clock: a main thread held up for less than this costs no note
 const TICK_MS = 25;
+/** How much output latency to ask for: 'snappy' is the browser's smallest buffer, 'steady' a 60 ms one that rides out a busy machine. */
+export const AUDIO_LATENCY = { snappy: 'interactive', steady: 0.06 };
 
 const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
 
@@ -23,6 +25,7 @@ export class AudioEngine {
     this.currentBpm = 0;
     this.lastWall = 0;
     this.lastKickAt = 0; // audio-clock time of the most recent scheduled kick
+    this.latency = 'snappy'; // a key of AUDIO_LATENCY
   }
 
   get ready() {
@@ -37,9 +40,27 @@ export class AudioEngine {
     }
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
-    this.ctx = new AC({ latencyHint: 'interactive' });
+    this.ctx = new AC({ latencyHint: AUDIO_LATENCY[this.latency] ?? 'interactive' });
     this.buildGraph();
     if (this.ctx.state === 'suspended') await this.ctx.resume();
+  }
+
+  /** Change the output latency: the context is rebuilt, and whatever was playing starts over on it. */
+  async setLatency(key) {
+    if (!(key in AUDIO_LATENCY)) return;
+    this.latency = key;
+    if (!this.ctx) return;
+    const track = this.track;
+    this.stopTrack(0);
+    const old = this.ctx;
+    this.ctx = null;
+    try {
+      await old.close();
+    } catch (_) {
+      // an already closed context; nothing to do
+    }
+    await this.init();
+    if (track && this.ctx) this.playTrack(track);
   }
 
   buildGraph() {

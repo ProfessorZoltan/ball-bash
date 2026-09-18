@@ -2,9 +2,9 @@
 // never touches raw events. Mouse, keyboard, touch and gamepad all funnel
 // through here, which is what lets the mobile build reuse the same game code.
 
-import { clamp } from './vec.js';
+import { clamp, wrapAngle } from './vec.js';
 
-/** Mouse: radians of turn per pixel of sideways travel (a full turn in about 630 px). */
+/** Mouse, fine mode: radians of turn per pixel of sideways travel (a full turn in about 630 px). */
 export const MOUSE_SENS = 0.01;
 /** Scroll wheel: radians per notch (fifteen degrees). */
 export const WHEEL_STEP = Math.PI / 12;
@@ -14,6 +14,24 @@ export const MOUSE_TURN_RATE = 5;
 export const MOUSE_MAX_STEP = 300;
 /** Milliseconds after the pointer is captured or released during which its travel is ignored: browsers report a jump then. */
 export const LOCK_SETTLE_MS = 120;
+/** Facing: how much recent travel it takes to mean a direction, pixels; less is tremor. */
+export const FACE_DEADZONE = 3;
+/** Facing: how quickly older travel stops counting toward the direction, seconds. */
+export const FACE_TAU = 0.06;
+/** Facing: within this of the direction the frame has arrived, radians; without it the frame would hunt round the last step. */
+export const FACE_SETTLE = 0.01;
+
+/**
+ * One frame's turn command to bring `current` round to `target` the short
+ * way: the whole of the way if the rate allows it this frame, else full rate
+ * in that direction. Pure, so a test can read it.
+ */
+export function faceTurn(current, target, rate, dt) {
+  const delta = wrapAngle(target - current);
+  if (Math.abs(delta) < FACE_SETTLE) return 0;
+  const room = rate * Math.max(dt, 1 / 240);
+  return clamp(delta / room, -1, 1);
+}
 /** The most turn the mouse can be owed, radians: past this a flick is cut, so the frame never spins on after the hand has stopped. */
 export const SPIN_BACKLOG = 0.6;
 
@@ -40,13 +58,16 @@ export class Input {
     // centre and dragging away from it sets the direction. Screen pixels.
     this.joystick = { active: false, ox: 0, oy: 0, dx: 0, dy: 0, radius: 64, dead: 8 };
     this.touchButtons = { left: false, right: false, whack: false, retract: false };
-    // Mouse: sideways travel turns (right is clockwise), the wheel turns a
-    // notch at a time (up is clockwise), the left button thrusts and the
-    // right pulls the shield in. `spin` is the turn asked for and not yet
-    // had; pollMouse() paces it into `turn`, this frame's command. While a
-    // match is on the first click captures the pointer, so the hand can keep
-    // going in one direction; Escape gives it back.
-    this.mouse = { left: false, right: false, spin: 0, turn: 0, locked: false, wantLock: false, settleUntil: 0 };
+    // Mouse: the frame turns, the short way round, to face the direction
+    // the mouse moved in (`mx`, `my` is this frame's travel, `dirX`, `dirY`
+    // the last few frames' worth, which sets `target`); the wheel nudges
+    // that a notch at a time (up is clockwise); the left button thrusts and
+    // the right pulls the shield in. In `spin` mode (fine aim on the course)
+    // sideways travel turns instead, a fraction of a degree per pixel, with
+    // `spin` the turn asked for and not yet had. pollMouse() paces either
+    // into `turn`, this frame's command. While a match is on the first click
+    // captures the pointer, so the hand can keep going; Escape gives it back.
+    this.mouse = { left: false, right: false, mx: 0, my: 0, dirX: 0, dirY: 0, target: null, settled: 0, nudge: 0, spin: 0, turn: 0, mode: 'face', locked: false, wantLock: false, settleUntil: 0 };
     // Gamepad (standard mapping, e.g. an Xbox controller): read once per
     // frame by pollGamepad(). Left stick moves; right stick, or the LT and RT
     // triggers, turn (left and right, at a rate set by how far they are
@@ -71,11 +92,11 @@ export class Input {
       this.keys.clear();
       this.mouse.left = false;
       this.mouse.right = false;
-      this.mouse.spin = 0;
+      this.restMouse();
     });
     document.addEventListener('pointerlockchange', () => {
       this.mouse.locked = document.pointerLockElement === canvas;
-      this.mouse.spin = 0;
+      this.restMouse();
       this.mouse.settleUntil = performance.now() + LOCK_SETTLE_MS;
     });
     document.addEventListener('pointerlockerror', () => {
@@ -119,11 +140,15 @@ export class Input {
     });
     canvas.addEventListener('pointermove', (e) => {
       if (e.pointerType === 'mouse') {
-        // Sideways travel turns. A jump no hand makes in one frame, or any
-        // travel just as the pointer is captured or freed, is the browser
-        // re-centring the cursor and is ignored.
+        // Travel this frame. A jump no hand makes in one frame, or any travel
+        // just as the pointer is captured or freed, is the browser re-centring
+        // the cursor and is ignored.
         const dx = typeof e.movementX === 'number' ? e.movementX : 0;
-        if (dx && Math.abs(dx) <= MOUSE_MAX_STEP && performance.now() >= this.mouse.settleUntil) this.mouse.spin += dx * MOUSE_SENS;
+        const dy = typeof e.movementY === 'number' ? e.movementY : 0;
+        if ((dx || dy) && Math.abs(dx) <= MOUSE_MAX_STEP && Math.abs(dy) <= MOUSE_MAX_STEP && performance.now() >= this.mouse.settleUntil) {
+          this.mouse.mx += dx;
+          this.mouse.my += dy;
+        }
         return;
       }
       if (this.pointer.id !== null && this.pointer.id !== e.pointerId) return;
@@ -166,7 +191,7 @@ export class Input {
       (e) => {
         // A notch up is clockwise, a notch down counter-clockwise; a trackpad's finer steps add up the same way.
         const notches = e.deltaMode === 1 ? e.deltaY / 3 : e.deltaMode === 2 ? e.deltaY : e.deltaY / 100;
-        if (notches) this.mouse.spin -= notches * WHEEL_STEP;
+        if (notches) this.mouse.nudge -= notches * WHEEL_STEP;
         e.preventDefault();
       },
       { passive: false }
@@ -210,12 +235,57 @@ export class Input {
     }
   }
 
-  /** Pace the mouse's travel since last frame into this frame's turn command, at the fighter's own turn rate. Call once per frame. */
-  pollMouse(dt, rate = MOUSE_TURN_RATE) {
+  /** Forget where the mouse was going: nothing owed, no direction to reach. */
+  restMouse() {
     const m = this.mouse;
-    const r = spinToTurn(m.spin, dt, rate > 0 ? rate : MOUSE_TURN_RATE);
-    m.turn = r.turn;
-    m.spin = r.left;
+    m.mx = 0;
+    m.my = 0;
+    m.dirX = 0;
+    m.dirY = 0;
+    m.target = null;
+    m.settled = 0;
+    m.nudge = 0;
+    m.spin = 0;
+    m.turn = 0;
+  }
+
+  /**
+   * Turn the mouse's travel since last frame into this frame's turn command,
+   * at the fighter's own turn rate. `current` is the angle being steered
+   * (the frame's, or the pulses' heading on the course). In `face` mode the
+   * frame turns the short way to face the direction the mouse moved; in
+   * `spin` mode sideways travel turns it a fraction of a degree per pixel.
+   * Call once per frame.
+   */
+  pollMouse(dt, rate = MOUSE_TURN_RATE, current = 0, mode = 'face') {
+    const m = this.mouse;
+    const r = rate > 0 ? rate : MOUSE_TURN_RATE;
+    if (mode !== m.mode) {
+      // A change of mode owes nothing from the last one.
+      this.restMouse();
+      m.mode = mode;
+    }
+    if (mode === 'spin') {
+      m.spin += m.mx * MOUSE_SENS + m.nudge;
+      const s = spinToTurn(m.spin, dt, r);
+      m.turn = s.turn;
+      m.spin = s.left;
+    } else {
+      // Recent travel, older frames fading out: its direction is the target once there is enough of it to be a direction.
+      const k = Math.exp(-Math.max(dt, 0) / FACE_TAU);
+      m.dirX = m.dirX * k + m.mx;
+      m.dirY = m.dirY * k + m.my;
+      if (Math.hypot(m.dirX, m.dirY) >= FACE_DEADZONE) m.target = Math.atan2(m.dirY, m.dirX);
+      if (m.nudge) m.target = wrapAngle((m.target == null ? current : m.target) + m.nudge);
+      m.turn = m.target == null ? 0 : faceTurn(current, m.target, r, dt);
+      // Arrived, and stayed a few frames (a fighter's spin takes a frame to
+      // die away, and would coast past): at rest until the hand moves again.
+      m.settled = m.target != null && m.turn === 0 ? m.settled + 1 : 0;
+      if (m.settled >= 3) m.target = null;
+    }
+    m.mx = 0;
+    m.my = 0;
+    m.nudge = 0;
   }
 
   /** Read the first connected gamepad. Call once per frame; intent() uses the result. Never throws. */
@@ -340,8 +410,9 @@ export class Input {
       my = pad.my;
     }
 
-    // Turning: the touch buttons, else the mouse (paced by pollMouse), else
-    // the gamepad's right stick or triggers, faster the further they go.
+    // Turning: the touch buttons, else the mouse (facing where it moved, paced
+    // by pollMouse), else the gamepad's right stick or triggers, faster the
+    // further they go.
     let turn = 0;
     if (this.touchButtons.left) turn -= 1;
     if (this.touchButtons.right) turn += 1;

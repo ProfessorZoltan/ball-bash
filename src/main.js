@@ -9,7 +9,7 @@ import { LORE } from './lore.js';
 import { SYSTEMS, TIERS, FRAME_CELLS, STANDARD, DEFAULT_FRAME, CUSTOM_ID, allFrames, frameById, withinBudget, cellsSpent, systemValue } from './frames.js';
 import { createGameState, rebuildWalls as rebuildWallsState, bodyHitCounts, tickCamp, versusSpawns, rotateSpawns, versusColors, VERSUS_IDS, nodeAccepts, objectiveDone, constrainToRail, wellsDrag, wellsAccel, swallowingWell, dronePhased, seatLauncher, solidPolysNow } from './gamestate.js';
 import { NetClient, relayConfig, saveRelay } from './net.js';
-import { buildSnapshot, applySnapshot, bracket, lerpView } from './netstate.js';
+import { buildSnapshot, applySnapshot, bracket, lerpView, noteArrival, bufferFor, advanceRenderClock, INTERP_MIN, EXTRAPOLATE_MAX } from './netstate.js';
 import { rewoundContact, usableLag } from './lagcomp.js';
 import { Input } from './input.js';
 import { Renderer } from './render.js';
@@ -61,7 +61,7 @@ function buildGame(def, pvp = false, rules = { ownBallLoss: ownBallLoss() }, coo
     guidePath: null,
     drops: 0, // frames this level that took far longer than the display's refresh interval
     lastPlayed: 0, // when a shield last touched the ball; the stuck-ball watchdog reads it
-    lastBounceAt: 0, // when the ball last changed course off anything: a rewind for a lagging guest never reaches back past it
+    lastBounceAt: 0, // when the ball last left a shield, or the serve: a rewind for a lagging guest never reaches back past another player's hit (walls and movers are deterministic, and replayed)
     lagComps: 0, // host: contacts played for a guest at the ball they saw rather than the ball as it was
     lossReason: null, // 'hit' | 'camp' | 'touch' once the level is lost
     note: null, // { text, until }: a passing HUD notice (the unplayed serve bouncing off a boss or a node)
@@ -974,8 +974,9 @@ function moveBall(dt) {
  * their shield, where they have it now, would have met the ball then, the
  * host plays the contact they saw: the ball is rewound to it, reflected off
  * the shield, and carried forward again through whatever walls it would have
- * met since. Never past the ball's last change of course, and never for the
- * host's own shield, which sees the ball as it is.
+ * met since. Never past another shield's hit or the serve (a wall or a mover
+ * is deterministic, and the replay takes it again), and never for the host's
+ * own shield, which sees the ball as it is.
  */
 function lagCompensate() {
   if (!netcode.lagcomp) return;
@@ -1033,7 +1034,6 @@ function onWallBounce(h, seg, before) {
   wallFx(h.cx, h.cy, h.nx, h.ny, n, color);
   netEvent({ e: 'wall', x: h.cx, y: h.cy, nx: h.nx, ny: h.ny, n, c: color });
   g.ball.lastHitBy = 'wall';
-  g.lastBounceAt = simTime;
   guideFrame = 0;
 }
 
@@ -1157,7 +1157,6 @@ function onMoverHit(m, h, before) {
   moverFx(m.kind, h.cx, h.cy, h.nx, h.ny, strength, Math.abs(delta) > 120);
   netEvent({ e: 'mover', k: m.kind, x: h.cx, y: h.cy, nx: h.nx, ny: h.ny, s: strength, d: Math.abs(delta) > 120 ? 1 : 0 });
   g.ball.lastHitBy = 'mover';
-  g.lastBounceAt = simTime;
   guideFrame = 0;
 }
 
@@ -1325,8 +1324,8 @@ function frame(now) {
   const rawDt = (now - last) / 1000;
   const dt = Math.min(rawDt, 0.05);
   last = now;
-  const mine = game ? localFighter() : null;
-  input.pollMouse(dt, mine ? mine.turnSpeed : undefined); // the mouse turns at the frame's own rate
+  const mf = mouseFrame();
+  input.pollMouse(dt, mf ? mf.rate : undefined, mf ? mf.angle : 0, mf ? mf.mode : 'face');
   if (dt > 0) fps += (1 / dt - fps) * 0.05;
   let alpha = 1; // how far through the current physics step this frame is drawn
 
@@ -1783,6 +1782,7 @@ function goToMenu() {
 function setInGame(on) {
   document.body.classList.toggle('in-game', on);
   input.captureMouse(on); // the mouse turns the frame: while a level runs a click captures it
+  input.restMouse(); // and owes nothing from before: a new level faces where it spawns
 }
 
 const IS_IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -1944,7 +1944,7 @@ function linkLabel() {
   // Whichever switches are off, apart from what the line says anyway: a host's screen has no prediction or buffer, and a guest's BUFFER field speaks for itself.
   const off = NETCODE.filter((n) => !netcode[n.id] && (c.role === 'host' ? n.id === 'lagcomp' : n.id !== 'buffer')).map((n) => ` · ${n.name.toUpperCase()} OFF`).join('');
   if (c.role === 'host') return (net.roster.map((r) => `${esc(r.name).toUpperCase()} ${c.link(r.id).label}`).join(' · ') || `${Math.round(c.rtt)} MS`) + off;
-  return `${c.link('a').label} · BUFFER ${netcode.buffer ? `${Math.round(net.interp * 1000)} MS` : 'OFF'}${off}`;
+  return `${c.link('a').label} · BUFFER ${netcode.buffer ? `${Math.round(net.behind * 1000)} MS` : 'OFF'}${off}`;
 }
 
 function formatTime(t) {
@@ -2245,6 +2245,36 @@ function applyQuality() {
   renderer.resize();
 }
 
+const AUDIO_KEY = 'deflector.audio'; // 'snappy' | 'steady'
+
+function audioSetting() {
+  try {
+    return localStorage.getItem(AUDIO_KEY) === 'steady' ? 'steady' : 'snappy';
+  } catch (_) {
+    return 'snappy';
+  }
+}
+
+function setAudioSetting(key) {
+  try {
+    localStorage.setItem(AUDIO_KEY, key);
+  } catch (_) {
+    // storage unavailable; the choice lasts for this page load only
+  }
+  audio.setLatency(key);
+}
+
+function audioSelectHtml() {
+  const a = audioSetting();
+  const opt = (v, label) => `<option value="${v}" ${a === v ? 'selected' : ''}>${label}</option>`;
+  return `<div class="opt" title="Snappy asks the browser for its smallest sound buffer, so a hit is heard the instant it lands. Steady asks for a 60 ms one: the music keeps time on a machine that is busy drawing, at the cost of hearing hits a hair later."><b>Sound</b><select id="opt-audio" class="sel">${opt('snappy', 'Snappy')}${opt('steady', 'Steady')}</select></div>`;
+}
+
+function bindAudioSelect() {
+  const el = $('opt-audio');
+  if (el) el.onchange = () => setAudioSetting(el.value);
+}
+
 function qualitySelectHtml() {
   const q = qualitySetting();
   const opt = (v, label) => `<option value="${v}" ${q === v ? 'selected' : ''}>${label}</option>`;
@@ -2308,7 +2338,7 @@ const TUTORIAL_STEPS = [
     title: 'Move and aim',
     text: COARSE
       ? 'Touch anywhere and <b>drag</b> to move. The <b>⟲ ⟳</b> buttons turn you and your shield. Move a little and turn around.'
-      : '<b>W A S D</b> move you. <b>Move the mouse</b> left or right (or scroll) to turn you and your shield. Move a little and turn all the way around.',
+      : '<b>W A S D</b> move you. <b>Move the mouse</b> and you turn to face the way it went, shield first. Move a little and turn all the way around.',
   },
   {
     title: 'Block',
@@ -2523,17 +2553,17 @@ const net = {
   // that have both arrived, rather than at the newest one as it lands. A late
   // packet then never shows, so long as it is less late than the buffer.
   buffer: [], // [{ s, time, at, ev, played }] in arrival order
-  interp: 0.05, // seconds behind the newest snapshot the view is drawn
-  clock: null, // how steadily snapshots arrive: { off, jit, gap, lastTime, n }
+  interp: 0.05, // seconds behind the host's now the view aims to run
+  clock: null, // how steadily snapshots arrive: { off, jit, peak, gap, lastTime, n } (netstate.noteArrival)
+  renderT: null, // the host time being drawn: a clock of its own, run a little fast or slow to meet `interp`, never jumped
+  renderWall: 0, // when the view's clock was last advanced (performance.now)
+  behind: 0, // seconds the drawn view actually runs behind the host's now
   remoteLag: {}, // host: how far behind the host each guest's view runs, seconds, by id
   legs: {}, // host: each guest's own round trip to the relay, [mean, jitter] ms, by id
   tick: null, // the room's timer: pings, and the lobby's ping readout
   lastPing: 0,
   frame: 0,
 };
-
-const INTERP_MIN = 0.04; // seconds: never less than a couple of snapshots
-const INTERP_MAX = 0.16; // seconds: past this a link is not worth smoothing, only tolerating
 
 // ------------------------------------------------------- netcode switches
 
@@ -2601,23 +2631,12 @@ function netNote(text, secs = 2) {
 }
 
 /**
- * Note a snapshot's arrival: how far its host time sits from our clock (the
- * swing of that is the jitter), and the host's gap between snapshots. The
- * buffer is sized from both: two gaps, plus twice the jitter.
+ * Note a snapshot's arrival on the guest's clock, and size the buffer from
+ * it: two of the host's gaps plus the worst recent lateness (netstate).
  */
 function trackClock(msg, now) {
-  const off = now - msg.time * 1000;
-  let c = net.clock;
-  if (!c || msg.time < c.lastTime - 1) c = net.clock = { off, jit: 0, gap: 1 / 60, lastTime: msg.time, n: 0 };
-  else {
-    c.jit += (Math.abs(off - c.off) - c.jit) * 0.1;
-    c.off += (off - c.off) * 0.05;
-    const gap = msg.time - c.lastTime;
-    if (gap > 0 && gap < 0.5) c.gap += (gap - c.gap) * 0.1;
-    c.lastTime = msg.time;
-  }
-  c.n++;
-  net.interp = netcode.buffer ? clamp(2 * c.gap + (2 * c.jit) / 1000, INTERP_MIN, INTERP_MAX) : 0;
+  net.clock = noteArrival(net.clock, msg.time, now);
+  net.interp = netcode.buffer ? bufferFor(net.clock) : 0;
 }
 
 /** Forget the render buffer: a new round, a new match, or leaving the room. */
@@ -2625,6 +2644,8 @@ function clearBuffer() {
   net.buffer = [];
   net.clock = null;
   net.interp = baseInterp();
+  net.renderT = null;
+  net.behind = 0;
 }
 
 /**
@@ -3338,8 +3359,8 @@ function guestSend() {
   if (!f) return;
   const it = input.intent(f);
   net.seq++;
-  // `lag`: how far behind the host this view runs, half a round trip plus the buffer, so the host can meet the ball where we saw it.
-  net.client.send({ t: 'i', id: net.client.id || 'c', seq: net.seq, mx: +it.mx.toFixed(3), my: +it.my.toFixed(3), turn: it.turn, lunge: it.lunge ? 1 : 0, retract: it.retract ? 1 : 0, lag: netcode.lagcomp ? Math.round(net.client.rtt / 2 + net.interp * 1000) : 0 });
+  // `lag`: how far behind the host this view runs, half a round trip plus what the view is drawn behind, so the host can meet the ball where we saw it.
+  net.client.send({ t: 'i', id: net.client.id || 'c', seq: net.seq, mx: +it.mx.toFixed(3), my: +it.my.toFixed(3), turn: it.turn, lunge: it.lunge ? 1 : 0, retract: it.retract ? 1 : 0, lag: netcode.lagcomp ? Math.round(net.client.rtt / 2 + net.behind * 1000) : 0 });
   pingMaybe();
 }
 
@@ -3394,39 +3415,54 @@ function guestApply(now) {
 }
 
 /**
- * Draw the world a little in the past. The view runs `net.interp` seconds
- * behind the newest snapshot, between two that have both arrived, so a late
- * one costs nothing until it is later than the buffer. Events play as the
- * view reaches their snapshot, so a spark lands where the ball is drawn. If
- * the buffer runs dry the ball carries on along its last velocity for a
- * moment, as it always did, and everything else holds.
+ * Draw the world a little in the past. The view has a clock of its own, in
+ * host time, that aims to run `net.interp` behind the host's now (read from
+ * the smoothed arrival clock, not from whichever packet came last, so a late
+ * packet moves nothing). It runs a little fast or slow to get there and never
+ * jumps, so the ball is drawn between two snapshots that have both arrived
+ * and a late one costs nothing until it is later than the buffer; when the
+ * buffer runs dry the ball carries on along its last velocity for a moment,
+ * then holds, and the clock catches up gently once packets return. Events
+ * play as the view reaches their snapshot, so a spark lands where the ball is
+ * drawn; ones a stall has left well behind are dropped rather than heaped
+ * into one frame. With the buffer off, the newest snapshot is drawn as it
+ * lands, carried on a little.
  */
 function interpolateView(now) {
   const buf = net.buffer;
-  if (!buf.length) return;
+  const c = net.clock;
+  if (!buf.length || !c) return;
   const g = game;
   const newest = buf[buf.length - 1];
-  const renderT = newest.time + (now - newest.at) / 1000 - net.interp;
+  const dt = net.renderWall ? Math.min((now - net.renderWall) / 1000, 0.1) : 0;
+  net.renderWall = now;
+  const hostNow = (now - c.off) / 1000;
+  let renderT;
+  if (netcode.buffer) {
+    net.renderT = advanceRenderClock(net.renderT, hostNow - net.interp, dt, newest.time);
+    renderT = net.renderT;
+  } else {
+    renderT = Math.min(newest.time + (now - newest.at) / 1000, newest.time + EXTRAPOLATE_MAX);
+    net.renderT = renderT;
+  }
+  if (!c.stalled) net.behind = Math.max(0, hostNow - renderT); // while host time stands still (a round's end) the figure would only grow
   for (const e of buf) {
     if (e.played || e.time > renderT) continue;
     e.played = true;
-    for (const ev of e.ev) playEvent(ev);
+    if (e.time > renderT - 0.3) for (const ev of e.ev) playEvent(ev);
   }
   const me = localFighter();
   const skip = me && netcode.predict ? me.slot : null; // a predicted fighter is its own; an unpredicted one is drawn like the rest
   const br = bracket(buf, renderT);
   if (br) lerpView(g, br.a, br.b, br.u, skip);
   else if (renderT > newest.time && state === 'playing' && !g.ball.held) {
-    const lag = Math.min(renderT - newest.time, 0.06);
+    const lag = Math.min(renderT - newest.time, EXTRAPOLATE_MAX);
     g.ball.x = newest.s.ball[0] + newest.s.ball[2] * lag;
     g.ball.y = newest.s.ball[1] + newest.s.ball[3] * lag;
   }
   for (const f of g.fighters) if (f.slot !== skip) f.markRender();
-  // What is well behind the view is done with; anything unplayed in it plays now rather than never.
-  while (buf.length > 2 && buf[1].time < renderT - 1) {
-    const e = buf.shift();
-    if (!e.played) for (const ev of e.ev) playEvent(ev);
-  }
+  // What is well behind the view is done with.
+  while (buf.length > 2 && buf[1].time < renderT - 0.5) buf.shift();
 }
 
 /** Guest: one physics step of its own character from its own input, remembered for reconciliation. */
@@ -3883,11 +3919,11 @@ function showTitle() {
         <h3>Controls</h3>
         <ul class="controls">
           <li><b>W A S D</b> (or the arrows), or <b>drag</b> on a phone — move</li>
-          <li><b>Mouse</b> left / right, or <b>scroll</b> — rotate (swing to whack); a click captures the mouse, <b>Esc</b> frees it</li>
+          <li><b>Mouse</b> — you turn to face the way it moves (swing to whack); <b>scroll</b> nudges a notch; a click captures the mouse, <b>Esc</b> frees it</li>
           <li><b>Left click</b> or <b>Space</b> — thrust the shield</li>
           <li><b>Right click</b> — pull the shield in (soft return)</li>
           <li><b>P</b> pause · <b>M</b> mute · <b>R</b> restart</li>
-          <li><b>Galactic Golf</b>: the mouse aims (hold right click for fine aim), a left click launches then spends one ion pulse a click, P is the hole map</li>
+          <li><b>Galactic Golf</b>: the mouse aims (the launcher faces the way it moves; hold right click and sideways travel nudges it finely), a left click launches then spends one ion pulse a click, P is the hole map</li>
           <li><b>Controller</b>: left stick moves, right stick or <b>LT</b>/<b>RT</b> rotate, <b>A</b> thrusts, <b>X</b> pulls in, <b>Start</b> pauses <span id="pad-state" class="small muted">${input.pad.connected ? `· detected: ${input.pad.id.slice(0, 40)}` : '· none detected yet (press any button on it)'}</span></li>
         </ul>
       </div>
@@ -3900,6 +3936,7 @@ function showTitle() {
         ${difficultySelectHtml()}
         ${ownBallToggleHtml()}
         ${qualitySelectHtml()}
+        ${audioSelectHtml()}
       </div>
     </div>
     <div class="row menu">${campaignButtonsHtml()}<button id="btn-start">${levelLabel(def)} only</button><button id="btn-golf" title="Galactic Golf: the course out in the void, the whole round or any one hole">Galactic Golf</button><button id="btn-tutorial">Tutorial</button><button id="btn-jukebox">Soundtrack</button><button id="btn-multi" title="${lanInfo && lanInfo.online ? 'Play online through the relay' : lanInfo ? 'Play on this Wi-Fi network' : 'Set a relay in the lobby, or run npm start on one PC and open its LAN address on both'}">${lanInfo && lanInfo.online ? 'Online match' : lanInfo ? 'LAN match' : 'Multiplayer'}</button>${fullscreenHint()}</div>
@@ -3910,6 +3947,7 @@ function showTitle() {
   bindFrameCard();
   bindDifficultySelect();
   bindQualitySelect();
+  bindAudioSelect();
   $('btn-record').onclick = (e) => {
     e.preventDefault();
     showRecord();
@@ -4043,6 +4081,22 @@ function golfTee() {
  * launches; in flight the frame is still and the same two controls point and
  * fire the ion pulses instead.
  */
+/**
+ * What the mouse steers this frame and how: the frame's own angle at its own
+ * turn rate, or on the course the pulses' heading in flight; the right
+ * button held on the course makes it the fine, sideways kind of turn.
+ */
+function mouseFrame() {
+  const me = game ? localFighter() : null;
+  if (!me) return null;
+  if (game.golf) {
+    const mode = input.mouse.right ? 'spin' : 'face';
+    if (game.golf.phase === 'flight') return { rate: GOLF.headTurn, angle: game.golf.heading, mode };
+    return { rate: me.turnSpeed, angle: me.angle, mode };
+  }
+  return { rate: me.turnSpeed, angle: me.angle, mode: 'face' };
+}
+
 function golfIntent(local, dt) {
   const gf = game.golf;
   const down = !!local.lunge;
@@ -4664,6 +4718,7 @@ for (const [id, name] of [['tb-left', 'left'], ['tb-right', 'right'], ['tb-whack
 }
 renderer.setLevel(SEQUENCE[levelIndex]);
 applyQuality();
+audio.latency = audioSetting();
 loadNetcode();
 renderer.resize();
 showTitle();

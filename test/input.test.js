@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spinToTurn, MOUSE_SENS, WHEEL_STEP, MOUSE_TURN_RATE, SPIN_BACKLOG } from '../src/input.js';
+import { spinToTurn, faceTurn, MOUSE_SENS, WHEEL_STEP, MOUSE_TURN_RATE, SPIN_BACKLOG, FACE_SETTLE } from '../src/input.js';
 
 test('mouse turn: a small travel turns by exactly that much, a flick is paced to the frame\'s rate and the rest carried', () => {
   const dt = 1 / 60;
@@ -51,4 +51,21 @@ test('mouse turn: a wheel notch is a fixed step, one frame at a slow display is 
   // A stalled frame (dt 0) still turns by at least a physics step's worth, never divides by zero.
   const stalled = spinToTurn(0.1, 0);
   assert.ok(Number.isFinite(stalled.turn) && stalled.turn === 1);
+});
+
+test('facing: the frame turns the short way to the direction, at full rate when far and exactly there when near', () => {
+  const dt = 1 / 60;
+  const rate = 7;
+  // A quarter turn clockwise is more than a frame's worth: full rate that way.
+  assert.equal(faceTurn(0, Math.PI / 2, rate, dt), 1);
+  // From 170 degrees to -170 degrees is 20 degrees on, not 340 back.
+  assert.equal(faceTurn((170 * Math.PI) / 180, (-170 * Math.PI) / 180, rate, dt), 1);
+  assert.equal(faceTurn((-170 * Math.PI) / 180, (170 * Math.PI) / 180, rate, dt), -1);
+  // Within a frame's reach the command is the fraction that lands exactly on it.
+  const near = faceTurn(1, 1.05, rate, dt);
+  assert.ok(Math.abs(near * rate * dt - 0.05) < 1e-9);
+  // Close enough is there: no hunting round the last step.
+  assert.equal(faceTurn(1, 1 + FACE_SETTLE / 2, rate, dt), 0);
+  // A stalled frame (dt 0) still turns by a physics step's worth, never divides by zero.
+  assert.equal(faceTurn(0, 1, rate, 0), 1);
 });

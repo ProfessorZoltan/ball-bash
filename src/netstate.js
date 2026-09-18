@@ -70,6 +70,66 @@ export function buildSnapshot(g, meta, events = [], includeIce = true) {
  * between them it falls. `buffer` is [{ time, s }] in arrival order. Null
  * when `t` is not bracketed: before the first, or past the newest.
  */
+export const INTERP_MIN = 0.04; // seconds: never less than a couple of snapshots
+export const INTERP_MAX = 0.25; // seconds: past this a link is not worth smoothing, only tolerating
+export const EXTRAPOLATE_MAX = 0.06; // seconds the ball is carried on past the newest snapshot when the buffer runs dry
+export const RENDER_CATCHUP = 0.25; // the most the view's clock runs fast or slow to meet its target, as a fraction of real time
+
+/**
+ * Note a snapshot's arrival on the guest's clock. `off` is the smoothed gap
+ * between local time and host time (ms), so the host's "now" can be read
+ * from a local clock without waiting for a packet; `peak` is the worst recent
+ * swing of an arrival from that (ms), fading over a few seconds, which is what
+ * a buffer has to cover; `jit` the mean swing; `gap` the host's own interval
+ * between snapshots. Returns the clock, fresh after a break in host time.
+ */
+export function noteArrival(c, time, now, gapDefault = 1 / 60) {
+  const off = now - time * 1000;
+  if (!c || time < c.lastTime - 1) return { off, jit: 0, peak: 0, gap: gapDefault, lastTime: time, n: 1, stalled: false };
+  const gap = time - c.lastTime;
+  c.n++;
+  if (gap <= 0) {
+    // Host time standing still (the pause at a round's end): nothing to learn from these.
+    c.stalled = true;
+    return c;
+  }
+  if (c.stalled) {
+    // Host time moving again, from wherever it stopped: the clock re-anchors rather than reading the pause as lateness.
+    c.stalled = false;
+    c.off = off;
+    c.lastTime = time;
+    return c;
+  }
+  const dev = off - c.off; // positive is late, which is what a buffer has to cover; early costs nothing
+  c.jit += (Math.abs(dev) - c.jit) * 0.1;
+  c.peak = Math.max(c.peak * 0.985, dev);
+  c.off += dev * 0.02;
+  if (gap < 0.5) c.gap += (gap - c.gap) * 0.1;
+  c.lastTime = time;
+  return c;
+}
+
+/** How far behind the host's now the view should run: a couple of snapshots, plus the worst recent lateness, plus a little. */
+export function bufferFor(c) {
+  if (!c) return INTERP_MIN;
+  return Math.min(INTERP_MAX, Math.max(INTERP_MIN, 2 * c.gap + c.peak / 1000 + 0.01));
+}
+
+/**
+ * Advance the view's clock (the host time being drawn) toward where it
+ * should be (host now, less the buffer) without a jump: a little fast when
+ * behind, a little slow when ahead, never backwards, and never past what has
+ * arrived plus a short carry. A break of more than half a second (a new round,
+ * a pause) starts it afresh.
+ */
+export function advanceRenderClock(renderT, targetT, dt, newestT) {
+  const edge = newestT + EXTRAPOLATE_MAX;
+  if (renderT == null || !Number.isFinite(renderT) || Math.abs(targetT - renderT) > 0.5) return Math.min(targetT, edge);
+  const err = targetT - renderT;
+  const speed = 1 + Math.max(-RENDER_CATCHUP, Math.min(RENDER_CATCHUP, err * 2));
+  return Math.min(Math.max(renderT, renderT + Math.max(0, dt) * speed), edge);
+}
+
 export function bracket(buffer, t) {
   for (let i = buffer.length - 1; i >= 1; i--) {
     const a = buffer[i - 1];

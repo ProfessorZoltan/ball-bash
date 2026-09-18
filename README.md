@@ -561,16 +561,18 @@ back through the tee every lap. Every flight is spent after the hole's own
 clock (`flightSeconds`, nine seconds unless the hole says otherwise; the orbit
 gets eighteen).
 
-Controls on the course: the **mouse** (sideways travel, or the wheel) aims,
-and in flight steers the heading the next pulse pushes along — the charge on
+Controls on the course: the **mouse** aims, the launcher turning to face
+the way the mouse moved (the wheel nudges it a notch), and in flight it
+steers the heading the next pulse pushes along the same way — the charge on
 the tee is the pivot, so turning swings the frame round the charge and the
 charge stays exactly where it is; the **right button** held while aiming (or
-steering, while the gauge has anything left) makes the turn a fraction of
-itself, so a line a fraction of a degree wide can be found by hand; a **left
-click** or **Space** launches, then spends one pulse per click; the **right
-button** runs a spent flight out at triple speed once the gauge is empty and
-the outcome is fixed; **R** re-tees (abandoning a flight, or restarting the
-hole from the tee); **P**, or the ❚❚ button in the HUD, brings up the hole as a
+steering, while the gauge has anything left) switches the mouse to a fine
+turn, sideways travel moving the aim a fraction of a degree per pixel, so a
+line a fraction of a degree wide can be found by hand; a **left click** or
+**Space** launches, then spends one pulse per click; the **right button**
+runs a spent flight out at triple speed once the gauge is empty and the
+outcome is fixed; **R** re-tees (abandoning a flight, or restarting the hole
+from the tee); **P**, or the ❚❚ button in the HUD, brings up the hole as a
 map, with every body named and the wormhole mouths paired. On a controller
 and a phone the course plays as the arena does: rotate to aim, thrust to
 launch, pull in for fine aim.
@@ -733,23 +735,32 @@ networked games use:
   with the host's state as snapshots arrive, so movement responds at once.
 * **A render buffer.** A guest draws the ball and the other players a little
   in the past, between two snapshots that have both arrived, rather than at
-  the newest as it lands. The buffer is sized from the link itself: two
-  snapshot gaps plus twice the measured jitter, between 40 and 160 ms. A late
-  packet then never shows, so long as it is less late than the buffer; a
-  packet later than that holds the picture for a moment, as it used to. The
-  sparks and sounds of a hit are played as the view reaches their snapshot,
-  so they land where the ball is drawn (`bracket`, `lerpView` in
-  `src/netstate.js`).
+  the newest as it lands. The view keeps a clock of its own, in host time:
+  the host's "now" is read from a smoothed arrival clock rather than from
+  whichever packet came last, so a late packet moves nothing, and the view's
+  clock runs up to a quarter fast or slow to sit the buffer's length behind
+  that, never jumping and never going backwards. The buffer is sized from
+  the link itself: two snapshot gaps plus the worst lateness of the last few
+  seconds, between 40 and 250 ms. A late packet then never shows, so long as
+  it is less late than the buffer; a packet later than that carries the ball
+  on for 60 ms and holds, and the clock catches up gently once packets return.
+  The sparks and sounds of a hit are played as the view reaches their
+  snapshot, so they land where the ball is drawn, and any a stall has left
+  more than 300 ms behind are dropped rather than heaped into one frame
+  (`noteArrival`, `bufferFor`, `advanceRenderClock`, `bracket`, `lerpView`
+  in `src/netstate.js`).
 * **Latency compensation.** A guest sees the ball where it was half a round
   trip plus the buffer ago, and plays that ball. Each input carries that lag;
   when a guest's shield, where they have it now, would have met the ball
   where it was then, the host plays the contact they saw: the ball is rewound
   to it, reflected off the shield, and carried forward again through the
   walls it would have met since (`src/lagcomp.js`, `lagCompensate` in
-  `src/main.js`). The host never rewinds past the ball's last change of
-  course, past a quarter of a second, or for its own shield, which sees the
-  ball as it is. The cost is the usual one: on the host's screen a ball that
-  had just passed a lagging guest's shield can come back off it.
+  `src/main.js`). The host never rewinds past another shield's hit or the
+  serve (a wall or a mover bounce is deterministic, and the replay takes it
+  again), past 350 ms, or for its own shield, which sees the ball as it is.
+  The lag a guest reports is half its round trip plus what its view is
+  actually drawn behind. The cost is the usual one: on the host's screen a
+  ball that had just passed a lagging guest's shield can come back off it.
 
 Each of the three has a switch, so one can be tested without the others:
 under **Netcode** in the multiplayer lobby (remembered in that browser), or
@@ -761,8 +772,8 @@ as before the buffer existed). Compensation is the host's rewinding: the
 host's switch turns it off for everyone, and a guest's switch sends a lag of
 zero, so only their own shield goes uncompensated.
 
-The HUD shows the round trip and its jitter (`84 ms ±6`), and on a guest the
-buffer. In the lobby every player's own leg to the relay is measured
+The HUD shows the round trip and its jitter (`84 ms ±6`), and on a guest how
+far behind the host's now the view is drawn. In the lobby every player's own leg to the relay is measured
 separately (the relay answers a ping for itself), which is what tells the
 links apart: the relay sits near the host, so a guest's leg is their link
 plus the distance, and the host's is their link alone. A host whose leg is
@@ -784,23 +795,26 @@ static Vercel deployment cannot relay, so the button is disabled there.
 | Action | Keys / pointer |
 | --- | --- |
 | Move | **W A S D** (the arrow keys do the same), or drag a finger on a phone |
-| Rotate character and shield | **Mouse** left (counter-clockwise) / right (clockwise), or **scroll** up (clockwise) / down (counter-clockwise) |
+| Rotate character and shield | **Mouse**: you turn, the short way round, to face the direction it moved in; **scroll** up nudges a notch clockwise, down counter-clockwise |
 | Thrust the shield forward ("whack") | **Left click** or **Space** |
 | Pull the shield in (soft return, slows the ball) | **Right click** |
 | Pause / mute / restart | **P** (or the ❚❚ button in the HUD, which is how a phone pauses) / **M** / **R** |
-| Galactic Golf: launch, then one ion pulse per click | **Left click** or **Space** (the mouse aims and steers, **right click** held for fine aim, **right click** runs a spent flight out, **P** is the hole map) |
+| Galactic Golf: launch, then one ion pulse per click | **Left click** or **Space** (the mouse aims and steers the same way; with **right click** held sideways travel nudges the aim finely; **right click** runs a spent flight out, **P** is the hole map) |
 | Controller (Xbox or any standard gamepad) | **left stick** moves, **right stick** or **LT** / **RT** rotate (further is faster), **A** thrusts, **X** pulls the shield in, **Start** pauses, **A** also confirms on menus |
 | Netcode switches (online play) | **1** prediction, **2** render buffer, **3** latency compensation, each on or off; also in the lobby under Netcode |
 
-The mouse turns the frame at the frame's own turn speed, the same top rate a
-stick or a touch button gets, so no input out-spins another: a slow travel
-turns by exactly as much as the hand moved (a full turn in about 630 px), a
-flick turns at full rate until the travel is used up, and a flick longer
-than the frame can follow is cut short rather than spinning on after the
-hand has stopped. A wheel notch is fifteen degrees. While a level runs, the
-first click captures the mouse (so the hand can keep going in one
-direction); **Esc** gives it back, and the game lets it go on every pause
-and menu.
+The mouse points: push it toward the ball and the shield comes round to
+face that way, by whichever turn is shorter. The direction is read from the
+last few frames of travel (older travel fades out over about 60 ms), a few
+pixels of tremor mean nothing, and the frame turns at its own turn speed,
+the same top rate a stick or a touch button gets, so no input out-spins
+another; a flick sets the direction at once and the frame arrives a moment
+later. A wheel notch nudges the direction fifteen degrees. On the course the
+right button held switches the mouse to the fine kind of turn: sideways
+travel turns the launcher a fraction of a degree per pixel, for finding a
+line a fraction of a degree wide. While a level runs, the first click
+captures the mouse (so the hand can keep going in one direction); **Esc**
+gives it back, and the game lets it go on every pause and menu.
 
 On touch devices, touch anywhere on the arena and drag: the first touch becomes
 a floating joystick and the drag direction steers, so your finger never has to
@@ -1116,6 +1130,12 @@ renderer does three things about it:
   touching the renderer: the `copy` composite operation takes Chrome's slow
   full-surface layer path, and a glow blur costs by the bounding box of the
   path drawn, so never batch far-apart shapes into one glowing path.
+* **Sound setting** on the title screen: Snappy or Steady. Snappy asks the
+  browser for its smallest output buffer, so a hit is heard the instant it
+  lands; Steady asks for a 60 ms one, which a machine busy drawing (or a
+  guest's, parsing sixty snapshots a second) can keep fed, at the cost of
+  hearing hits a hair later. The music's sequencer schedules 300 ms ahead of
+  the audio clock, so a main thread held up for less than that costs no note.
 * **Quality setting** on the title screen: Auto, High or Low. Low caps the
   pixel density at 1 and turns off the glow on moving things (the cached
   static layer keeps its glow). Auto starts high and steps down to Low for the
