@@ -1324,8 +1324,7 @@ function frame(now) {
   const rawDt = (now - last) / 1000;
   const dt = Math.min(rawDt, 0.05);
   last = now;
-  const mf = mouseFrame();
-  input.pollMouse(dt, mf ? mf.rate : undefined, mf ? mf.angle : 0, mf ? mf.mode : 'face');
+  pollMouseTurn(dt); // an arc drawn with the mouse turns the frame at the frame's own rate
   if (dt > 0) fps += (1 / dt - fps) * 0.05;
   let alpha = 1; // how far through the current physics step this frame is drawn
 
@@ -2338,7 +2337,7 @@ const TUTORIAL_STEPS = [
     title: 'Move and aim',
     text: COARSE
       ? 'Touch anywhere and <b>drag</b> to move. The <b>⟲ ⟳</b> buttons turn you and your shield. Move a little and turn around.'
-      : '<b>W A S D</b> move you. <b>Move the mouse</b> and you turn to face the way it went, shield first. Move a little and turn all the way around.',
+      : '<b>W A S D</b> move you. <b>Draw an arc with the mouse</b> and you turn by the same arc, shield first: a circle turns you all the way round. Move a little and turn all the way around.',
   },
   {
     title: 'Block',
@@ -3919,11 +3918,11 @@ function showTitle() {
         <h3>Controls</h3>
         <ul class="controls">
           <li><b>W A S D</b> (or the arrows), or <b>drag</b> on a phone — move</li>
-          <li><b>Mouse</b> — you turn to face the way it moves (swing to whack); <b>scroll</b> nudges a notch; a click captures the mouse, <b>Esc</b> frees it</li>
+          <li><b>Mouse</b> — draw an arc and you turn by the same arc, the same way round (swing to whack); <b>scroll</b> nudges a notch; a click captures the mouse, <b>Esc</b> frees it</li>
           <li><b>Left click</b> or <b>Space</b> — thrust the shield</li>
           <li><b>Right click</b> — pull the shield in (soft return)</li>
           <li><b>P</b> pause · <b>M</b> mute · <b>R</b> restart</li>
-          <li><b>Galactic Golf</b>: the mouse aims (the launcher faces the way it moves; hold right click and sideways travel nudges it finely), a left click launches then spends one ion pulse a click, P is the hole map</li>
+          <li><b>Galactic Golf</b>: the mouse aims (an arc turns the launcher by the same arc; hold right click for fine aim), a left click launches then spends one ion pulse a click, P is the hole map</li>
           <li><b>Controller</b>: left stick moves, right stick or <b>LT</b>/<b>RT</b> rotate, <b>A</b> thrusts, <b>X</b> pulls in, <b>Start</b> pauses <span id="pad-state" class="small muted">${input.pad.connected ? `· detected: ${input.pad.id.slice(0, 40)}` : '· none detected yet (press any button on it)'}</span></li>
         </ul>
       </div>
@@ -4081,20 +4080,31 @@ function golfTee() {
  * launches; in flight the frame is still and the same two controls point and
  * fire the ion pulses instead.
  */
+let mouseSteered = null; // the angle the mouse was steering at the last poll: { src, angle }, for the mouse's own account of what it turned
+
 /**
- * What the mouse steers this frame and how: the frame's own angle at its own
- * turn rate, or on the course the pulses' heading in flight; the right
- * button held on the course makes it the fine, sideways kind of turn.
+ * Pace the mouse's turn for this frame: at the frame's own turn speed, or in
+ * flight on the course at the rate the pulses' heading turns; told what the
+ * steered angle actually did since last frame, where that is this device's
+ * own doing (not a guest drawn only by the host's word), not a fraction on
+ * purpose (fine aim), and the same angle as last time (not a launch, a
+ * re-tee or a respawn).
  */
-function mouseFrame() {
+function pollMouseTurn(dt) {
   const me = game ? localFighter() : null;
-  if (!me) return null;
-  if (game.golf) {
-    const mode = input.mouse.right ? 'spin' : 'face';
-    if (game.golf.phase === 'flight') return { rate: GOLF.headTurn, angle: game.golf.heading, mode };
-    return { rate: me.turnSpeed, angle: me.angle, mode };
+  if (!me) {
+    mouseSteered = null;
+    input.pollMouse(dt);
+    return;
   }
-  return { rate: me.turnSpeed, angle: me.angle, mode: 'face' };
+  const flight = !!game.golf && game.golf.phase === 'flight';
+  const src = flight ? 'heading' : me;
+  const angle = flight ? game.golf.heading : me.angle;
+  const own = net.mode !== 'guest' || netcode.predict;
+  const fine = !!game.golf && input.mouse.right;
+  const turned = mouseSteered && mouseSteered.src === src && own && !fine ? wrapAngle(angle - mouseSteered.angle) : null;
+  mouseSteered = { src, angle };
+  input.pollMouse(dt, flight ? GOLF.headTurn : me.turnSpeed, turned);
 }
 
 function golfIntent(local, dt) {

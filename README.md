@@ -561,21 +561,20 @@ back through the tee every lap. Every flight is spent after the hole's own
 clock (`flightSeconds`, nine seconds unless the hole says otherwise; the orbit
 gets eighteen).
 
-Controls on the course: the **mouse** aims, the launcher turning to face
-the way the mouse moved (the wheel nudges it a notch), and in flight it
+Controls on the course: the **mouse** aims, an arc drawn with it turning
+the launcher by the same arc (the wheel nudges it a notch), and in flight it
 steers the heading the next pulse pushes along the same way — the charge on
 the tee is the pivot, so turning swings the frame round the charge and the
 charge stays exactly where it is; the **right button** held while aiming (or
-steering, while the gauge has anything left) switches the mouse to a fine
-turn, sideways travel moving the aim a fraction of a degree per pixel, so a
-line a fraction of a degree wide can be found by hand; a **left click** or
-**Space** launches, then spends one pulse per click; the **right button**
-runs a spent flight out at triple speed once the gauge is empty and the
-outcome is fixed; **R** re-tees (abandoning a flight, or restarting the hole
-from the tee); **P**, or the ❚❚ button in the HUD, brings up the hole as a
-map, with every body named and the wormhole mouths paired. On a controller
-and a phone the course plays as the arena does: rotate to aim, thrust to
-launch, pull in for fine aim.
+steering, while the gauge has anything left) makes the turn an eighth of
+the arc drawn, so a line a fraction of a degree wide can be found by hand; a
+**left click** or **Space** launches, then spends one pulse per click; the
+**right button** runs a spent flight out at triple speed once the gauge is
+empty and the outcome is fixed; **R** re-tees (abandoning a flight, or
+restarting the hole from the tee); **P**, or the ❚❚ button in the HUD, brings
+up the hole as a map, with every body named and the wormhole mouths paired.
+On a controller and a phone the course plays as the arena does: rotate to
+aim, thrust to launch, pull in for fine aim.
 
 The **Galactic Golf** button opens the course: the holes as a roster, each
 with its par and your best on it, and the round as one button. Play the round
@@ -795,26 +794,31 @@ static Vercel deployment cannot relay, so the button is disabled there.
 | Action | Keys / pointer |
 | --- | --- |
 | Move | **W A S D** (the arrow keys do the same), or drag a finger on a phone |
-| Rotate character and shield | **Mouse**: you turn, the short way round, to face the direction it moved in; **scroll** up nudges a notch clockwise, down counter-clockwise |
+| Rotate character and shield | **Mouse**: draw an arc and you turn by the same arc, the same way round (clockwise arc, clockwise turn); **scroll** up nudges a notch clockwise, down counter-clockwise |
 | Thrust the shield forward ("whack") | **Left click** or **Space** |
 | Pull the shield in (soft return, slows the ball) | **Right click** |
 | Pause / mute / restart | **P** (or the ❚❚ button in the HUD, which is how a phone pauses) / **M** / **R** |
-| Galactic Golf: launch, then one ion pulse per click | **Left click** or **Space** (the mouse aims and steers the same way; with **right click** held sideways travel nudges the aim finely; **right click** runs a spent flight out, **P** is the hole map) |
+| Galactic Golf: launch, then one ion pulse per click | **Left click** or **Space** (the mouse aims and steers the same way, an arc turning the launcher by the same arc; **right click** held makes it fine, an eighth of the arc; **right click** runs a spent flight out, **P** is the hole map) |
 | Controller (Xbox or any standard gamepad) | **left stick** moves, **right stick** or **LT** / **RT** rotate (further is faster), **A** thrusts, **X** pulls the shield in, **Start** pauses, **A** also confirms on menus |
 | Netcode switches (online play) | **1** prediction, **2** render buffer, **3** latency compensation, each on or off; also in the lobby under Netcode |
 
-The mouse points: push it toward the ball and the shield comes round to
-face that way, by whichever turn is shorter. The direction is read from the
-last few frames of travel (older travel fades out over about 60 ms), a few
-pixels of tremor mean nothing, and the frame turns at its own turn speed,
-the same top rate a stick or a touch button gets, so no input out-spins
-another; a flick sets the direction at once and the frame arrives a moment
-later. A wheel notch nudges the direction fifteen degrees. On the course the
-right button held switches the mouse to the fine kind of turn: sideways
-travel turns the launcher a fraction of a degree per pixel, for finding a
-line a fraction of a degree wide. While a level runs, the first click
-captures the mouse (so the hand can keep going in one direction); **Esc**
-gives it back, and the game lets it go on every pause and menu.
+The mouse turns like a knob: draw an arc and the frame turns by the arc's
+own angle, the same way round, so a circle drawn clockwise spins it once
+clockwise, whatever the circle's size, and a straight push turns nothing.
+The path is read in four-pixel segments and the frame turns by however much
+the path bent between one segment and the next, which is the arc's angle
+regardless of its radius (the errors of the segments in between cancel: only
+the first and last headings of a stroke count); a hand going back the way it
+came (a bend of more than about 120 degrees in one segment) is a reversal,
+not an arc, and a pause of 150 ms ends a stroke, its last few pixels counted,
+so the next one starts afresh. The frame turns at its
+own turn speed, the same top rate a stick or a touch button gets, so no
+input out-spins another: an arc drawn faster than that is caught up over the
+next frames, and one drawn far faster is cut short rather than spinning on
+long after the hand has stopped. A wheel notch is fifteen degrees. While a
+level runs, the first click captures the mouse (so the hand can keep going
+in one direction); **Esc** gives it back, and the game lets it go on every
+pause and menu.
 
 On touch devices, touch anywhere on the arena and drag: the first touch becomes
 a floating joystick and the drag direction steers, so your finger never has to

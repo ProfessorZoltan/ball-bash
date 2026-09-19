@@ -4,36 +4,37 @@
 
 import { clamp, wrapAngle } from './vec.js';
 
-/** Mouse, fine mode: radians of turn per pixel of sideways travel (a full turn in about 630 px). */
-export const MOUSE_SENS = 0.01;
 /** Scroll wheel: radians per notch (fifteen degrees). */
 export const WHEEL_STEP = Math.PI / 12;
 /** The rate the mouse's turn is paced to when no fighter says otherwise, radians per second; in play it is the fighter's own turn speed, so a mouse never out-spins a stick or a touch button. */
 export const MOUSE_TURN_RATE = 5;
-/** The most sideways travel one event is believed, pixels: more is a pointer-lock artefact (the cursor being re-centred), not a hand. */
+/** The most travel one event is believed, pixels: more is a pointer-lock artefact (the cursor being re-centred), not a hand. */
 export const MOUSE_MAX_STEP = 300;
 /** Milliseconds after the pointer is captured or released during which its travel is ignored: browsers report a jump then. */
 export const LOCK_SETTLE_MS = 120;
-/** Facing: how much recent travel it takes to mean a direction, pixels; less is tremor. */
-export const FACE_DEADZONE = 3;
-/** Facing: how quickly older travel stops counting toward the direction, seconds. */
-export const FACE_TAU = 0.06;
-/** Facing: within this of the direction the frame has arrived, radians; without it the frame would hunt round the last step. */
-export const FACE_SETTLE = 0.01;
+/** The most turn the mouse can be owed, radians: past this an arc drawn faster than the frame can turn is cut, so the frame never spins on long after the hand has stopped. */
+export const SPIN_BACKLOG = 1.2;
+/** An arc drawn with the mouse turns the frame by the arc's own angle. The path is read in segments this long, pixels; shorter has no heading worth reading. */
+export const ARC_SEGMENT = 4;
+/** A stroke's unfinished last segment still counts once the hand pauses, if it is at least this long, pixels. */
+export const ARC_TAIL = 2;
+/** A heading change past this between two segments is a hand going back the way it came, not an arc, and turns nothing. Radians (about 120 degrees). */
+export const ARC_MAX_STEP = 2.1;
+/** A pause this long ends a stroke: the next segment begins a new one rather than turning from where the last left off. Milliseconds. */
+export const ARC_STROKE_GAP_MS = 150;
 
 /**
- * One frame's turn command to bring `current` round to `target` the short
- * way: the whole of the way if the rate allows it this frame, else full rate
- * in that direction. Pure, so a test can read it.
+ * One segment of the mouse's path: its heading, and how far the path turned
+ * from the segment before (nothing for the first of a stroke, and nothing for
+ * a reversal). Clockwise on screen is positive, as the frame's angle is.
+ * Pure, so a test can read it.
  */
-export function faceTurn(current, target, rate, dt) {
-  const delta = wrapAngle(target - current);
-  if (Math.abs(delta) < FACE_SETTLE) return 0;
-  const room = rate * Math.max(dt, 1 / 240);
-  return clamp(delta / room, -1, 1);
+export function arcTurn(prevHeading, sx, sy) {
+  const heading = Math.atan2(sy, sx);
+  if (prevHeading == null) return { heading, turn: 0 };
+  const d = wrapAngle(heading - prevHeading);
+  return { heading, turn: Math.abs(d) <= ARC_MAX_STEP ? d : 0 };
 }
-/** The most turn the mouse can be owed, radians: past this a flick is cut, so the frame never spins on after the hand has stopped. */
-export const SPIN_BACKLOG = 0.6;
 
 /**
  * One frame's turn command from the turn the mouse has asked for and not yet
@@ -58,16 +59,16 @@ export class Input {
     // centre and dragging away from it sets the direction. Screen pixels.
     this.joystick = { active: false, ox: 0, oy: 0, dx: 0, dy: 0, radius: 64, dead: 8 };
     this.touchButtons = { left: false, right: false, whack: false, retract: false };
-    // Mouse: the frame turns, the short way round, to face the direction
-    // the mouse moved in (`mx`, `my` is this frame's travel, `dirX`, `dirY`
-    // the last few frames' worth, which sets `target`); the wheel nudges
-    // that a notch at a time (up is clockwise); the left button thrusts and
-    // the right pulls the shield in. In `spin` mode (fine aim on the course)
-    // sideways travel turns instead, a fraction of a degree per pixel, with
-    // `spin` the turn asked for and not yet had. pollMouse() paces either
-    // into `turn`, this frame's command. While a match is on the first click
-    // captures the pointer, so the hand can keep going; Escape gives it back.
-    this.mouse = { left: false, right: false, mx: 0, my: 0, dirX: 0, dirY: 0, target: null, settled: 0, nudge: 0, spin: 0, turn: 0, mode: 'face', locked: false, wantLock: false, settleUntil: 0 };
+    // Mouse: an arc drawn with it turns the frame by the arc's angle, the
+    // same way round; a straight line turns nothing. The path is read in
+    // short segments (`segX`, `segY` is the one being drawn, `heading` the
+    // last one's direction) and each segment adds to `spin` how far the
+    // path turned since the one before; the wheel adds a notch at a time
+    // (up is clockwise). pollMouse() paces `spin` into `turn`, this frame's
+    // command. The left button thrusts and the right pulls the shield in.
+    // While a match is on the first click captures the pointer, so the hand
+    // can keep going; Escape gives it back.
+    this.mouse = { left: false, right: false, segX: 0, segY: 0, heading: null, strokeAt: 0, nudge: 0, spin: 0, turn: 0, room: 0, credit: 0, locked: false, wantLock: false, settleUntil: 0 };
     // Gamepad (standard mapping, e.g. an Xbox controller): read once per
     // frame by pollGamepad(). Left stick moves; right stick, or the LT and RT
     // triggers, turn (left and right, at a rate set by how far they are
@@ -140,15 +141,13 @@ export class Input {
     });
     canvas.addEventListener('pointermove', (e) => {
       if (e.pointerType === 'mouse') {
-        // Travel this frame. A jump no hand makes in one frame, or any travel
-        // just as the pointer is captured or freed, is the browser re-centring
-        // the cursor and is ignored.
+        // Travel. A jump no hand makes in one frame, or any travel just as
+        // the pointer is captured or freed, is the browser re-centring the
+        // cursor and is ignored.
         const dx = typeof e.movementX === 'number' ? e.movementX : 0;
         const dy = typeof e.movementY === 'number' ? e.movementY : 0;
-        if ((dx || dy) && Math.abs(dx) <= MOUSE_MAX_STEP && Math.abs(dy) <= MOUSE_MAX_STEP && performance.now() >= this.mouse.settleUntil) {
-          this.mouse.mx += dx;
-          this.mouse.my += dy;
-        }
+        const now = performance.now();
+        if ((dx || dy) && Math.abs(dx) <= MOUSE_MAX_STEP && Math.abs(dy) <= MOUSE_MAX_STEP && now >= this.mouse.settleUntil) this.travel(dx, dy, now);
         return;
       }
       if (this.pointer.id !== null && this.pointer.id !== e.pointerId) return;
@@ -235,57 +234,67 @@ export class Input {
     }
   }
 
-  /** Forget where the mouse was going: nothing owed, no direction to reach. */
+  /** A piece of mouse travel: it joins the segment being drawn, and a segment long enough to have a heading turns the frame by how far the path bent. */
+  travel(dx, dy, now) {
+    const m = this.mouse;
+    if (now - m.strokeAt > ARC_STROKE_GAP_MS) {
+      // A pause ended the last stroke: this is a new one, with no heading yet.
+      m.heading = null;
+      m.segX = 0;
+      m.segY = 0;
+    }
+    m.strokeAt = now;
+    m.segX += dx;
+    m.segY += dy;
+    if (Math.hypot(m.segX, m.segY) < ARC_SEGMENT) return;
+    const r = arcTurn(m.heading, m.segX, m.segY);
+    m.heading = r.heading;
+    m.spin += r.turn;
+    m.segX = 0;
+    m.segY = 0;
+  }
+
+  /** Forget where the mouse was going: nothing owed, no stroke in progress. */
   restMouse() {
     const m = this.mouse;
-    m.mx = 0;
-    m.my = 0;
-    m.dirX = 0;
-    m.dirY = 0;
-    m.target = null;
-    m.settled = 0;
+    m.segX = 0;
+    m.segY = 0;
+    m.heading = null;
     m.nudge = 0;
     m.spin = 0;
     m.turn = 0;
+    m.credit = 0;
   }
 
   /**
-   * Turn the mouse's travel since last frame into this frame's turn command,
-   * at the fighter's own turn rate. `current` is the angle being steered
-   * (the frame's, or the pulses' heading on the course). In `face` mode the
-   * frame turns the short way to face the direction the mouse moved; in
-   * `spin` mode sideways travel turns it a fraction of a degree per pixel.
-   * Call once per frame.
+   * Pace the turn the mouse has asked for into this frame's turn command, at
+   * the fighter's own turn rate. `turned` is what the steered angle actually
+   * did since the last poll (or null when nothing is known): a fighter's spin
+   * takes a few steps to build and to die away, so pulsed commands would fall
+   * short of the arc drawn; the difference between what was asked and what
+   * was done goes back on the account. Only while the mouse is the one
+   * turning, and a couple of frames after, so another input's turn is never
+   * undone; and never a jump no turn makes, which is a respawn. Call once
+   * per frame.
    */
-  pollMouse(dt, rate = MOUSE_TURN_RATE, current = 0, mode = 'face') {
+  pollMouse(dt, rate = MOUSE_TURN_RATE, turned = null) {
     const m = this.mouse;
-    const r = rate > 0 ? rate : MOUSE_TURN_RATE;
-    if (mode !== m.mode) {
-      // A change of mode owes nothing from the last one.
-      this.restMouse();
-      m.mode = mode;
+    if (m.heading != null && performance.now() - m.strokeAt > ARC_STROKE_GAP_MS && Math.hypot(m.segX, m.segY) >= ARC_TAIL) {
+      // The hand has paused: the stroke's last, unfinished segment counts too.
+      m.spin += arcTurn(m.heading, m.segX, m.segY).turn;
+      m.heading = null;
+      m.segX = 0;
+      m.segY = 0;
     }
-    if (mode === 'spin') {
-      m.spin += m.mx * MOUSE_SENS + m.nudge;
-      const s = spinToTurn(m.spin, dt, r);
-      m.turn = s.turn;
-      m.spin = s.left;
-    } else {
-      // Recent travel, older frames fading out: its direction is the target once there is enough of it to be a direction.
-      const k = Math.exp(-Math.max(dt, 0) / FACE_TAU);
-      m.dirX = m.dirX * k + m.mx;
-      m.dirY = m.dirY * k + m.my;
-      if (Math.hypot(m.dirX, m.dirY) >= FACE_DEADZONE) m.target = Math.atan2(m.dirY, m.dirX);
-      if (m.nudge) m.target = wrapAngle((m.target == null ? current : m.target) + m.nudge);
-      m.turn = m.target == null ? 0 : faceTurn(current, m.target, r, dt);
-      // Arrived, and stayed a few frames (a fighter's spin takes a frame to
-      // die away, and would coast past): at rest until the hand moves again.
-      m.settled = m.target != null && m.turn === 0 ? m.settled + 1 : 0;
-      if (m.settled >= 3) m.target = null;
-    }
-    m.mx = 0;
-    m.my = 0;
+    m.spin += m.nudge;
     m.nudge = 0;
+    if (turned != null && (m.turn !== 0 || m.credit > 0) && Math.abs(turned) <= 2 * m.room + 0.1) m.spin += m.turn * m.room - turned;
+    const r = rate > 0 ? rate : MOUSE_TURN_RATE;
+    const s = spinToTurn(m.spin, dt, r);
+    m.credit = s.turn !== 0 ? 2 : Math.max(0, m.credit - 1);
+    m.turn = s.turn;
+    m.spin = s.left;
+    m.room = r * Math.max(dt, 1 / 240);
   }
 
   /** Read the first connected gamepad. Call once per frame; intent() uses the result. Never throws. */
@@ -410,7 +419,7 @@ export class Input {
       my = pad.my;
     }
 
-    // Turning: the touch buttons, else the mouse (facing where it moved, paced
+    // Turning: the touch buttons, else the mouse (an arc drawn with it, paced
     // by pollMouse), else the gamepad's right stick or triggers, faster the
     // further they go.
     let turn = 0;
