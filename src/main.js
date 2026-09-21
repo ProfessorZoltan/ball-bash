@@ -1324,7 +1324,7 @@ function frame(now) {
   const rawDt = (now - last) / 1000;
   const dt = Math.min(rawDt, 0.05);
   last = now;
-  pollMouseTurn(dt); // an arc drawn with the mouse turns the frame at the frame's own rate
+  pollMouseTurn(dt); // the mouse's travel turns the frame at the frame's own rate
   if (dt > 0) fps += (1 / dt - fps) * 0.05;
   let alpha = 1; // how far through the current physics step this frame is drawn
 
@@ -2337,7 +2337,7 @@ const TUTORIAL_STEPS = [
     title: 'Move and aim',
     text: COARSE
       ? 'Touch anywhere and <b>drag</b> to move. The <b>⟲ ⟳</b> buttons turn you and your shield. Move a little and turn around.'
-      : '<b>W A S D</b> move you. <b>Draw an arc with the mouse</b> and you turn by the same arc, shield first: a circle turns you all the way round. Move a little and turn all the way around.',
+      : '<b>W A S D</b> move you. <b>Move the mouse</b> right or back to turn clockwise, left or forward to turn counter-clockwise, shield first. Move a little and turn all the way around.',
   },
   {
     title: 'Block',
@@ -3918,11 +3918,11 @@ function showTitle() {
         <h3>Controls</h3>
         <ul class="controls">
           <li><b>W A S D</b> (or the arrows), or <b>drag</b> on a phone — move</li>
-          <li><b>Mouse</b> — draw an arc and you turn by the same arc, the same way round (swing to whack); <b>scroll</b> nudges a notch; a click captures the mouse, <b>Esc</b> frees it</li>
+          <li><b>Mouse</b> right or back — rotate clockwise; left or forward — counter-clockwise (swing to whack); <b>scroll</b> nudges a notch; a click captures the mouse, <b>Esc</b> frees it</li>
           <li><b>Left click</b> or <b>Space</b> — thrust the shield</li>
           <li><b>Right click</b> — pull the shield in (soft return)</li>
           <li><b>P</b> pause · <b>M</b> mute · <b>R</b> restart</li>
-          <li><b>Galactic Golf</b>: the mouse aims (an arc turns the launcher by the same arc; hold right click for fine aim), a left click launches then spends one ion pulse a click, P is the hole map</li>
+          <li><b>Galactic Golf</b>: the mouse aims the same way (hold right click for fine aim), a left click launches then spends one ion pulse a click, P is the hole map</li>
           <li><b>Controller</b>: left stick moves, right stick or <b>LT</b>/<b>RT</b> rotate, <b>A</b> thrusts, <b>X</b> pulls in, <b>Start</b> pauses <span id="pad-state" class="small muted">${input.pad.connected ? `· detected: ${input.pad.id.slice(0, 40)}` : '· none detected yet (press any button on it)'}</span></li>
         </ul>
       </div>
