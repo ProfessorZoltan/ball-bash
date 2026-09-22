@@ -295,7 +295,7 @@ test('render buffer: a view between two snapshots, the guest\'s own fighter left
 });
 
 test('latency compensation: a shield that would have met the ball the guest saw is played, one the ball was leaving is not', async () => {
-  const { rewoundContact, usableLag, MAX_LAG } = await import('../src/lagcomp.js');
+  const { rewoundContact, viewLag, MAX_LAG } = await import('../src/lagcomp.js');
   const { Fighter } = await import('../src/entities.js');
   const f = new Fighter({ x: 500, y: 450, angle: 0, paddleBase: 36, paddleThick: 6, paddleWidth: 116 });
   const seg = f.paddleSegment();
@@ -308,11 +308,40 @@ test('latency compensation: a shield that would have met the ball the guest saw 
   assert.equal(rewoundContact({ x: face - 8, y: 450, vx: -300, vy: 0 }, f, 11), null);
   // Well past the shield: nothing.
   assert.equal(rewoundContact({ x: face + 200, y: 450, vx: 300, vy: 0 }, f, 11), null);
-  // How much lag the host honours: nothing under a couple of steps, and never more than a quarter second.
-  assert.equal(usableLag(10), 0);
-  assert.equal(usableLag(60), 0.06);
-  assert.equal(usableLag(900), MAX_LAG);
-  assert.equal(usableLag('junk'), 0);
+  // How far back the host rewinds: exactly to the view time the guest reported, but nothing under a couple of
+  // steps, nothing from the future (a new round's clock), nothing past what it honours, and nothing when the guest asked for none.
+  assert.ok(Math.abs(viewLag(10, 9.9) - 0.1) < 1e-9);
+  assert.equal(viewLag(10, 9.99), 0);
+  assert.equal(viewLag(1, 5), 0);
+  assert.equal(viewLag(10, 10 - MAX_LAG - 0.01), 0);
+  assert.ok(Math.abs(viewLag(10, 10 - MAX_LAG + 0.001) - (MAX_LAG - 0.001)) < 1e-9);
+  assert.equal(viewLag(10, null), 0);
+  assert.equal(viewLag(10, NaN), 0);
+});
+
+test('snapshots out of order: each goes in its place by host time, a second copy is refused, and a late one is lateness, not a pause', async () => {
+  const { insertSnapshot, noteArrival } = await import('../src/netstate.js');
+  const buf = [];
+  for (const [t, sn] of [[0.1, 1], [0.3, 3], [0.2, 2], [0.4, 4]]) assert.equal(insertSnapshot(buf, { time: t, sn }), true);
+  assert.deepEqual(buf.map((e) => e.time), [0.1, 0.2, 0.3, 0.4]);
+  assert.equal(insertSnapshot(buf, { time: 0.3, sn: 3 }), false); // the same snapshot by the other path
+  assert.equal(buf.length, 4);
+  // Between rounds host time stands still and snapshots keep coming, each new: all are kept, in arrival order.
+  assert.equal(insertSnapshot(buf, { time: 0.4, sn: 5 }), true);
+  assert.equal(insertSnapshot(buf, { time: 0.4, sn: 6 }), true);
+  assert.equal(insertSnapshot(buf, { time: 0.4, sn: 5 }), false);
+  assert.deepEqual(buf.map((e) => e.sn), [1, 2, 3, 4, 5, 6]);
+  let c = null;
+  for (let i = 0; i < 60; i++) c = noteArrival(c, i / 60, 50 + (i / 60) * 1000);
+  const peak = c.peak;
+  // An older snapshot overtaken on the way arrives after a newer one: late, and the clock does not think host time stopped.
+  c = noteArrival(c, 58 / 60, 50 + (59 / 60) * 1000 + 30);
+  assert.equal(c.stalled, false);
+  assert.ok(c.peak > peak);
+  assert.ok(Math.abs(c.lastTime - 59 / 60) < 1e-9);
+  // The very same host time again is a pause (a round's end).
+  c = noteArrival(c, 59 / 60, 50 + 1000 + 40);
+  assert.equal(c.stalled, true);
 });
 
 test('render clock: arrivals set a smoothed host clock, a late packet raises the buffer and it fades back', () => {

@@ -5,9 +5,15 @@
 // from then on every other message is forwarded verbatim to the other player
 // in the room. /health answers with JSON so the game can tell the relay is up.
 //
-// One Durable Object instance ("main") holds every room. It uses the
+// Every room is its own Durable Object. A host connects to /ws?create=1: the
+// Worker picks the room's code and opens the object named for it, which
+// Cloudflare creates near that first request, so each room's relay sits by
+// its host rather than wherever some earlier room happened to start. A guest
+// connects to /ws?room=CODE and reaches the same object. A client with no room
+// in its address (an older copy of the game) reaches the shared object
+// "main", which still keeps rooms as it always did. The objects use the
 // WebSocket Hibernation API, so an idle relay costs nothing: sockets stay
-// open while the object sleeps, and the room index is rebuilt from each
+// open while an object sleeps, and its room index is rebuilt from each
 // socket's attachment when it wakes.
 //
 // Deploy: npx wrangler deploy   (see README, "Online multiplayer")
@@ -26,14 +32,19 @@ export default {
   async fetch(req, env) {
     const url = new URL(req.url);
     if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
-    const stub = env.RELAY.get(env.RELAY.idFromName('main'));
     if (url.pathname === '/health' || url.pathname === '/lan') {
-      const stats = await stub.fetch(new Request('https://relay/stats')).then((r) => r.json());
-      return json({ ok: true, v: PROTOCOL, online: true, rooms: stats.rooms, addresses: [], port: null });
+      // Answered here, without waking any room: every page load asks.
+      return json({ ok: true, v: PROTOCOL, online: true, rooms: null, addresses: [], port: null });
     }
     if (url.pathname === '/ws') {
       if ((req.headers.get('Upgrade') || '').toLowerCase() !== 'websocket') return new Response('Expected a WebSocket upgrade', { status: 426, headers: CORS });
-      return stub.fetch(req);
+      const creating = url.searchParams.has('create');
+      const code = creating ? randomCode() : cleanCode(url.searchParams.get('room'));
+      if (!code) return env.RELAY.get(env.RELAY.idFromName('main')).fetch(req); // an older client: the shared room object
+      const to = new URL(req.url);
+      to.searchParams.set('code', code);
+      if (creating) to.searchParams.set('create', '1');
+      return env.RELAY.get(env.RELAY.idFromName(`room:${code}`)).fetch(new Request(to, req));
     }
     return new Response('Deflector relay. The game connects to /ws; /health reports status.', { headers: { 'Content-Type': 'text/plain', ...CORS } });
   },
@@ -42,7 +53,18 @@ export default {
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const MAX_GUESTS = 2; // a host and up to two friends (three-player co-op)
 const GUEST_IDS = ['c', 'd'];
-const PROTOCOL = 3; // bumped when the relay protocol changes; the game warns about a stale relay
+const PROTOCOL = 4; // bumped when the relay protocol changes; the game warns about a stale relay
+
+function randomCode() {
+  const bytes = crypto.getRandomValues(new Uint8Array(4));
+  return Array.from(bytes, (b) => CODE_ALPHABET[b % CODE_ALPHABET.length]).join('');
+}
+
+/** A room code from an address, or '' when there is none worth trying. */
+function cleanCode(raw) {
+  const code = String(raw || '').toUpperCase().trim();
+  return /^[A-Z0-9]{4}$/.test(code) ? code : '';
+}
 
 export class RelayRoom {
   constructor(state) {
@@ -79,7 +101,9 @@ export class RelayRoom {
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     this.state.acceptWebSocket(server);
-    this.setAttachment(server, { room: null, role: null, id: null, name: '' });
+    // A room's own object is told its code; a host that connected to make it creates the room under that code.
+    const code = url.searchParams.get('code') || null;
+    this.setAttachment(server, { room: null, role: null, id: null, name: '', code, create: url.searchParams.has('create') });
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -112,7 +136,8 @@ export class RelayRoom {
     const a = this.attachment(ws);
     if (msg.t === 'create') {
       if (a.room) this.leaveRoom(ws);
-      const code = this.makeCode();
+      if (a.create && a.code && this.rooms.has(a.code)) return this.send(ws, { t: 'error', msg: 'That room code was just taken. Host again for a new one.' });
+      const code = a.create && a.code ? a.code : this.makeCode();
       const name = String(msg.name || 'Host').slice(0, 16);
       this.rooms.set(code, { code, host: ws, hostName: name, guests: [] });
       this.setAttachment(ws, { room: code, role: 'host', id: 'a', name });

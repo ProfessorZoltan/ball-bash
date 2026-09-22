@@ -88,7 +88,14 @@ export function noteArrival(c, time, now, gapDefault = 1 / 60) {
   if (!c || time < c.lastTime - 1) return { off, jit: 0, peak: 0, gap: gapDefault, lastTime: time, n: 1, stalled: false };
   const gap = time - c.lastTime;
   c.n++;
-  if (gap <= 0) {
+  if (gap < 0) {
+    // Overtaken on the way (a direct link does not keep order): late by definition, and that is all it says.
+    const dev = off - c.off;
+    c.jit += (Math.abs(dev) - c.jit) * 0.1;
+    c.peak = Math.max(c.peak, dev);
+    return c;
+  }
+  if (gap === 0) {
     // Host time standing still (the pause at a round's end): nothing to learn from these.
     c.stalled = true;
     return c;
@@ -128,6 +135,23 @@ export function advanceRenderClock(renderT, targetT, dt, newestT) {
   const err = targetT - renderT;
   const speed = 1 + Math.max(-RENDER_CATCHUP, Math.min(RENDER_CATCHUP, err * 2));
   return Math.min(Math.max(renderT, renderT + Math.max(0, dt) * speed), edge);
+}
+
+/**
+ * Put a snapshot into the buffer in host-time order (a direct link can
+ * deliver them out of order). False, and nothing added, when the same
+ * snapshot (its serial number `sn`) is already there, having come by the
+ * other path. Snapshots can share a host time: between rounds host time
+ * stands still and they keep coming, each saying something new.
+ */
+export function insertSnapshot(buffer, entry) {
+  let i = buffer.length;
+  while (i > 0 && buffer[i - 1].time > entry.time) i--;
+  for (let j = i - 1; j >= 0 && buffer[j].time === entry.time; j--) {
+    if (entry.sn == null || buffer[j].sn === entry.sn) return false;
+  }
+  buffer.splice(i, 0, entry);
+  return true;
 }
 
 export function bracket(buffer, t) {

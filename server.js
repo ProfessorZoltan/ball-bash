@@ -178,7 +178,7 @@ class WsConn {
 const rooms = new Map(); // code -> { code, host, guests: [] }
 const MAX_GUESTS = 2; // a host and up to two friends (three-player co-op)
 const GUEST_IDS = ['c', 'd']; // relay identity of each guest; the game uses the same letters as slots
-const PROTOCOL = 3; // bumped when the relay protocol changes; the game warns about a stale relay
+const PROTOCOL = 4; // bumped when the relay protocol changes; the game warns about a stale relay
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 function makeCode() {
@@ -267,7 +267,8 @@ function leaveRoom(conn) {
 }
 
 server.on('upgrade', (req, socket) => {
-  if (req.url !== '/ws' || String(req.headers.upgrade || '').toLowerCase() !== 'websocket') {
+  // The online relay routes by ?create or ?room in the address; one server holds every room, so it needs neither.
+  if (req.url.split('?')[0] !== '/ws' || String(req.headers.upgrade || '').toLowerCase() !== 'websocket') {
     socket.destroy();
     return;
   }

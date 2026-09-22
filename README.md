@@ -681,9 +681,16 @@ jukebox alongside the levels'.
 The LAN server only works on one Wi-Fi network, because the guest has to reach
 the host's private address. For play over the internet the game needs a relay
 that both browsers can reach, and `relay/` is that relay as a Cloudflare
-Worker with one Durable Object. It speaks exactly the LAN relay's protocol, it
-is free at a couple of friends' scale, it never sleeps, and Cloudflare's edge
-keeps it close to both players.
+Worker with a Durable Object per room. It speaks exactly the LAN relay's
+protocol, it is free at a couple of friends' scale, and it never sleeps. A
+host connects to `/ws?create=1`: the Worker picks the room's code and opens the
+object named for it, which Cloudflare creates near that first request, so every
+room's relay sits by its own host (a Durable Object stays where it was first
+made, which is why one object shared by every room could have ended up
+anywhere). A guest connects to `/ws?room=CODE` and reaches the same object. A
+client with no room in its address, an older copy of the game, still gets the
+shared object and its rooms. `/health` answers from the Worker itself, so a
+page load wakes no object.
 
 Deploy it once (needs a free Cloudflare account and Node):
 
@@ -699,9 +706,10 @@ redeploy the site, so every player gets online play from the title screen, or
 have players paste it under **Relay** in the lobby (remembered in their
 browser), or open the game with `?relay=<address>`.
 
-The relay protocol carries a version, and the lobby warns when a deployed
-relay is older than the game (redeploy it with the same command, or let the
-workflow below do it).
+The relay protocol carries a version (4: a room per object), and the lobby
+warns when a deployed relay is older than the game (redeploy it with the same
+command, or let the workflow below do it). An older relay still works; it
+just keeps every room in its one shared object.
 
 **Hands-off alternative: let GitHub deploy it.** The workflow in
 `.github/workflows/deploy-relay.yml` deploys the relay and then commits its
@@ -725,16 +733,36 @@ codes and share links work as on LAN; the share link is the game's own URL
 with `?room=CODE`.
 
 Cost: the relay counts WebSocket messages at a 20:1 discount and idles for
-free. A match sends about 120 messages a second, which is a few hours of play
-a day inside the free plan's daily allowance. Test the Worker locally with
-`npm run dev` in `relay/` and `?relay=ws://127.0.0.1:8787` on the game.
+free. A match played through it sends about 120 messages a second (snapshots
+and inputs each go at a fixed 60 Hz, whatever the players' displays run at),
+which is a few hours of play a day inside the free plan's daily allowance;
+with a direct connection open (below) the match itself costs the relay next
+to nothing. Test the Worker locally with `npm run dev` in `relay/` and
+`?relay=ws://127.0.0.1:8787` on the game.
 
 Latency: the host runs the simulation, so a guest would feel the round trip
-on everything. Three things take the edge off it, the same three most
-networked games use:
+on everything. These take the edge off it, the same things most networked
+games use:
 
 * **Prediction.** A guest's own character is simulated locally and reconciled
-  with the host's state as snapshots arrive, so movement responds at once.
+  with the host's state as snapshots arrive, so movement responds at once. For
+  that to hold, the host must do with the guest's inputs exactly what the
+  guest did. Each frame a guest sends a record of its input and how many
+  physics steps it covered here, repeating its last six in every message so a
+  lost one costs nothing. The host keeps them in a queue, like a jitter
+  buffer, and plays each for exactly those steps (`src/inputqueue.js`). When
+  the queue runs dry the guest's character waits where it is rather than
+  being guessed at. Each dry spell grows the queue's cushion by a frame, up to
+  200 ms, and a calm second shrinks it again. After a stall the host plays two
+  steps a step until caught up. A queue far too deep is trimmed, and a thrust
+  in what was trimmed still happens. The host acknowledges `[seq, steps]`,
+  every record to `seq` and so many steps of the next, and the guest replays
+  exactly the rest. Previously the host kept only the newest input, so inputs
+  arriving in a burst overwrote each other: with 0 to 150 ms of jitter, 2 thrusts
+  in 10 never happened and the guest was pulled back more than 10 px 13 times
+  in 8 seconds. With the queue every thrust lands, and it happened once in
+  that time. Corrections to the guest's own shield angle now ease out over
+  80 ms like position ones, instead of snapping.
 * **A render buffer.** A guest draws the ball and the other players a little
   in the past, between two snapshots that have both arrived, rather than at
   the newest as it lands. The view keeps a clock of its own, in host time:
@@ -746,50 +774,88 @@ networked games use:
   seconds, between 40 and 250 ms. A late packet then never shows, so long as
   it is less late than the buffer; a packet later than that carries the ball
   on for 60 ms and holds, and the clock catches up gently once packets return.
-  The sparks and sounds of a hit are played as the view reaches their
-  snapshot, so they land where the ball is drawn, and any a stall has left
-  more than 300 ms behind are dropped rather than heaped into one frame
-  (`noteArrival`, `bufferFor`, `advanceRenderClock`, `bracket`, `lerpView`
-  in `src/netstate.js`).
-* **Latency compensation.** A guest sees the ball where it was half a round
-  trip plus the buffer ago, and plays that ball. Each input carries that lag;
-  when a guest's shield, where they have it now, would have met the ball
-  where it was then, the host plays the contact they saw: the ball is rewound
-  to it, reflected off the shield, and carried forward again through the
-  walls it would have met since (`src/lagcomp.js`, `lagCompensate` in
+  Snapshots are slotted in by host time (a direct link does not keep order)
+  and a second copy of one, by serial number, is dropped. The sparks and
+  sounds of a hit are played as the view reaches their snapshot, so they land
+  where the ball is drawn; every event rides in two snapshots in a row, with
+  an id, so a lost packet loses no sound and none plays twice; and any a
+  stall has left more than 300 ms behind are dropped rather than heaped into
+  one frame (`noteArrival`, `bufferFor`, `advanceRenderClock`,
+  `insertSnapshot`, `bracket`, `lerpView` in `src/netstate.js`).
+* **Latency compensation.** A guest sees the ball where it was some time ago,
+  and plays that ball. Every input record carries the host time the guest's
+  view was showing (the view's clock is kept in host time), and each step of
+  it is paired with its share of that frame's view, so the host knows
+  exactly which ball the guest was looking at, step by step. When the guest's
+  shield, where they have it now, would have met that ball, the host plays
+  the contact they saw: the ball is rewound to it, reflected off the shield,
+  and carried forward again through the walls it would have met since
+  (`viewLag` and `rewoundContact` in `src/lagcomp.js`, `lagCompensate` in
   `src/main.js`). The host never rewinds past another shield's hit or the
   serve (a wall or a mover bounce is deterministic, and the replay takes it
-  again), past 350 ms, or for its own shield, which sees the ball as it is.
-  The lag a guest reports is half its round trip plus what its view is
-  actually drawn behind. The cost is the usual one: on the host's screen a
-  ball that had just passed a lagging guest's shield can come back off it.
+  again), past 400 ms (beyond that it does not rewind at all, rather than to a
+  moment the guest never saw), or for its own shield, which sees the ball as
+  it is. The cost is the usual one: on the host's screen a ball that had just
+  passed a lagging guest's shield can come back off it.
+* **Hit prediction.** Compensation makes a guest's block count, but the
+  proof arrives a round trip later: until then the snapshots already on their
+  way show the ball going through the shield, then it jumps back. So a guest
+  checks its own shield, after its own physics steps, against the ball it is
+  drawing, through the host's own ball physics; on contact the bounce and its
+  sound play at once and the ball flies on locally, off walls, movers and
+  that shield, until the host's record of the hit arrives, when it glides into
+  the host's ball over 120 ms. If the host never confirms it (past the
+  longest rewind and a little more) the ball glides back to where the host has
+  it. Measured on a block made at the last moment over a 60 ms link: without
+  it, the guest saw the ball sink 49 px through the shield for 120 ms and jump
+  back 97 px; with it, the bounce shows 180 ms sooner and the ball never
+  moves more than its own 3 px a frame. It needs compensation on at both ends,
+  and the host says in every snapshot whether it has it on.
+* **A direct connection.** The relay runs over TCP, which never loses a packet
+  but holds every later one back until a lost one is resent, a round trip at
+  least: on Wi-Fi that turns ordinary loss into the bursty jitter a snapshot
+  stream suffers from. So as each guest joins, the host offers it a WebRTC
+  data channel, unordered and never resent, with the handshake carried by
+  the relay and free public STUN servers (Google's and Cloudflare's) telling
+  each browser its public address. When it opens, snapshots, inputs and pings
+  go straight between the two browsers, and a lost packet costs only itself;
+  everything that must arrive (setting up rounds, the lobby, the handshake)
+  stays on the relay. Where a network allows no direct link (some mobile and
+  carrier-grade NATs would need a paid TURN server), or it drops, play simply
+  carries on through the relay. The HUD says `DIRECT` or `RELAY` for each
+  link.
+* **A match that never freezes.** A browser stops animation frames in a
+  hidden tab, and the host's tab is where everyone's match runs. While a
+  host's tab is hidden a worker's timer, which the browser does not hold
+  back, drives the game at 60 Hz without drawing, until the tab comes back.
 
-Each of the three has a switch, so one can be tested without the others:
+Each of the five has a switch, so one can be tested without the others:
 under **Netcode** in the multiplayer lobby (remembered in that browser), or
-**1**, **2** and **3** during a match, with the HUD naming whichever are off.
-Prediction and the buffer act on a guest's own screen (a guest with prediction
-off is drawn where the host last put them, a full round trip late; with the
-buffer off every snapshot is drawn as it lands and its sparks play at once,
-as before the buffer existed). Compensation is the host's rewinding: the
-host's switch turns it off for everyone, and a guest's switch sends a lag of
-zero, so only their own shield goes uncompensated.
+**1** prediction, **2** buffer, **3** compensation, **4** hit prediction and **5**
+direct connection during a match, with the HUD naming whichever are off.
+Prediction, the buffer and hit prediction act on a guest's own screen (a
+guest with prediction off is drawn where the host last put them, a full round
+trip late; with the buffer off every snapshot is drawn as it lands and its
+sparks play at once, as before the buffer existed). Compensation is the
+host's rewinding: the host's switch turns it off for everyone, and a guest's
+switch sends no view time, so only their own shield goes uncompensated. The
+direct connection needs both ends: either one switching it off closes it,
+and switching it back on asks for a new one.
 
-The HUD shows the round trip and its jitter (`84 ms ±6`), and on a guest how
-far behind the host's now the view is drawn. In the lobby every player's own leg to the relay is measured
+The HUD shows the round trip and its jitter (`84 ms ±6`), the path (`DIRECT`
+or `RELAY`), and on a guest how far behind the host's now the view is drawn.
+In the lobby every player's own leg to the relay is measured
 separately (the relay answers a ping for itself), which is what tells the
 links apart: the relay sits near the host, so a guest's leg is their link
 plus the distance, and the host's is their link alone. A host whose leg is
 far less steady than a guest's is told that a room the guest creates would
 run smoother for everyone, since the host's link is every player's link.
-That readout needs relay protocol 3: an older deployed relay still relays,
-and the lobby says to redeploy it.
 
 How it works: the server is also a tiny WebSocket relay (`/ws`, no
 dependencies). The host's browser runs the physics exactly as in single
 player, with the second character driven by the guest's inputs instead of the
 AI. It streams state snapshots and effect events at 60 Hz (`src/netstate.js`);
-the guest mirrors them, extrapolates the ball a few milliseconds, and streams
-its inputs back. On a home network that is a few milliseconds of lag. The
+the guest mirrors them and streams its input records back. On a home network that is a few milliseconds of lag. The
 static Vercel deployment cannot relay, so the button is disabled there.
 
 ## Controls
@@ -803,7 +869,7 @@ static Vercel deployment cannot relay, so the button is disabled there.
 | Pause / mute / restart | **P** (or the ❚❚ button in the HUD, which is how a phone pauses) / **M** / **R** |
 | Galactic Golf: launch, then one ion pulse per click | **Left click** or **Space** (the mouse aims the launcher, and in flight the pulses; **right click** held with sideways travel is fine aim, an eighth of the travel; **right click** runs a spent flight out, **P** is the hole map) |
 | Controller (Xbox or any standard gamepad) | **left stick** moves, **right stick** or **LT** / **RT** rotate (further is faster), **A** thrusts, **X** pulls the shield in, **Start** pauses, **A** also confirms on menus |
-| Netcode switches (online play) | **1** prediction, **2** render buffer, **3** latency compensation, each on or off; also in the lobby under Netcode |
+| Netcode switches (online play) | **1** prediction, **2** render buffer, **3** latency compensation, **4** hit prediction, **5** direct connection, each on or off; also in the lobby under Netcode |
 
 The mouse has three ways to turn the frame, chosen under **Mouse** on the
 title screen and remembered in the browser:
@@ -1193,11 +1259,15 @@ src/golf.js                Galactic Golf: the Outer Course, its holes and its tu
 src/camera.js              the camera for a level bigger than the screen (pure)
 src/lore.js                worldbuilding: the bulletin, the record's chapters, status words
 src/input.js               keyboard, mouse, touch, gamepad -> one intent object
+src/net.js                 the relay client, direct WebRTC links, link measurements
+src/netstate.js            snapshots, and the guest's render buffer, clock and interpolation
+src/inputqueue.js          a guest's inputs as the host plays them, step for step (pure)
+src/lagcomp.js             latency compensation: which ball a guest was looking at (pure)
 src/render.js              Canvas 2D neon renderer with 2.5D wall extrusion
 src/fx.js                  particles, rings, screen shake
 src/audio/engine.js        Web Audio synths, sequencer, tempo-follow, SFX
 src/audio/tracks.js        per-level track definitions
-test/physics.test.js       node --test suite
+test/*.test.js             node --test suites (physics, net, input, input queue)
 server.js                  zero-dependency static server + LAN relay
 relay/                     the same relay as a Cloudflare Worker for online play
 desktop/                   Electron wrapper for the Windows and macOS builds (bundles server.js)

@@ -1,5 +1,6 @@
 // Game bootstrap: state machine, fixed-step physics loop, collision dispatch,
 // HUD/overlay wiring. Everything heavy lives in the modules it imports.
+import { Ball } from './entities.js';
 import { GAME_MARK, GAME_NAME, GAME_TAGLINE, GAME_VERSION, MARK_READINGS, PHYSICS_DT, BALL, PLAYER, SURFACE_VELOCITY_FACTOR, COUNTDOWN_SECONDS, DIFFICULTIES, DEFAULT_DIFFICULTY, COOP, RELAY_PROTOCOL, VERSUS_SPEEDS, DEFAULT_VERSUS_SPEED, versusMaxSpeed, VOLLEY, volleySpeed } from './config.js';
 import { BallHistory, bossIntent, moverSegmentsAt } from './ai.js';
 import { LEVELS, VERSUS_LEVELS, ROSTER, TUTORIAL_LEVEL } from './levels.js';
@@ -9,8 +10,9 @@ import { LORE } from './lore.js';
 import { SYSTEMS, TIERS, FRAME_CELLS, STANDARD, DEFAULT_FRAME, CUSTOM_ID, allFrames, frameById, withinBudget, cellsSpent, systemValue } from './frames.js';
 import { createGameState, rebuildWalls as rebuildWallsState, bodyHitCounts, tickCamp, versusSpawns, rotateSpawns, versusColors, VERSUS_IDS, nodeAccepts, objectiveDone, constrainToRail, wellsDrag, wellsAccel, swallowingWell, dronePhased, seatLauncher, solidPolysNow } from './gamestate.js';
 import { NetClient, relayConfig, saveRelay } from './net.js';
-import { buildSnapshot, applySnapshot, bracket, lerpView, noteArrival, bufferFor, advanceRenderClock, INTERP_MIN, EXTRAPOLATE_MAX } from './netstate.js';
-import { rewoundContact, usableLag } from './lagcomp.js';
+import { buildSnapshot, applySnapshot, bracket, lerpView, noteArrival, bufferFor, advanceRenderClock, insertSnapshot, INTERP_MIN, EXTRAPOLATE_MAX } from './netstate.js';
+import { rewoundContact, viewLag, MAX_LAG } from './lagcomp.js';
+import { InputQueue, inputRecord, splitAck, REDUNDANCY } from './inputqueue.js';
 import { Input, MOUSE_MODES } from './input.js';
 import { Renderer } from './render.js';
 import { Effects } from './fx.js';
@@ -169,35 +171,52 @@ function step(dt) {
   const me = localFighter();
   const local = me ? input.intent(me) : ZERO_INTENT; // an eliminated host still runs the match
   const intents = { a: ZERO_INTENT, b: ZERO_INTENT, c: ZERO_INTENT, d: ZERO_INTENT };
+  // A remote human plays its queued inputs: none this step (it waits for them), one, or two (catching up).
+  const plays = {};
   if (g.pvp) {
     // Every player for themselves: the host is seat a, guests c and d.
-    for (const f of g.humans) intents[f.slot] = f.slot === net.localSlot ? local : net.remoteIntents[f.slot] || ZERO_INTENT;
+    for (const f of g.humans) {
+      if (f.slot === net.localSlot) intents[f.slot] = local;
+      else plays[f.slot] = remoteStepIntents(f.slot);
+    }
   } else if (g.golf) {
     intents.a = golfIntent(local, dt); // the launcher aims, or steers the pulses
   } else if (g.tutorial) {
     intents.a = local; // the training drone never moves
   } else {
     intents.a = local; // the host's human (only the host simulates)
-    for (const f of g.allies) intents[f.slot] = net.remoteIntents[f.slot] || ZERO_INTENT;
+    for (const f of g.allies) plays[f.slot] = remoteStepIntents(f.slot);
     for (const d of g.drones) intents[d.slot] = state === 'playing' && !d.down ? bossIntent(d, g.history, g.humans, g.walls, dt, simTime, g.movers) : ZERO_INTENT;
   }
   // Movement is locked until the ball launches; aiming is allowed.
-  if (state === 'countdown') for (const k of Object.keys(intents)) intents[k] = { ...intents[k], mx: 0, my: 0, lunge: false };
+  const locked = (it) => ({ ...it, mx: 0, my: 0, lunge: false });
+  if (state === 'countdown') {
+    for (const k of Object.keys(intents)) intents[k] = locked(intents[k]);
+    for (const k of Object.keys(plays)) plays[k] = plays[k].map(locked);
+  }
 
   for (const f of g.humans) {
-    const wasIdle = f.lungeState === 'idle';
-    f.update(dt, intents[f.slot]);
-    // Aiming on the course: the charge is the pivot, and the frame swings round it.
-    if (g.golf && g.golf.phase === 'aim') seatLauncher(f, g.def.tee);
-    if (wasIdle && f.lungeState === 'out') {
-      onWhack();
-      // Volley: the thrust is also the trigger. Rotating the shield never fires.
-      if (g.volley && state === 'playing') fireCharge(f);
-      // Golf: the same thrust sends the charge off the tee.
-      if (g.golf && state === 'playing' && g.golf.phase === 'aim') golfLaunch();
+    const list = plays[f.slot] || [intents[f.slot]];
+    if (!list.length) {
+      holdFighter(f);
+      continue;
     }
-    if (g.wells.length && state === 'playing' && !g.golf) wellsDrag(g.wells, f, dt);
-    settleFighter(f);
+    if (f.netHeld) releaseFighter(f);
+    for (const it of list) {
+      const wasIdle = f.lungeState === 'idle';
+      f.update(dt, it);
+      // Aiming on the course: the charge is the pivot, and the frame swings round it.
+      if (g.golf && g.golf.phase === 'aim') seatLauncher(f, g.def.tee);
+      if (wasIdle && f.lungeState === 'out') {
+        onWhack();
+        // Volley: the thrust is also the trigger. Rotating the shield never fires.
+        if (g.volley && state === 'playing') fireCharge(f);
+        // Golf: the same thrust sends the charge off the tee.
+        if (g.golf && state === 'playing' && g.golf.phase === 'aim') golfLaunch();
+      }
+      if (g.wells.length && state === 'playing' && !g.golf) wellsDrag(g.wells, f, dt);
+      settleFighter(f);
+    }
   }
 
   // The AI enemies: the level's boss (with its patrol and abilities) or a
@@ -984,7 +1003,7 @@ function lagCompensate() {
   const b = g.ball;
   for (const f of g.humans) {
     if (f.slot === net.localSlot || f.down || f.phased || f.kind !== 'player') continue;
-    const lag = net.remoteLag[f.slot] || 0;
+    const lag = viewLag(simTime, net.remoteVt[f.slot]); // how far back the ball was that the guest was looking at, exactly
     if (!lag || simTime - g.lastBounceAt < lag) continue;
     const past = g.history.sample(simTime - lag);
     if (!past || past.t > simTime - lag + PHYSICS_DT * 2) continue; // nothing kept from that far back
@@ -1316,6 +1335,17 @@ function reserve(reason, slot, all = false) {
 // ----------------------------------------------------------------- frames
 
 function frame(now) {
+  runFrame(now, true);
+  requestAnimationFrame(frame);
+}
+
+/**
+ * One turn of the game: input, physics, the network, and (when `draw`) the
+ * picture. The browser drives it through requestAnimationFrame, which stops
+ * in a hidden tab; a host's hidden tab is driven by the background ticker
+ * instead, without drawing, so the match never freezes for everyone else.
+ */
+function runFrame(now, draw) {
   input.pollGamepad();
   if (state === 'title') {
     const el = $('pad-state');
@@ -1337,9 +1367,13 @@ function frame(now) {
     const predict = guest && (state === 'countdown' || state === 'playing');
     while (acc >= PHYSICS_DT) {
       if (simulate) step(PHYSICS_DT);
-      else if (predict) guestStep(PHYSICS_DT);
+      else if (predict) {
+        guestStep(PHYSICS_DT);
+        net.frameSteps++; // this frame's input record covers every step, predicted or not
+      }
       acc -= PHYSICS_DT;
     }
+    if (guest && state === 'playing') guestHitCheck();
     if (simulate || predict) alpha = acc / PHYSICS_DT;
     game.fx.update(dt);
     if (state === 'countdown' && !guest) {
@@ -1405,19 +1439,54 @@ function frame(now) {
       }
     }
     updateHud();
-    if (net.mode === 'host') hostSend();
-    else if (net.mode === 'guest') guestSend();
+    if (net.mode === 'host') hostSend(dt);
+    else if (net.mode === 'guest') guestSend(dt);
   }
 
   if (state === 'jukebox') {
     jukeboxTick(now / 1000);
-    renderer.drawJukebox(audio.playhead(), jukebox.palette, now / 1000);
-  } else {
+    if (draw) renderer.drawJukebox(audio.playhead(), jukebox.palette, now / 1000);
+  } else if (draw) {
     drawWorld(now / 1000, alpha);
   }
   handleGlobalKeys();
-  requestAnimationFrame(frame);
 }
+
+// ---- a host in a hidden tab
+
+/**
+ * A browser stops requestAnimationFrame in a hidden tab, and the host's tab
+ * is where every player's match runs. While it is hidden a worker's timer
+ * (which the browser does not hold back the way it does the page's own)
+ * drives the game at 60 Hz without drawing, until the tab is shown again.
+ */
+let backgroundTicker = null;
+
+function backgroundHosting() {
+  return document.hidden && net.mode === 'host' && !!game && state !== 'title' && state !== 'paused';
+}
+
+function syncBackgroundTicker() {
+  const want = backgroundHosting();
+  if (want && !backgroundTicker) {
+    try {
+      const src = 'let t=null;onmessage=(e)=>{clearInterval(t);if(e.data==="start")t=setInterval(()=>postMessage(0),1000/60);};';
+      backgroundTicker = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+      backgroundTicker.onmessage = () => {
+        if (backgroundHosting()) runFrame(performance.now(), false);
+        else syncBackgroundTicker();
+      };
+      backgroundTicker.postMessage('start');
+    } catch (_) {
+      backgroundTicker = null; // no workers here: the match waits for the tab, as it always did
+    }
+  } else if (!want && backgroundTicker) {
+    backgroundTicker.terminate();
+    backgroundTicker = null;
+  }
+}
+
+document.addEventListener('visibilitychange', syncBackgroundTicker);
 
 /**
  * Draw the world `alpha` of the way from the previous physics step to the
@@ -1430,18 +1499,17 @@ function drawWorld(nowSec, alpha) {
   const g = game;
   if (!g || !(alpha > 0 && alpha < 1)) {
     if (g && state === 'playing') g.ball.pushTrail(BALL.trailLength);
-    const me = net.mode === 'guest' && (net.smooth.x || net.smooth.y) ? localFighter() : null;
+    const me = net.mode === 'guest' && (net.smooth.x || net.smooth.y || net.smooth.a) ? localFighter() : null;
+    const saved = me ? [me.x, me.y, me.angle] : null;
     if (me) {
       me.x += net.smooth.x;
       me.y += net.smooth.y;
+      me.angle = wrapAngle(me.angle + net.smooth.a);
     }
     try {
       renderer.draw(g, state, nowSec, input.joystick);
     } finally {
-      if (me) {
-        me.x -= net.smooth.x;
-        me.y -= net.smooth.y;
-      }
+      if (me) [me.x, me.y, me.angle] = saved;
     }
     return;
   }
@@ -1450,7 +1518,7 @@ function drawWorld(nowSec, alpha) {
   const bx = b.x;
   const by = b.y;
   const saved = fs.map((f) => [f.x, f.y, f.angle, f.paddleOffset]);
-  const smoothed = net.mode === 'guest' && (net.smooth.x || net.smooth.y) ? localFighter() : null;
+  const smoothed = net.mode === 'guest' && (net.smooth.x || net.smooth.y || net.smooth.a) ? localFighter() : null;
   if (!b.held) {
     b.x = b.rx + (bx - b.rx) * alpha;
     b.y = b.ry + (by - b.ry) * alpha;
@@ -1464,6 +1532,7 @@ function drawWorld(nowSec, alpha) {
   if (smoothed) {
     smoothed.x += net.smooth.x;
     smoothed.y += net.smooth.y;
+    smoothed.angle = wrapAngle(smoothed.angle + net.smooth.a);
   }
   try {
     if (state === 'playing') b.pushTrail(BALL.trailLength);
@@ -1941,9 +2010,11 @@ function linkLabel() {
   const c = net.client;
   if (!c) return '';
   // Whichever switches are off, apart from what the line says anyway: a host's screen has no prediction or buffer, and a guest's BUFFER field speaks for itself.
-  const off = NETCODE.filter((n) => !netcode[n.id] && (c.role === 'host' ? n.id === 'lagcomp' : n.id !== 'buffer')).map((n) => ` · ${n.name.toUpperCase()} OFF`).join('');
-  if (c.role === 'host') return (net.roster.map((r) => `${esc(r.name).toUpperCase()} ${c.link(r.id).label}`).join(' · ') || `${Math.round(c.rtt)} MS`) + off;
-  return `${c.link('a').label} · BUFFER ${netcode.buffer ? `${Math.round(net.behind * 1000)} MS` : 'OFF'}${off}`;
+  // Whichever switches are off, apart from what the line says anyway: a host's screen has no prediction or buffer, and the path and buffer fields speak for themselves.
+  const off = NETCODE.filter((n) => !netcode[n.id] && n.id !== 'direct' && (c.role === 'host' ? n.id === 'lagcomp' : n.id !== 'buffer')).map((n) => ` · ${n.name.toUpperCase()} OFF`).join('');
+  const path = (id) => (c.directOpen(id) ? 'DIRECT' : 'RELAY');
+  if (c.role === 'host') return (net.roster.map((r) => `${esc(r.name).toUpperCase()} ${c.link(r.id).label} ${path(r.id)}`).join(' · ') || `${Math.round(c.rtt)} MS`) + off;
+  return `${c.link('a').label} ${path('a')} · BUFFER ${netcode.buffer ? `${Math.round(net.behind * 1000)} MS` : 'OFF'}${off}`;
 }
 
 function formatTime(t) {
@@ -2587,12 +2658,19 @@ const net = {
   // snapshot, and the guest replays the inputs after that on top of the
   // host's state. `smooth` is the leftover visual offset after a correction,
   // eased out so corrections do not pop.
-  seq: 0,
-  remoteSeqs: {}, // host: latest input sequence acted on, per guest id
-  inputs: [], // guest: [{ seq, dt, intent }] not yet acknowledged by the host
+  seq: 0, // guest: the last input record numbered (one a frame with physics steps in it)
+  queues: {}, // host: each guest's inputs as an InputQueue (src/inputqueue.js), by id
+  remoteVt: {}, // host: the host time each guest's view showed for the input being played, by id (latency compensation)
+  epoch: 0, // which setup the inputs belong to: the host counts setups, a guest echoes the latest, and anything from an older one is dropped
+  frameSteps: 0, // guest: physics steps run this frame, which this frame's input record covers
+  outbox: [], // guest: its last few input records, all sent in every message so a lost one costs nothing
+  inputsDirty: false, // guest: a record not yet sent
+  inAcc: 0, // guest: time since the last input message (they go at 60 Hz)
+  sendAcc: 0, // host: time since the last snapshot (they go at 60 Hz)
+  inputs: [], // guest: [{ seq, dt, intent }] predicted steps, tagged with the record they went out in, not yet acknowledged by the host
   roster: [], // guests in the room: [{ id, name, cells }] (host: everyone who joined; guest: the others)
   frames: {}, // the frame each seat wears this match, by slot
-  smooth: { x: 0, y: 0 },
+  smooth: { x: 0, y: 0, a: 0 },
   client: null,
   // The room outlives the match. `room` is true from the moment a room is
   // made or joined until someone actually leaves it; `mode` is only set while
@@ -2602,7 +2680,6 @@ const net = {
   mode: null, // null | 'host' | 'guest'
   leaveAt: 0, // while > 0, a leave has been armed and needs a second press before this time
   localSlot: 'a',
-  remoteIntents: {}, // host: latest intent per guest id
   events: [],
   round: 0,
   players: [], // versus seats in order: [{ id, name }] (the host is 'a', guests keep their relay ids)
@@ -2616,6 +2693,10 @@ const net = {
   levelIndex: 0, // versus: index into VERSUS_ARENAS; co-op: index into LEVELS
   winner: null,
   pending: null, // latest snapshot not yet applied (guest)
+  pendingTime: -Infinity, // guest: host time of the newest snapshot applied or pending
+  seenEv: new Set(), // guest: ids of the host's events already taken in
+  evSeq: 0, // host: the last event id handed out
+  lastEv: [], // host: the events sent in the last snapshot, sent again in the next
   snapAt: 0,
   // Guest-side render buffer: snapshots kept for a short while so the ball and
   // the other fighters are drawn a little in the past, between two snapshots
@@ -2625,9 +2706,12 @@ const net = {
   interp: 0.05, // seconds behind the host's now the view aims to run
   clock: null, // how steadily snapshots arrive: { off, jit, peak, gap, lastTime, n } (netstate.noteArrival)
   renderT: null, // the host time being drawn: a clock of its own, run a little fast or slow to meet `interp`, never jumped
+  hit: null, // guest: a bounce off its own shield played ahead of the host's word: { ball, t, contactT, confirmed, blendAt }
+  lastView: null, // guest: the ball as drawn this frame, from the buffer: { x, y, vx, vy, t }
+  prevView: null, // guest: and as drawn the frame before; the hit check sweeps from one to the other
+  hostComp: true, // guest: whether the host is compensating (it says so in every snapshot)
   renderWall: 0, // when the view's clock was last advanced (performance.now)
   behind: 0, // seconds the drawn view actually runs behind the host's now
-  remoteLag: {}, // host: how far behind the host each guest's view runs, seconds, by id
   legs: {}, // host: each guest's own round trip to the relay, [mean, jitter] ms, by id
   tick: null, // the room's timer: pings, and the lobby's ping readout
   lastPing: 0,
@@ -2647,8 +2731,10 @@ const NETCODE = [
   { id: 'predict', key: 'deflector.net.predict', name: 'Prediction', blurb: 'Your own fighter moves the moment you press, without waiting for the host to confirm it. Off: it moves when the host says so, a full round trip later.' },
   { id: 'buffer', key: 'deflector.net.buffer', name: 'Render buffer', blurb: 'The ball and the other players are drawn a fraction of a second in the past, between two updates that have both arrived, so a late one never makes them stutter. Off: every update is drawn the moment it lands, and a late one holds the picture.' },
   { id: 'lagcomp', key: 'deflector.net.lagcomp', name: 'Latency compensation', blurb: 'When your shield meets the ball where you saw it, the host rewinds the ball to there and counts the hit. Off: only where the ball really is counts, so a player with lag has to swing early. The host\'s switch covers everyone; a guest\'s, their own shield.' },
+  { id: 'hitpredict', key: 'deflector.net.hitpredict', name: 'Hit prediction', blurb: 'When your shield meets the ball on your screen, it bounces straight away, sound and all, instead of a round trip later when the host\'s word arrives; if the host disagrees, the ball glides back to where the host has it. Needs latency compensation on both sides. Off: a bounce shows when the host confirms it.' },
+  { id: 'direct', key: 'deflector.net.direct', name: 'Direct connection', blurb: 'Your game and the host\'s talk straight to each other instead of through the relay, over a link that never holds later packets back to resend a lost one; the relay still does the introductions. Some home and mobile networks do not allow it, and then play stays on the relay by itself. Off: everything goes through the relay, as before.' },
 ];
-const netcode = { predict: true, buffer: true, lagcomp: true };
+const netcode = { predict: true, buffer: true, hitpredict: true, lagcomp: true, direct: true };
 
 function loadNetcode() {
   for (const n of NETCODE) {
@@ -2669,9 +2755,10 @@ function setNetcode(id, on) {
     // storage unavailable; the choice lasts for this page load only
   }
   if (id === 'buffer') net.interp = on ? INTERP_MIN : 0; // the next snapshot sizes it again
+  if (id === 'direct' && net.client) net.client.setDirect(on);
   if (id === 'predict' && !on) {
     net.inputs = [];
-    net.smooth = { x: 0, y: 0 };
+    net.smooth = { x: 0, y: 0, a: 0 };
   }
   const el = $(`opt-net-${id}`);
   if (el) el.checked = netcode[id];
@@ -2684,7 +2771,7 @@ function baseInterp() {
 
 function netcodeHtml() {
   const rows = NETCODE.map((n, i) => `<label class="opt netcode" title="${n.name}: press ${i + 1} in a match to flip it"><input type="checkbox" id="opt-net-${n.id}" ${netcode[n.id] ? 'checked' : ''} /><span><b>${n.name}</b> <span class="small muted">[${i + 1}]</span><br /><span class="small muted">${n.blurb}</span></span></label>`).join('');
-  return `<details class="mp-adv"><summary>Netcode</summary><p class="small muted">What hides the round trip, each with its own switch so one can be tested without the others. Prediction and the buffer act on a guest's screen; compensation is the host's rewinding. Press <b>1</b>, <b>2</b> or <b>3</b> during a match to flip one; the HUD says which are off.</p>${rows}</details>`;
+  return `<details class="mp-adv"><summary>Netcode</summary><p class="small muted">What hides the round trip, each with its own switch so one can be tested without the others. Prediction, the buffer and hit prediction act on a guest's screen; compensation is the host's rewinding; a direct connection needs both sides to allow it. Press <b>1</b> to <b>5</b> during a match to flip one; the HUD says which are off, and whether each link is DIRECT or on the RELAY.</p>${rows}</details>`;
 }
 
 function bindNetcode() {
@@ -2712,9 +2799,13 @@ function trackClock(msg, now) {
 function clearBuffer() {
   net.buffer = [];
   net.clock = null;
+  net.pendingTime = -Infinity;
   net.interp = baseInterp();
   net.renderT = null;
   net.behind = 0;
+  net.hit = null;
+  net.lastView = null;
+  net.prevView = null;
 }
 
 /**
@@ -2727,11 +2818,14 @@ function endMatch() {
   net.coop = false;
   net.volley = false;
   net.coopCampaign = false;
-  net.remoteIntents = {};
   net.seq = 0;
-  net.remoteSeqs = {};
+  net.queues = {};
+  net.remoteVt = {};
+  net.outbox = [];
+  net.inputsDirty = false;
+  net.frameSteps = 0;
   net.inputs = [];
-  net.smooth = { x: 0, y: 0 };
+  net.smooth = { x: 0, y: 0, a: 0 };
   net.events = [];
   net.round = 0;
   net.players = [];
@@ -2739,6 +2833,7 @@ function endMatch() {
   net.out = {};
   net.last = null;
   net.pending = null;
+  net.lastEv = [];
   clearBuffer();
   net.leaveAt = 0;
   disarmLeave();
@@ -2756,7 +2851,6 @@ function netReset() {
   net.roster = [];
   net.frames = {};
   net.legs = {};
-  net.remoteLag = {};
   clearBuffer();
   if (net.tick) clearInterval(net.tick);
   net.tick = null;
@@ -2958,7 +3052,7 @@ async function openLobby(prefillCode = '') {
     netReset();
     lanInfo = await NetClient.available();
     await openLobby();
-    lobbyStatus(lanInfo ? `<span class="small">Relay: ${lanInfo.online ? `<b>${relayConfig().label}</b> · ${lanInfo.rooms} room${lanInfo.rooms === 1 ? '' : 's'} open` : 'this page\'s LAN server'}</span>` : '<span class="mp-error">That relay did not answer. Check the address (it needs /health to respond).</span>');
+    lobbyStatus(lanInfo ? `<span class="small">Relay: ${lanInfo.online ? `<b>${relayConfig().label}</b>${typeof lanInfo.rooms === 'number' ? ` · ${lanInfo.rooms} room${lanInfo.rooms === 1 ? '' : 's'} open` : ' · answering'}` : 'this page\'s LAN server'}</span>` : '<span class="mp-error">That relay did not answer. Check the address (it needs /health to respond).</span>');
   };
   bindFrameField();
   $('mp-host').onclick = () => hostRoom();
@@ -2980,9 +3074,14 @@ function myName() {
   return name;
 }
 
-async function connectClient() {
-  if (net.client && net.client.connected) return net.client;
+/** A connection for hosting (`{ create: true }`) or joining (`{ room }`). Each room is its own place on the relay, so a new one is opened unless this client is already in a room. */
+async function connectClient(opts = {}) {
+  if (net.client && net.client.connected) {
+    if (net.room) return net.client;
+    net.client.close();
+  }
   const client = new NetClient();
+  client.allowDirect = netcode.direct;
   net.client = client;
   client.on('error', (m) => lobbyStatus(`<span class="mp-error">${m.msg}</span>`));
   client.on('peer-left', onPeerLeft);
@@ -3002,27 +3101,30 @@ async function connectClient() {
   client.on('s', (msg) => {
     if (net.mode !== 'guest') return;
     const now = performance.now();
-    trackClock(msg, now);
+    // Every event rides in two snapshots in a row, so a lost packet loses no sound; each plays once.
+    const ev = (msg.ev || []).filter((e) => e.i == null || !net.seenEv.has(e.i));
     // Its events play when the view reaches its moment, so a spark lands where the ball is drawn.
-    net.buffer.push({ s: msg, time: msg.time, at: now, ev: msg.ev || [], played: false });
+    const entry = { s: msg, time: msg.time, sn: msg.sn, at: now, ev, played: false };
+    if (!insertSnapshot(net.buffer, entry)) return; // this one already came by the other path
+    for (const e of ev) if (e.i != null) net.seenEv.add(e.i);
+    if (net.seenEv.size > 400) net.seenEv = new Set([...net.seenEv].slice(-200));
+    trackClock(msg, now);
     if (net.buffer.length > 90) net.buffer.shift();
-    net.pending = msg;
+    // The newest snapshot is the one the state comes from; one overtaken on the way only fills the buffer.
+    if (!net.pending || msg.time >= net.pendingTime) {
+      net.pending = msg;
+      net.pendingTime = msg.time;
+    }
     net.snapAt = now;
   });
-  client.on('i', (msg) => {
-    if (net.mode !== 'host') return;
-    const id = msg.id || 'c';
-    net.remoteIntents[id] = { mx: msg.mx, my: msg.my, turn: msg.turn, lunge: !!msg.lunge, retract: !!msg.retract };
-    if (typeof msg.seq === 'number') net.remoteSeqs[id] = msg.seq;
-    net.remoteLag[id] = usableLag(msg.lag);
-  });
+  client.on('i', onGuestInput);
   client.on('stat', (msg) => {
     // A guest's own leg to the relay, for the lobby's readout.
     if (net.client.role !== 'host' || !Array.isArray(msg.leg)) return;
     net.legs[msg.id || 'c'] = [Number(msg.leg[0]) || 0, Number(msg.leg[1]) || 0];
     renderPings();
   });
-  await client.connect();
+  await client.connect(opts);
   return client;
 }
 
@@ -3030,7 +3132,7 @@ async function hostRoom() {
   const name = myName();
   lobbyStatus('Connecting…');
   try {
-    const client = await connectClient();
+    const client = await connectClient({ create: true });
     client.on('created', (msg) => {
       net.room = true;
       net.names.host = name;
@@ -3150,7 +3252,7 @@ async function joinRoom(code) {
   if (code.length !== 4) return lobbyStatus('<span class="mp-error">Enter the 4-letter room code.</span>');
   lobbyStatus('Connecting…');
   try {
-    const client = await connectClient();
+    const client = await connectClient({ room: code });
     const renderGuestLobby = () => {
       const others = client.peers.map((p) => `<b>${esc(p.name)}</b>`);
       lobbyStatus(`<div class="mp-code">${client.code}</div><p>Joined <b>${esc(net.names.host)}</b>'s room${others.length ? ` with ${others.join(' and ')}` : ''}. Waiting for ${esc(net.names.host)} to start…</p><p class="small muted" id="mp-pings">${pingsHtml()}</p>`);
@@ -3199,16 +3301,23 @@ function startNetMatch(levelIdx, shields = net.maxShields, speed = net.speed, vo
 function startNetRound() {
   net.round++;
   net.localSlot = 'a';
-  net.remoteIntents = {};
+  newInputEpoch();
   net.events = [];
   net.frames = rosterFrames();
-  net.client.send({ t: 'setup', level: net.levelIndex, round: net.round, shields: net.shields, max: net.maxShields, out: net.out, last: net.last, players: net.players, names: net.names, rules: net.rules, frames: net.frames, speed: net.speed, volley: net.volley });
+  net.client.send({ t: 'setup', ep: net.epoch, level: net.levelIndex, round: net.round, shields: net.shields, max: net.maxShields, out: net.out, last: net.last, players: net.players, names: net.names, rules: net.rules, frames: net.frames, speed: net.speed, volley: net.volley });
   beginNetRound();
 }
 
 /** Guest: the host announced a round. */
 function onSetup(msg) {
   net.mode = 'guest';
+  // A fresh start for this side's inputs: nothing predicted from the last round is replayed into this one.
+  net.epoch = msg.ep ?? 0;
+  net.inputs = [];
+  net.outbox = [];
+  net.inputsDirty = false;
+  net.frameSteps = 0;
+  net.smooth = { x: 0, y: 0, a: 0 };
   if (msg.coop) {
     net.coop = true;
     net.coopCampaign = !!msg.campaign;
@@ -3304,13 +3413,13 @@ function startCoop(opts) {
 /** Host: build a co-op level and tell the guest to build the same one. */
 function coopStartLevel(index) {
   net.levelIndex = index;
-  net.remoteIntents = {};
+  newInputEpoch();
   net.events = [];
   if (net.roster[0]) net.names.guest = net.roster[0].name;
   const diff = campaign ? difficultyById(campaign.difficulty) : difficultySetting();
   const shields = campaign ? campaign.shields : diff.shields;
   net.frames = rosterFrames();
-  net.client.send({ t: 'setup', coop: true, level: index, names: net.names, roster: net.roster, rules: net.rules, difficulty: diff.id, campaign: !!campaign, mode: campaign ? campaign.mode : null, shields: shields === Infinity ? 'inf' : shields, frames: net.frames });
+  net.client.send({ t: 'setup', ep: net.epoch, coop: true, level: index, names: net.names, roster: net.roster, rules: net.rules, difficulty: diff.id, campaign: !!campaign, mode: campaign ? campaign.mode : null, shields: shields === Infinity ? 'inf' : shields, frames: net.frames });
   beginCoopLevel(diff, shields === Infinity ? 'inf' : shields);
 }
 
@@ -3408,28 +3517,104 @@ function hitFx(f, x, y, nx, ny) {
   audio.sfxBossHit();
 }
 
-/** Host: send the state of this frame to the guest. */
-function hostSend() {
+/** The network's own rate, whatever the display's: snapshots and input messages go out at 60 Hz. */
+const SEND_INTERVAL = 1 / 60;
+const SEND_SLACK = 0.002; // a 60 Hz display's frames jitter by a millisecond or so; do not skip one for it
+
+/** Due to send, on an accumulator of real time: at most one send a frame, and on average one each SEND_INTERVAL. */
+function sendDue(key, dt) {
+  net[key] += dt;
+  if (net[key] < SEND_INTERVAL - SEND_SLACK) return false;
+  net[key] = Math.max(0, Math.min(net[key] - SEND_INTERVAL, SEND_INTERVAL));
+  return true;
+}
+
+/** Host: a new setup; inputs from before it are ignored and each guest's queue starts empty. */
+function newInputEpoch() {
+  net.epoch++;
+  for (const q of Object.values(net.queues)) q.newRound();
+  net.remoteVt = {};
+}
+
+/** Host: a guest's input records arrived. They join its queue, to be played step for step. */
+function onGuestInput(msg) {
+  if (net.mode !== 'host') return;
+  if (msg.ep !== undefined && msg.ep !== net.epoch) return; // from before the current setup
+  const id = msg.id || 'c';
+  const q = net.queues[id] || (net.queues[id] = new InputQueue());
+  if (Array.isArray(msg.r)) q.push(msg.r);
+  else if (typeof msg.seq === 'number') q.push([[msg.seq, 4, msg.mx, msg.my, msg.turn, msg.lunge, msg.retract, null]]); // an older guest: one bare input a frame
+}
+
+/** Host: the inputs a remote player's character plays this physics step (none while it waits for them). */
+function remoteStepIntents(id) {
+  const q = net.queues[id];
+  if (!q) return [];
+  const list = q.next();
+  if (list.length) net.remoteVt[id] = list[list.length - 1].vt;
+  return list.map((r) => r.intent);
+}
+
+/**
+ * Host: a remote character waiting for its inputs stands exactly as it was,
+ * and for the ball it is standing still: no drift, no spin, no thrust. What
+ * it was doing is kept and given back when its inputs arrive, so it carries
+ * on precisely as the guest's own copy did.
+ */
+function holdFighter(f) {
+  if (!f.netHeld) {
+    f.netHeld = { omega: f.omega, paddleVel: f.paddleVel };
+    f.omega = 0;
+    f.paddleVel = 0;
+  }
+  f.prevX = f.x;
+  f.prevY = f.y;
+}
+
+function releaseFighter(f) {
+  f.omega = f.netHeld.omega;
+  f.paddleVel = f.netHeld.paddleVel;
+  f.netHeld = null;
+}
+
+/** Host: send the state of this frame to the guests, when a send is due. */
+function hostSend(dt) {
+  if (!sendDue('sendAcc', dt)) return;
   net.frame++;
-  const meta = { st: state, cd: countdown, sh: net.shields, ot: net.out, rd: net.round, ls: net.last, ak: net.remoteSeqs };
+  const ak = {};
+  for (const [id, q] of Object.entries(net.queues)) ak[id] = q.ackPair();
+  const meta = { sn: net.frame, st: state, cd: countdown, sh: net.shields, ot: net.out, rd: net.round, ls: net.last, ak, lc: netcode.lagcomp ? 1 : 0 };
   if (net.coop) {
     meta.lv = game.lives === Infinity ? 'inf' : game.lives;
     meta.bh = game.bossHits;
     meta.ll = game.lastLoss ? [game.lastLoss.reason, game.lastLoss.slot, game.lastLoss.at] : null;
   }
-  net.client.send(buildSnapshot(game, meta, net.events, net.frame % 4 === 0));
+  const fresh = net.events.map((e) => ({ ...e, i: ++net.evSeq }));
+  net.client.sendFast(buildSnapshot(game, meta, net.lastEv.concat(fresh), net.frame % 4 === 0));
+  net.lastEv = fresh;
   net.events = [];
   pingMaybe();
 }
 
-/** Guest: send this frame's input to the host. */
-function guestSend() {
+/**
+ * Guest: this frame's input becomes a record covering the physics steps it
+ * was played for here, with the host time this view showed (so the host
+ * can rewind to exactly the ball that was seen; null with compensation off).
+ * Records go out at 60 Hz, each message repeating the last few.
+ */
+function guestSend(dt) {
   const f = localFighter();
-  if (!f) return;
-  const it = input.intent(f);
-  net.seq++;
-  // `lag`: how far behind the host this view runs, half a round trip plus what the view is drawn behind, so the host can meet the ball where we saw it.
-  net.client.send({ t: 'i', id: net.client.id || 'c', seq: net.seq, mx: +it.mx.toFixed(3), my: +it.my.toFixed(3), turn: it.turn, lunge: it.lunge ? 1 : 0, retract: it.retract ? 1 : 0, lag: netcode.lagcomp ? Math.round(net.client.rtt / 2 + net.behind * 1000) : 0 });
+  if (f && net.frameSteps > 0) {
+    net.seq++;
+    net.outbox.push(inputRecord(net.seq, net.frameSteps, input.intent(f), netcode.lagcomp && net.renderT != null ? net.renderT : null));
+    if (net.outbox.length > REDUNDANCY) net.outbox.shift();
+    net.inputsDirty = true;
+  }
+  net.frameSteps = 0;
+  if (sendDue('inAcc', dt) && net.inputsDirty) {
+    net.client.sendFast({ t: 'i', id: net.client.id || 'c', ep: net.epoch, r: net.outbox });
+    net.inputsDirty = false;
+  }
   pingMaybe();
 }
 
@@ -3452,15 +3637,17 @@ function guestApply(now) {
     const leftBefore = me ? PLAYER.campSeconds - me.campTimer : 0;
     const predX = me ? me.x : 0;
     const predY = me ? me.y : 0;
+    const predA = me ? me.angle : 0;
     applySnapshot(g, s);
     const predict = !!me && netcode.predict;
     for (const f of g.fighters) if (f !== me || !predict) f.markRender();
-    if (predict) guestReconcile(s.ak && typeof s.ak === 'object' ? s.ak[net.client.id || 'c'] : s.ak, predX, predY);
+    if (predict) guestReconcile(s.ak && typeof s.ak === 'object' && !Array.isArray(s.ak) ? s.ak[net.client.id || 'c'] : s.ak, predX, predY, predA);
     if (me && state === 'playing') campTick(leftBefore, PLAYER.campSeconds - me.campTimer);
     if (s.sh) net.shields = s.sh;
     if (s.ot) net.out = s.ot;
     net.round = s.rd;
     net.last = s.ls || null;
+    net.hostComp = s.lc !== 0;
     if (net.coop) {
       if (s.lv !== undefined) g.lives = s.lv === 'inf' ? Infinity : s.lv;
       if (s.bh !== undefined) g.bossHits = s.bh;
@@ -3515,19 +3702,32 @@ function interpolateView(now) {
     net.renderT = renderT;
   }
   if (!c.stalled) net.behind = Math.max(0, hostNow - renderT); // while host time stands still (a round's end) the figure would only grow
+  const me = localFighter();
   for (const e of buf) {
     if (e.played || e.time > renderT) continue;
     e.played = true;
-    if (e.time > renderT - 0.3) for (const ev of e.ev) playEvent(ev);
+    if (e.time <= renderT - 0.3) continue;
+    for (const ev of e.ev) if (!hitHeard(ev, e.time, me)) playEvent(ev);
   }
-  const me = localFighter();
   const skip = me && netcode.predict ? me.slot : null; // a predicted fighter is its own; an unpredicted one is drawn like the rest
   const br = bracket(buf, renderT);
-  if (br) lerpView(g, br.a, br.b, br.u, skip);
-  else if (renderT > newest.time && state === 'playing' && !g.ball.held) {
+  let vx = newest.s.ball[2];
+  let vy = newest.s.ball[3];
+  if (br) {
+    lerpView(g, br.a, br.b, br.u, skip);
+    const near = br.u < 0.5 ? br.a : br.b;
+    vx = near.s.ball[2];
+    vy = near.s.ball[3];
+  } else if (renderT > newest.time && state === 'playing' && !g.ball.held) {
     const lag = Math.min(renderT - newest.time, EXTRAPOLATE_MAX);
     g.ball.x = newest.s.ball[0] + newest.s.ball[2] * lag;
     g.ball.y = newest.s.ball[1] + newest.s.ball[3] * lag;
+  }
+  const view = { x: g.ball.x, y: g.ball.y, vx, vy, t: renderT };
+  if (net.hit) drawPredictedHit(view, me);
+  else {
+    net.prevView = net.lastView;
+    net.lastView = state === 'playing' && !g.ball.held ? view : null;
   }
   for (const f of g.fighters) if (f.slot !== skip) f.markRender();
   // What is well behind the view is done with.
@@ -3543,14 +3743,17 @@ function guestStep(dt) {
   if (state === 'countdown') intent = { ...intent, mx: 0, my: 0, lunge: false };
   me.markRender();
   guestAdvance(me, dt, intent);
-  net.inputs.push({ seq: net.seq, dt, intent });
+  // Tagged with the record this frame's input goes out in: guestSend numbers it after the steps.
+  net.inputs.push({ seq: net.seq + 1, dt, intent });
   if (net.inputs.length > 480) net.inputs.splice(0, net.inputs.length - 480); // two seconds is plenty
   // Ease out the leftover from the last correction.
   const k = Math.exp(-dt / 0.08);
   net.smooth.x *= k;
   net.smooth.y *= k;
+  net.smooth.a *= k;
   if (Math.abs(net.smooth.x) < 0.05) net.smooth.x = 0;
   if (Math.abs(net.smooth.y) < 0.05) net.smooth.y = 0;
+  if (Math.abs(net.smooth.a) < 0.0005) net.smooth.a = 0;
 }
 
 /** The part of a physics step that concerns one fighter and the static world. */
@@ -3568,12 +3771,14 @@ function guestAdvance(f, dt, intent) {
  * acted on so the character stays where the player expects it, and turn the
  * difference from the previous prediction into a visual offset that eases out.
  */
-function guestReconcile(ack, predX, predY) {
+function guestReconcile(ack, predX, predY, predA) {
   const me = localFighter();
-  if (!me || typeof ack !== 'number') return;
-  net.inputs = net.inputs.filter((p) => p.seq > ack);
+  if (!me || ack == null) return;
+  // The host has played every record up to the ack's seq and some steps past it; replay the rest.
+  const { keep, replay } = splitAck(net.inputs, ack);
+  net.inputs = keep;
   const frozenNow = me.frozen;
-  for (const p of net.inputs) guestAdvance(me, p.dt, p.intent);
+  for (const p of replay) guestAdvance(me, p.dt, p.intent);
   me.frozen = frozenNow; // the host's word on freezes stands
   const ex = predX - me.x;
   const ey = predY - me.y;
@@ -3584,7 +3789,121 @@ function guestReconcile(ack, predX, predY) {
     net.smooth.x = 0; // a big correction (a hit, a teleport) just snaps
     net.smooth.y = 0;
   }
+  // The shield's angle eases the same way, rather than jumping a few degrees.
+  const ea = wrapAngle(predA - me.angle);
+  net.smooth.a = Math.abs(ea) < 0.6 ? wrapAngle(net.smooth.a + ea) : 0;
   me.markRender();
+}
+
+// ---- guest hit prediction: its own shield's bounces, played ahead of the host's word
+
+const HIT_BLEND = 0.12; // seconds the predicted ball takes to glide into the host's
+const HIT_WAIT = 0.15; // past the most the host rewinds, a prediction the host never confirmed is given up
+
+/** Whether this guest predicts bounces off its own shield just now: it and the host both compensating, and its own shield predicted. */
+function hitPredicting(me) {
+  return !!me && !!game && !game.ball.held && netcode.hitpredict && netcode.predict && netcode.lagcomp && net.hostComp && !me.down;
+}
+
+/**
+ * Guest, after its own physics steps: did the ball as drawn cross its shield
+ * as it now stands, between last frame and this? The ball is carried from
+ * where it was drawn last frame, on its snapshot velocity, through the same
+ * physics the host uses; if it meets this guest's shield the bounce is
+ * played now, and the ball flies on here until the host's word arrives. The
+ * host, which is told the view time of every input, rewinds to the same
+ * moment and should find the same contact.
+ */
+function guestHitCheck() {
+  const g = game;
+  const me = localFighter();
+  const prev = net.prevView;
+  const cur = net.lastView;
+  if (net.hit || !prev || !cur || !hitPredicting(me)) return;
+  const span = cur.t - prev.t;
+  if (!(span > 0) || span > 0.1) return;
+  const b = new Ball(g.ball.r);
+  Object.assign(b, { x: prev.x, y: prev.y, vx: prev.vx, vy: prev.vy, held: false, played: true });
+  let contact = null;
+  const polys = solidPolysNow(g);
+  for (let t = 0; t < span - 1e-9 && !contact; t += PHYSICS_DT) {
+    const dt = Math.min(PHYSICS_DT, span - t);
+    advanceBall(b, g.walls, [me], dt, SURFACE_VELOCITY_FACTOR, { onPaddle: (f, h, before) => (contact = { h, before }), onBody: () => true }, g.movers, polys);
+  }
+  if (!contact) return;
+  // Fly the rest of this frame's span on the bounced course.
+  const after = b.speed;
+  b.clampSpeed(BALL.minSpeed, g.maxSpeed);
+  const delta = after - contact.before;
+  paddleFx(me, contact.h.cx, contact.h.cy, contact.h.nx, contact.h.ny, clamp(Math.abs(delta) / 400, 0, 1), delta > 100);
+  net.hit = { ball: b, t: cur.t, contactT: cur.t, confirmed: false, blendAt: null };
+  net.lastView = null;
+  net.prevView = null;
+  g.ball.x = b.x;
+  g.ball.y = b.y;
+  g.ball.vx = b.vx;
+  g.ball.vy = b.vy;
+}
+
+/**
+ * Guest: fly the predicted ball on to the view's time, off walls, movers and
+ * its own shield, and draw it; once the host's word is in (its record of this
+ * guest's hit, or silence past the longest rewind) glide into the host's ball.
+ */
+function drawPredictedHit(view, me) {
+  const g = game;
+  const h = net.hit;
+  if (state !== 'playing' || g.ball.held || !me) {
+    net.hit = null;
+    return;
+  }
+  const b = h.ball;
+  const span = Math.min(view.t - h.t, 0.1);
+  if (span > 0) {
+    const polys = solidPolysNow(g);
+    const hooks = {
+      onPaddle: (f, hh, before) => paddleFx(f, hh.cx, hh.cy, hh.nx, hh.ny, clamp(Math.abs(b.speed - before) / 400, 0, 1), false),
+      onWall: (hh) => wallFx(hh.cx, hh.cy, hh.nx, hh.ny, speedNorm(b.speed), g.def.palette.wall),
+      onBody: () => true,
+    };
+    for (let t = 0; t < span - 1e-9; t += PHYSICS_DT) {
+      if (advanceBall(b, g.walls, [me], Math.min(PHYSICS_DT, span - t), SURFACE_VELOCITY_FACTOR, hooks, g.movers, polys)) break;
+      b.clampSpeed(BALL.minSpeed, g.maxSpeed);
+    }
+  }
+  h.t = view.t;
+  if (!h.confirmed && h.blendAt == null && view.t > h.contactT + MAX_LAG + HIT_WAIT) h.blendAt = view.t; // the host never agreed
+  const w = h.blendAt == null ? 0 : clamp((view.t - h.blendAt) / HIT_BLEND, 0, 1);
+  g.ball.x = b.x + (view.x - b.x) * w;
+  g.ball.y = b.y + (view.y - b.y) * w;
+  if (w < 1) {
+    g.ball.vx = b.vx;
+    g.ball.vy = b.vy;
+  } else {
+    net.hit = null;
+    net.prevView = null;
+    net.lastView = view;
+  }
+}
+
+/**
+ * Guest: is this event from the host one a predicted hit has already played,
+ * or one describing the ball's course the prediction replaced? The host's
+ * record of this guest's own hit confirms the prediction (and is not played
+ * twice); walls and movers are the predicted ball's to sound until it has
+ * glided back into the host's.
+ */
+function hitHeard(ev, time, me) {
+  const h = net.hit;
+  if (!h || !me) return false;
+  if (ev.e === 'paddle' && ev.s === me.slot) {
+    if (time >= h.contactT - 0.05 && !h.confirmed) {
+      h.confirmed = true;
+      h.blendAt = h.t;
+    }
+    return true;
+  }
+  return ev.e === 'wall' || ev.e === 'mover';
 }
 
 /** Guest: reproduce a host-side effect locally. */
