@@ -4,8 +4,23 @@
 
 import { clamp, wrapAngle } from './vec.js';
 
-/** Mouse: radians of turn per pixel of travel (a full turn in about 630 px). */
+/**
+ * How the mouse turns the frame. 'aim': the shield turns to face the cursor,
+ * at the frame's own turn speed. 'turn': travel turns it, right or back
+ * clockwise and left or forward counter-clockwise. 'turnx': sideways travel
+ * alone turns it.
+ */
+export const MOUSE_MODES = ['aim', 'turn', 'turnx'];
+/** Mouse, turn modes: radians of turn per pixel of travel at speed 1 (a full turn in about 630 px). */
 export const MOUSE_SENS = 0.01;
+/** Aim: a cursor nearer the pivot than this (world px) has no direction worth turning to; the last one holds. */
+export const AIM_DEADZONE = 24;
+/** Aim: the share of the way to the cursor the frame is asked to turn each frame; under 1 so the spin's own ramp never carries it past. */
+export const AIM_GAIN = 0.6;
+/** Aim: within this of the cursor's direction the frame has arrived, radians (a thirtieth of a degree). */
+export const AIM_SETTLE = 0.0006;
+/** Aim: this much travel (px) after another input has turned the frame hands it back to the mouse; less is a nudge of the desk. */
+export const AIM_WAKE = 4;
 /** Scroll wheel: radians per notch (fifteen degrees). */
 export const WHEEL_STEP = Math.PI / 12;
 /** The rate the mouse's turn is paced to when no fighter says otherwise, radians per second; in play it is the fighter's own turn speed, so a mouse never out-spins a stick or a touch button. */
@@ -14,17 +29,29 @@ export const MOUSE_TURN_RATE = 5;
 export const MOUSE_MAX_STEP = 300;
 /** Milliseconds after the pointer is captured or released during which its travel is ignored: browsers report a jump then. */
 export const LOCK_SETTLE_MS = 120;
-/** The most turn the mouse can be owed, radians: past this a flick is cut, so the frame never spins on after the hand has stopped. */
-export const SPIN_BACKLOG = 0.6;
+/** Turn modes: the most turn the mouse can be owed, in seconds of turning at the frame's rate; a flick the frame cannot follow within this is cut, so it never spins on long after the hand has stopped. */
+export const SPIN_BACKLOG_SECONDS = 0.25;
 
 /**
- * The turn a piece of mouse travel asks for: right is clockwise and left
- * counter-clockwise, and so are back and forward, the two adding up, so a
- * hand that sweeps right or draws back turns the frame clockwise. Radians.
- * Pure, so a test can read it.
+ * The turn a piece of mouse travel asks for in a turn mode: right is
+ * clockwise and left counter-clockwise; with `both`, back and forward too,
+ * the two adding up. Radians, at mouse speed `speed`. Pure, so a test can
+ * read it.
  */
-export function travelSpin(dx, dy) {
-  return (dx + dy) * MOUSE_SENS;
+export function travelSpin(dx, dy, both = true, speed = 1) {
+  return (dx + (both ? dy : 0)) * MOUSE_SENS * speed;
+}
+
+/**
+ * One frame's turn command to bring `current` round to `target` the short
+ * way, at `rate`: full rate while far, then a share of the rest each frame so
+ * the frame arrives without swinging past. Pure, so a test can read it.
+ */
+export function aimTurn(current, target, rate, dt) {
+  const delta = wrapAngle(target - current);
+  if (Math.abs(delta) < AIM_SETTLE) return 0;
+  const room = rate * Math.max(dt, 1 / 240);
+  return clamp((AIM_GAIN * delta) / room, -1, 1);
 }
 
 /**
@@ -32,7 +59,7 @@ export function travelSpin(dx, dy) {
  * had: as much of it as the rate allows this frame, and the rest carried,
  * cut to the backlog. Pure, so a test can read it.
  */
-export function spinToTurn(spin, dt, rate = MOUSE_TURN_RATE, backlog = SPIN_BACKLOG) {
+export function spinToTurn(spin, dt, rate = MOUSE_TURN_RATE, backlog = rate * SPIN_BACKLOG_SECONDS) {
   const room = rate * Math.max(dt, 1 / 240);
   const turn = clamp(spin / room, -1, 1);
   const left = clamp(spin - turn * room, -backlog, backlog);
@@ -50,14 +77,19 @@ export class Input {
     // centre and dragging away from it sets the direction. Screen pixels.
     this.joystick = { active: false, ox: 0, oy: 0, dx: 0, dy: 0, radius: 64, dead: 8 };
     this.touchButtons = { left: false, right: false, whack: false, retract: false };
-    // Mouse: travel turns the frame, right or back clockwise and left or
-    // forward counter-clockwise, a fraction of a degree per pixel; the
-    // wheel adds a notch at a time (up is clockwise). `spin` is the turn
-    // asked for and not yet had; pollMouse() paces it into `turn`, this
-    // frame's command. The left button thrusts and the right pulls the
-    // shield in. While a match is on the first click captures the pointer,
-    // so the hand can keep going; Escape gives it back.
-    this.mouse = { left: false, right: false, nudge: 0, spin: 0, turn: 0, room: 0, credit: 0, locked: false, wantLock: false, settleUntil: 0 };
+    // Mouse, in one of MOUSE_MODES. Aiming, the frame turns to face the
+    // cursor (`sx`, `sy`, canvas pixels): `aiming` is whether the mouse is
+    // the one turning (another input turning takes over until the mouse
+    // moves again) and `target` the cursor's direction from the pivot. In
+    // a turn mode, travel turns the frame, a fraction of a degree per pixel.
+    // Either way the wheel nudges a notch at a time (up is clockwise), and
+    // `spin` is relative turn asked for and not yet had. pollMouse() makes
+    // `turn`, this frame's command. The left button thrusts and the right
+    // pulls the shield in. In a turn mode the first click of a level
+    // captures the pointer, so the hand can keep going; Escape gives it back.
+    this.mouseMode = 'aim';
+    this.mouseSpeed = 1;
+    this.mouse = { left: false, right: false, sx: 0, sy: 0, hasPos: false, aiming: false, target: null, wake: 0, fine: false, nudge: 0, spin: 0, turn: 0, room: 0, credit: 0, locked: false, wantLock: false, lockRefused: false, inGame: false, settleUntil: 0 };
     // Gamepad (standard mapping, e.g. an Xbox controller): read once per
     // frame by pollGamepad(). Left stick moves; right stick, or the LT and RT
     // triggers, turn (left and right, at a rate set by how far they are
@@ -90,7 +122,9 @@ export class Input {
       this.mouse.settleUntil = performance.now() + LOCK_SETTLE_MS;
     });
     document.addEventListener('pointerlockerror', () => {
+      // Refused (straight after Escape, or where the page may not capture): clicks are plain clicks until the next level.
       this.mouse.locked = false;
+      this.mouse.lockRefused = true;
     });
 
     const toWorld = (e) => {
@@ -110,12 +144,16 @@ export class Input {
     };
     canvas.addEventListener('pointerdown', (e) => {
       if (e.pointerType === 'mouse') {
-        if (e.button === 0) this.mouse.left = true;
-        else if (e.button === 2) this.mouse.right = true;
-        else return;
-        capture(e);
-        if (this.mouse.wantLock && !this.mouse.locked) this.lockPointer();
+        if (e.button !== 0 && e.button !== 2) return;
         e.preventDefault();
+        if (this.mouse.wantLock && !this.mouse.locked && !this.mouse.lockRefused) {
+          // This click captures the mouse; it is not a thrust or a pull.
+          this.lockPointer();
+          return;
+        }
+        if (e.button === 0) this.mouse.left = true;
+        else this.mouse.right = true;
+        capture(e);
         return;
       }
       if (this.pointer.id !== null && this.pointer.id !== e.pointerId) return;
@@ -130,12 +168,31 @@ export class Input {
     });
     canvas.addEventListener('pointermove', (e) => {
       if (e.pointerType === 'mouse') {
+        const m = this.mouse;
+        if (!m.locked) {
+          const sp = toScreen(e);
+          m.sx = sp.x;
+          m.sy = sp.y;
+          m.hasPos = true;
+        }
         // Travel. A jump no hand makes in one frame, or any travel just as
         // the pointer is captured or freed, is the browser re-centring the
         // cursor and is ignored.
         const dx = typeof e.movementX === 'number' ? e.movementX : 0;
         const dy = typeof e.movementY === 'number' ? e.movementY : 0;
-        if ((dx || dy) && Math.abs(dx) <= MOUSE_MAX_STEP && Math.abs(dy) <= MOUSE_MAX_STEP && performance.now() >= this.mouse.settleUntil) this.mouse.spin += travelSpin(dx, dy);
+        if (!(dx || dy) || Math.abs(dx) > MOUSE_MAX_STEP || Math.abs(dy) > MOUSE_MAX_STEP || performance.now() < m.settleUntil) return;
+        if (this.mouseMode !== 'aim') m.spin += travelSpin(dx, dy, this.mouseMode === 'turn', this.mouseSpeed);
+        else if (m.fine) {
+          // Fine aim on the course: sideways travel nudges, and the cursor lets go until the hand moves on its own again.
+          if (m.aiming) this.stopAim();
+          m.spin += travelSpin(dx, 0, false, this.mouseSpeed);
+        } else if (!m.aiming) {
+          m.wake += Math.abs(dx) + Math.abs(dy);
+          if (m.wake >= AIM_WAKE) {
+            m.aiming = true;
+            m.wake = 0;
+          }
+        }
         return;
       }
       if (this.pointer.id !== null && this.pointer.id !== e.pointerId) return;
@@ -201,10 +258,13 @@ export class Input {
     el.addEventListener('pointerleave', off);
   }
 
-  /** Whether a click on the arena should capture the mouse (a match is on); off, a captured mouse is let go. */
+  /** Whether a level is running. In a turn mode a click on the arena then captures the mouse; otherwise a captured mouse is let go. */
   captureMouse(on) {
-    this.mouse.wantLock = !!on;
-    if (!on && this.mouse.locked) {
+    const m = this.mouse;
+    m.inGame = !!on;
+    m.wantLock = m.inGame && this.mouseMode !== 'aim';
+    if (on) m.lockRefused = false;
+    if (!m.wantLock && m.locked) {
       try {
         document.exitPointerLock?.();
       } catch (_) {
@@ -213,46 +273,96 @@ export class Input {
     }
   }
 
+  /** Choose how the mouse turns the frame (one of MOUSE_MODES) and, in a turn mode, how fast. */
+  setMouse(mode, speed = this.mouseSpeed) {
+    this.mouseMode = MOUSE_MODES.includes(mode) ? mode : 'aim';
+    this.mouseSpeed = speed > 0 ? speed : 1;
+    this.restMouse();
+    this.captureMouse(this.mouse.inGame);
+  }
+
+  /** The mouse stops aiming: another input is turning, or the hand is nudging. Nothing is owed. */
+  stopAim() {
+    const m = this.mouse;
+    m.aiming = false;
+    m.target = null;
+    m.wake = 0;
+    m.turn = 0;
+    m.credit = 0;
+    m.spin = 0;
+  }
+
   lockPointer() {
     try {
       const p = this.canvas.requestPointerLock?.();
-      if (p && typeof p.catch === 'function') p.catch(() => {});
+      if (p && typeof p.catch === 'function') p.catch(() => {
+        this.mouse.lockRefused = true;
+      });
+      else if (!this.canvas.requestPointerLock) this.mouse.lockRefused = true;
     } catch (_) {
+      this.mouse.lockRefused = true;
       // Pointer lock is a courtesy: without it the mouse still turns within the page.
     }
   }
 
-  /** Forget what the mouse asked for: nothing owed. */
+  /** Forget what the mouse asked for: nothing owed, and no aim until the hand moves. */
   restMouse() {
     const m = this.mouse;
+    this.stopAim();
     m.nudge = 0;
-    m.spin = 0;
-    m.turn = 0;
-    m.credit = 0;
   }
 
   /**
-   * Pace the turn the mouse has asked for into this frame's turn command, at
-   * the fighter's own turn rate. `turned` is what the steered angle actually
-   * did since the last poll (or null when nothing is known): a fighter's spin
-   * takes a few steps to build and to die away, so travel that arrives in
-   * pieces would fall short of what the hand did; the difference between
-   * what was asked and what was done goes back on the account. Only while
-   * the mouse is the one turning, and a couple of frames after, so another
-   * input's turn is never undone; and never a jump no turn makes, which is
-   * a respawn. Call once per frame.
+   * Make this frame's turn command from the mouse. `ctx` says what is being
+   * steered: `rate` (radians a second), `current` (its angle), `origin`
+   * (the world point it turns about, which the cursor's direction is read
+   * from), `fine` (the course's fine aim), `canTurn` (false while nothing
+   * can turn: a freeze, a pause, between shots, so nothing piles up) and
+   * `turned` (what the angle actually did since the last poll, or null).
+   *
+   * Aiming, the command turns the frame toward the cursor. Otherwise the
+   * turn asked for is paced at the rate, and what the frame fell short of
+   * goes back on the account: a fighter's spin takes a few steps to build
+   * and to die away, so travel that arrives in pieces would otherwise be
+   * short-changed. Only while the mouse is the one turning, and a couple of
+   * frames after, so another input's turn is never undone; and never a jump
+   * no turn makes, which is a respawn. Call once per frame.
    */
-  pollMouse(dt, rate = MOUSE_TURN_RATE, turned = null) {
+  pollMouse(dt, ctx = null) {
     const m = this.mouse;
-    m.spin += m.nudge;
-    m.nudge = 0;
+    const rate = ctx && ctx.rate > 0 ? ctx.rate : MOUSE_TURN_RATE;
+    const room = rate * Math.max(dt, 1 / 240);
+    m.fine = !!(ctx && ctx.fine);
+    if (!ctx || ctx.canTurn === false) {
+      this.restMouse();
+      m.room = room;
+      return;
+    }
+    // Another input turning the frame takes over from the cursor.
+    if (m.aiming && (this.touchButtons.left || this.touchButtons.right || (this.pad.connected && this.pad.turn))) this.stopAim();
+    if (m.nudge) {
+      if (m.aiming) this.stopAim();
+      m.spin += m.nudge;
+      m.nudge = 0;
+    }
+    if (this.mouseMode === 'aim' && m.aiming && m.hasPos && ctx.origin) {
+      const w = this.screenToWorld(m.sx, m.sy);
+      const dx = w.x - ctx.origin.x;
+      const dy = w.y - ctx.origin.y;
+      if (Math.hypot(dx, dy) >= AIM_DEADZONE) m.target = Math.atan2(dy, dx);
+      m.turn = m.target == null ? 0 : aimTurn(ctx.current || 0, m.target, rate, dt);
+      m.spin = 0;
+      m.credit = 0;
+      m.room = room;
+      return;
+    }
+    const turned = ctx.turned;
     if (turned != null && (m.turn !== 0 || m.credit > 0) && Math.abs(turned) <= 2 * m.room + 0.1) m.spin += m.turn * m.room - turned;
-    const r = rate > 0 ? rate : MOUSE_TURN_RATE;
-    const s = spinToTurn(m.spin, dt, r);
+    const s = spinToTurn(m.spin, dt, rate);
     m.credit = s.turn !== 0 ? 2 : Math.max(0, m.credit - 1);
     m.turn = s.turn;
     m.spin = s.left;
-    m.room = r * Math.max(dt, 1 / 240);
+    m.room = room;
   }
 
   /** Read the first connected gamepad. Call once per frame; intent() uses the result. Never throws. */
@@ -377,9 +487,9 @@ export class Input {
       my = pad.my;
     }
 
-    // Turning: the touch buttons, else the mouse (its travel, paced by
-    // pollMouse), else the gamepad's right stick or triggers, faster the
-    // further they go.
+    // Turning: the touch buttons, else the mouse (aiming at the cursor, or
+    // its travel, made by pollMouse), else the gamepad's right stick or
+    // triggers, faster the further they go.
     let turn = 0;
     if (this.touchButtons.left) turn -= 1;
     if (this.touchButtons.right) turn += 1;

@@ -561,13 +561,15 @@ back through the tee every lap. Every flight is spent after the hole's own
 clock (`flightSeconds`, nine seconds unless the hole says otherwise; the orbit
 gets eighteen).
 
-Controls on the course: the **mouse** aims, its travel turning the launcher
-as it turns the frame in the arena (the wheel nudges it a notch), and in
-flight it steers the heading the next pulse pushes along the same way — the
-charge on the tee is the pivot, so turning swings the frame round the charge
-and the charge stays exactly where it is; the **right button** held while
-aiming (or steering, while the gauge has anything left) makes the turn an
-eighth of the travel, so a line a fraction of a degree wide can be found by
+Controls on the course: the **mouse** aims (with Aim at cursor, point
+where the charge should go; the further from the tee the cursor sits, the
+finer the aim), and in flight it steers the heading the next pulse pushes
+along the same way (point where the next pulse should push) — the charge on
+the tee is the pivot, so turning swings the frame round the charge and the
+charge stays exactly where it is; the **right button** held while aiming (or
+steering, while the gauge has anything left) makes sideways travel a fine
+turn, an eighth of what it would be, and the cursor lets go until the mouse
+moves again on its own, so a line a fraction of a degree wide can be found by
 hand; a
 **left click** or **Space** launches, then spends one pulse per click; the
 **right button** runs a spent flight out at triple speed once the gauge is
@@ -795,28 +797,50 @@ static Vercel deployment cannot relay, so the button is disabled there.
 | Action | Keys / pointer |
 | --- | --- |
 | Move | **W A S D** (the arrow keys do the same), or drag a finger on a phone |
-| Rotate character and shield | **Mouse** right or back (clockwise) / left or forward (counter-clockwise); **scroll** up nudges a notch clockwise, down counter-clockwise |
+| Rotate character and shield | **Mouse**: point, and the shield turns to face the cursor (the default); or, under **Mouse** on the title screen, a Turn mode where moving the mouse right or back turns clockwise and left or forward counter-clockwise; **scroll** up nudges a notch clockwise, down counter-clockwise |
 | Thrust the shield forward ("whack") | **Left click** or **Space** |
 | Pull the shield in (soft return, slows the ball) | **Right click** |
 | Pause / mute / restart | **P** (or the ❚❚ button in the HUD, which is how a phone pauses) / **M** / **R** |
-| Galactic Golf: launch, then one ion pulse per click | **Left click** or **Space** (the mouse aims and steers the same way; **right click** held makes it fine, an eighth of the travel; **right click** runs a spent flight out, **P** is the hole map) |
+| Galactic Golf: launch, then one ion pulse per click | **Left click** or **Space** (the mouse aims the launcher, and in flight the pulses; **right click** held with sideways travel is fine aim, an eighth of the travel; **right click** runs a spent flight out, **P** is the hole map) |
 | Controller (Xbox or any standard gamepad) | **left stick** moves, **right stick** or **LT** / **RT** rotate (further is faster), **A** thrusts, **X** pulls the shield in, **Start** pauses, **A** also confirms on menus |
 | Netcode switches (online play) | **1** prediction, **2** render buffer, **3** latency compensation, each on or off; also in the lobby under Netcode |
 
-The mouse's travel turns the frame: right and back clockwise, left and
-forward counter-clockwise, a fraction of a degree per pixel (a full turn in
-about 630 px), the two axes adding up, so a hand drawn back and to the right
-turns faster than one drawn straight back. The frame turns at its own turn
-speed, the same top rate a stick or a touch button gets, so no input
-out-spins another: a slow travel turns by exactly as much as the hand moved
-(the pacing is told each frame what the frame actually turned, and puts any
-shortfall back, so travel that arrives in pieces is never short-changed by
-the frame's spin taking a moment to build), a flick turns at full rate until
-the travel is used up, and a flick longer than the frame can follow is cut
-short rather than spinning on after the hand has stopped. A wheel notch is
-fifteen degrees. While a level runs, the first click captures the mouse (so
-the hand can keep going in one direction); **Esc** gives it back, and the
-game lets it go on every pause and menu.
+The mouse has three ways to turn the frame, chosen under **Mouse** on the
+title screen and remembered in the browser:
+
+| Mouse setting | What it does | Source |
+| --- | --- | --- |
+| Aim at cursor (the default) | The shield turns, the short way round, to face the cursor, measured from the frame's centre (on the course from the charge; in flight, the pulses' heading from the charge as it flies). A cursor within 24 px of the centre holds the last direction. | `aimTurn`, `pollMouse` in `src/input.js` |
+| Turn: sideways and forward/back | Moving the mouse turns the frame like a knob: right and back clockwise, left and forward counter-clockwise, the two adding up. | `travelSpin` in `src/input.js` |
+| Turn: sideways only | The same, with forward and back ignored, so the natural arc of a wrist flick never cancels itself. | `travelSpin` in `src/input.js` |
+
+Every mode turns the frame at the frame's own turn speed (its Gyro), the same
+top rate a stick or a touch button gets, because that rate is also how hard a
+swing whacks. That is why Aim is the default: a relative mouse on a
+rate-limited frame must either lag behind the hand or throw some of its
+travel away, while an aimed frame simply heads for the cursor, however fast
+the hand moved, and arrives there. It asks for 60% of the remaining way each
+frame, so the spin's own ramp never carries it past, and it stops within a
+thirtieth of a degree. Another input turning the frame (a stick, a trigger,
+a touch button, the wheel) takes over until the mouse moves again, so a
+resting cursor never fights a controller. A guest in an online match aims
+from where its own commands should have put the shield, not from the angle
+it draws (the host's, replayed forward, which the host's corrections nudge a
+few degrees at a time), and lets that estimate ease onto the shield once the
+mouse is still; aiming from the drawn angle, the shield chased every nudge
+and hunted round the cursor.
+
+In the Turn modes a slow travel turns by exactly as much as the hand moved (a
+full turn in about 630 px at speed 1×; the speed beside the setting scales
+it from 0.5× to 2×), the pacing is told each frame what the frame actually
+turned and puts any shortfall back, and a flick is carried for a quarter
+second of turning at the frame's rate before anything is cut. While a level
+runs, the first click captures the mouse (that click neither thrusts nor
+pulls, and the hand can keep going in one direction); **Esc** gives it back,
+and the game lets it go on every pause and menu. Aim needs the cursor, so it
+never captures it. In any mode a wheel notch is fifteen degrees, and nothing
+the mouse does while the frame cannot turn (frozen, paused, between shots on
+the course) is saved up to spin it afterwards.
 
 On touch devices, touch anywhere on the arena and drag: the first touch becomes
 a floating joystick and the drag direction steers, so your finger never has to

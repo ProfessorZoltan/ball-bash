@@ -11,7 +11,7 @@ import { createGameState, rebuildWalls as rebuildWallsState, bodyHitCounts, tick
 import { NetClient, relayConfig, saveRelay } from './net.js';
 import { buildSnapshot, applySnapshot, bracket, lerpView, noteArrival, bufferFor, advanceRenderClock, INTERP_MIN, EXTRAPOLATE_MAX } from './netstate.js';
 import { rewoundContact, usableLag } from './lagcomp.js';
-import { Input } from './input.js';
+import { Input, MOUSE_MODES } from './input.js';
 import { Renderer } from './render.js';
 import { Effects } from './fx.js';
 import { AudioEngine } from './audio/engine.js';
@@ -2263,6 +2263,72 @@ function setAudioSetting(key) {
   audio.setLatency(key);
 }
 
+const MOUSE_KEY = 'deflector.mouse'; // one of MOUSE_MODES
+const MOUSE_SPEED_KEY = 'deflector.mouseSpeed';
+const MOUSE_SPEEDS = [0.5, 0.75, 1, 1.5, 2];
+
+function mouseSetting() {
+  try {
+    const m = localStorage.getItem(MOUSE_KEY);
+    return MOUSE_MODES.includes(m) ? m : 'aim';
+  } catch (_) {
+    return 'aim';
+  }
+}
+
+function mouseSpeedSetting() {
+  try {
+    const v = Number(localStorage.getItem(MOUSE_SPEED_KEY));
+    return MOUSE_SPEEDS.includes(v) ? v : 1;
+  } catch (_) {
+    return 1;
+  }
+}
+
+function applyMouse() {
+  input.setMouse(mouseSetting(), mouseSpeedSetting());
+}
+
+function setMouseSetting(mode, speed) {
+  try {
+    localStorage.setItem(MOUSE_KEY, mode);
+    localStorage.setItem(MOUSE_SPEED_KEY, String(speed));
+  } catch (_) {
+    // storage unavailable; the choice lasts for this page load only
+  }
+  input.setMouse(mode, speed);
+  const help = $('mouse-help');
+  if (help) help.innerHTML = mouseControlsHtml();
+}
+
+/** The title screen's line on the mouse, for whichever way it turns the frame. */
+function mouseControlsHtml() {
+  const m = mouseSetting();
+  if (m === 'aim') return '<b>Mouse</b> — point: your shield turns to face the cursor (sweep past the ball to whack); <b>scroll</b> nudges a notch';
+  if (m === 'turn') return '<b>Mouse</b> right or back — rotate clockwise; left or forward — counter-clockwise (swing to whack); <b>scroll</b> nudges a notch; a click captures the mouse, <b>Esc</b> frees it';
+  return '<b>Mouse</b> right — rotate clockwise; left — counter-clockwise (swing to whack); <b>scroll</b> nudges a notch; a click captures the mouse, <b>Esc</b> frees it';
+}
+
+function mouseSelectHtml() {
+  const m = mouseSetting();
+  const sp = mouseSpeedSetting();
+  const opt = (v, label) => `<option value="${v}" ${m === v ? 'selected' : ''}>${label}</option>`;
+  const speeds = MOUSE_SPEEDS.map((v) => `<option value="${v}" ${sp === v ? 'selected' : ''}>${v}×</option>`).join('');
+  return `<div class="opt" title="Aim: the shield turns to face the cursor at the frame's own turn speed. Turn: moving the mouse turns the shield, like a knob; its speed is set beside it."><b>Mouse</b><select id="opt-mouse" class="sel">${opt('aim', 'Aim at cursor')}${opt('turn', 'Turn: sideways and forward/back')}${opt('turnx', 'Turn: sideways only')}</select><select id="opt-mouse-speed" class="sel" title="How far the shield turns for a given move of the mouse, in the Turn modes" ${m === 'aim' ? 'disabled' : ''}>${speeds}</select></div>`;
+}
+
+function bindMouseSelect() {
+  const mode = $('opt-mouse');
+  const speed = $('opt-mouse-speed');
+  if (!mode || !speed) return;
+  const apply = () => {
+    setMouseSetting(mode.value, Number(speed.value));
+    speed.disabled = mode.value === 'aim';
+  };
+  mode.onchange = apply;
+  speed.onchange = apply;
+}
+
 function audioSelectHtml() {
   const a = audioSetting();
   const opt = (v, label) => `<option value="${v}" ${a === v ? 'selected' : ''}>${label}</option>`;
@@ -2335,9 +2401,13 @@ function markTutorialDone() {
 const TUTORIAL_STEPS = [
   {
     title: 'Move and aim',
-    text: COARSE
-      ? 'Touch anywhere and <b>drag</b> to move. The <b>⟲ ⟳</b> buttons turn you and your shield. Move a little and turn around.'
-      : '<b>W A S D</b> move you. <b>Move the mouse</b> right or back to turn clockwise, left or forward to turn counter-clockwise, shield first. Move a little and turn all the way around.',
+    // Read when shown, so it follows the Mouse setting as it is now.
+    get text() {
+      if (COARSE) return 'Touch anywhere and <b>drag</b> to move. The <b>⟲ ⟳</b> buttons turn you and your shield. Move a little and turn around.';
+      return mouseSetting() === 'aim'
+        ? '<b>W A S D</b> move you. <b>Point with the mouse</b> and your shield turns to face the cursor. Move a little and turn all the way around.'
+        : '<b>W A S D</b> move you. <b>Move the mouse</b> to turn you and your shield. Move a little and turn all the way around.';
+    },
   },
   {
     title: 'Block',
@@ -2347,7 +2417,7 @@ const TUTORIAL_STEPS = [
     title: 'Whack',
     text: COARSE
       ? 'A shield <b>moving toward the ball</b> adds its speed. Tap <b>WHACK</b> as the ball lands, or swing with ⟲ ⟳. Send it back at least <b>120 px/s faster</b> than it came.'
-      : 'A shield <b>moving toward the ball</b> adds its speed. <b>Left click</b> to thrust as the ball lands, or swing with the <b>mouse</b> so a tip meets it. Send it back at least <b>120 px/s faster</b> than it came.',
+      : 'A shield <b>moving toward the ball</b> adds its speed. <b>Left click</b> to thrust as the ball lands, or sweep the <b>mouse</b> so a tip swings into it. Send it back at least <b>120 px/s faster</b> than it came.',
   },
   {
     title: 'Bank shot',
@@ -3918,11 +3988,11 @@ function showTitle() {
         <h3>Controls</h3>
         <ul class="controls">
           <li><b>W A S D</b> (or the arrows), or <b>drag</b> on a phone — move</li>
-          <li><b>Mouse</b> right or back — rotate clockwise; left or forward — counter-clockwise (swing to whack); <b>scroll</b> nudges a notch; a click captures the mouse, <b>Esc</b> frees it</li>
+          <li id="mouse-help">${mouseControlsHtml()}</li>
           <li><b>Left click</b> or <b>Space</b> — thrust the shield</li>
           <li><b>Right click</b> — pull the shield in (soft return)</li>
           <li><b>P</b> pause · <b>M</b> mute · <b>R</b> restart</li>
-          <li><b>Galactic Golf</b>: the mouse aims the same way (hold right click for fine aim), a left click launches then spends one ion pulse a click, P is the hole map</li>
+          <li><b>Galactic Golf</b>: the mouse aims the launcher, and in flight the pulses (hold right click and move sideways for fine aim), a left click launches then spends one ion pulse a click, P is the hole map</li>
           <li><b>Controller</b>: left stick moves, right stick or <b>LT</b>/<b>RT</b> rotate, <b>A</b> thrusts, <b>X</b> pulls in, <b>Start</b> pauses <span id="pad-state" class="small muted">${input.pad.connected ? `· detected: ${input.pad.id.slice(0, 40)}` : '· none detected yet (press any button on it)'}</span></li>
         </ul>
       </div>
@@ -3936,6 +4006,7 @@ function showTitle() {
         ${ownBallToggleHtml()}
         ${qualitySelectHtml()}
         ${audioSelectHtml()}
+        ${mouseSelectHtml()}
       </div>
     </div>
     <div class="row menu">${campaignButtonsHtml()}<button id="btn-start">${levelLabel(def)} only</button><button id="btn-golf" title="Galactic Golf: the course out in the void, the whole round or any one hole">Galactic Golf</button><button id="btn-tutorial">Tutorial</button><button id="btn-jukebox">Soundtrack</button><button id="btn-multi" title="${lanInfo && lanInfo.online ? 'Play online through the relay' : lanInfo ? 'Play on this Wi-Fi network' : 'Set a relay in the lobby, or run npm start on one PC and open its LAN address on both'}">${lanInfo && lanInfo.online ? 'Online match' : lanInfo ? 'LAN match' : 'Multiplayer'}</button>${fullscreenHint()}</div>
@@ -3947,6 +4018,7 @@ function showTitle() {
   bindDifficultySelect();
   bindQualitySelect();
   bindAudioSelect();
+  bindMouseSelect();
   $('btn-record').onclick = (e) => {
     e.preventDefault();
     showRecord();
@@ -4081,30 +4153,49 @@ function golfTee() {
  * fire the ion pulses instead.
  */
 let mouseSteered = null; // the angle the mouse was steering at the last poll: { src, angle }, for the mouse's own account of what it turned
+let mouseEst = null; // a guest aiming: where its own commands should have put the angle, which the host's corrections do not jolt
 
 /**
- * Pace the mouse's turn for this frame: at the frame's own turn speed, or in
- * flight on the course at the rate the pulses' heading turns; told what the
- * steered angle actually did since last frame, where that is this device's
- * own doing (not a guest drawn only by the host's word), not a fraction on
- * purpose (fine aim), and the same angle as last time (not a launch, a
- * re-tee or a respawn).
+ * Tell the mouse what it steers this frame. The frame's own angle about its
+ * centre (on the course, about the charge on the tee) at the frame's own turn
+ * speed, or in flight the pulses' heading about the charge, at the rate that
+ * turns. It can turn only in play (or the countdown's aiming), unfrozen,
+ * and on the course only while aiming or in flight, so nothing piles up
+ * while it cannot. `turned` is what the angle actually did since last
+ * frame, where that is this device's own doing (not a guest drawn only by
+ * the host's word), not a fraction on purpose (fine aim), and the same
+ * angle as last time (not a launch, a re-tee or a respawn).
  */
 function pollMouseTurn(dt) {
   const me = game ? localFighter() : null;
   if (!me) {
     mouseSteered = null;
-    input.pollMouse(dt);
+    mouseEst = null;
+    input.pollMouse(dt, null);
     return;
   }
-  const flight = !!game.golf && game.golf.phase === 'flight';
+  const gf = game.golf;
+  const flight = !!gf && gf.phase === 'flight';
   const src = flight ? 'heading' : me;
-  const angle = flight ? game.golf.heading : me.angle;
+  const actual = flight ? gf.heading : me.angle;
   const own = net.mode !== 'guest' || netcode.predict;
-  const fine = !!game.golf && input.mouse.right;
-  const turned = mouseSteered && mouseSteered.src === src && own && !fine ? wrapAngle(angle - mouseSteered.angle) : null;
-  mouseSteered = { src, angle };
-  input.pollMouse(dt, flight ? GOLF.headTurn : me.turnSpeed, turned);
+  // A guest aims from where its own commands should have put the angle. The
+  // angle it draws is the host's, replayed forward, and the host's word
+  // shifts it a few degrees whenever it applied an input for a step more or
+  // less than the guest did; aiming from that, the shield would chase each
+  // shift and hunt round the cursor. Once the mouse has settled the estimate
+  // eases onto the shield, so the two never part company for good.
+  const guestAim = net.mode === 'guest' && input.mouseMode === 'aim';
+  if (guestAim && mouseEst != null && input.mouse.turn === 0) mouseEst = wrapAngle(mouseEst + wrapAngle(actual - mouseEst) * (1 - Math.exp(-dt / 0.15)));
+  const current = guestAim && mouseEst != null ? mouseEst : actual;
+  const fine = !!gf && input.mouse.right;
+  const rate = flight ? GOLF.headTurn : me.turnSpeed;
+  const canTurn = (state === 'playing' || state === 'countdown') && !(me.frozen > 0) && (!gf || flight || gf.phase === 'aim');
+  const origin = flight ? { x: game.ball.x, y: game.ball.y } : gf ? game.def.tee : { x: me.x, y: me.y };
+  const turned = mouseSteered && mouseSteered.src === src && own && !fine ? wrapAngle(actual - mouseSteered.angle) : null;
+  mouseSteered = { src, angle: actual };
+  input.pollMouse(dt, { rate, current, origin, fine, canTurn, turned });
+  mouseEst = guestAim ? wrapAngle(current + input.mouse.turn * rate * Math.max(dt, 1 / 240)) : null;
 }
 
 function golfIntent(local, dt) {
@@ -4729,6 +4820,7 @@ for (const [id, name] of [['tb-left', 'left'], ['tb-right', 'right'], ['tb-whack
 renderer.setLevel(SEQUENCE[levelIndex]);
 applyQuality();
 audio.latency = audioSetting();
+applyMouse();
 loadNetcode();
 renderer.resize();
 showTitle();
