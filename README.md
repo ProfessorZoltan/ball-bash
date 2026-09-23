@@ -233,7 +233,8 @@ hull in and out and no frame has a gap between the two.
 | Defector | 3 | 2 | 0 | 3 | quick and hard to find, with barely a line to block with | same |
 | Vector | your own | | | | the fourth reading: spend the eight cells yourself | `vectorFrame` in `src/frames.js` |
 
-Vector is edited in place on the title screen: − and + move cells between the
+Vector is edited in place on the title screen, under the frame's **Details**
+(which opens by itself when Vector is chosen): − and + move cells between the
 systems, the readout shows exactly what the fighter will get, and + is locked
 once all eight are spent, so the only way to buy one thing is to sell another.
 Spending fewer than eight is allowed and only costs you. An allocation that
@@ -928,7 +929,7 @@ static Vercel deployment cannot relay, so the button is disabled there.
 | Action | Keys / pointer |
 | --- | --- |
 | Move | **W A S D** (the arrow keys do the same), or drag a finger on a phone |
-| Rotate character and shield | **Mouse**: point, and the shield turns to face the cursor (the default); or, under **Mouse** on the title screen, a Turn mode where moving the mouse right or back turns clockwise and left or forward counter-clockwise; **scroll** up nudges a notch clockwise, down counter-clockwise |
+| Rotate character and shield | **Mouse**: point, and the shield turns to face the cursor (the default); or, under **Settings → Mouse** on the title screen, a Turn mode where moving the mouse right or back turns clockwise and left or forward counter-clockwise; **scroll** up nudges a notch clockwise, down counter-clockwise |
 | Thrust the shield forward ("whack") | **Left click** or **Space** |
 | Pull the shield in (soft return, slows the ball) | **Right click** |
 | Pause / mute / restart | **P** (or the ❚❚ button in the HUD, which is how a phone pauses) / **M** / **R** |
@@ -937,8 +938,8 @@ static Vercel deployment cannot relay, so the button is disabled there.
 | Blaster, Wormhole Variant: put out each end of your pair | **Q** (light end) and **E** (dark end), or **LB** and **RB** on a controller; each goes on the first surface you face, and pressing again moves it |
 | Netcode switches (online play) | **1** prediction, **2** render buffer, **3** latency compensation, **4** hit prediction, **5** direct connection, each on or off; also in the lobby under Netcode |
 
-The mouse has three ways to turn the frame, chosen under **Mouse** on the
-title screen and remembered in the browser:
+The mouse has three ways to turn the frame, chosen under **Settings → Mouse**
+on the title screen and remembered in the browser:
 
 | Mouse setting | What it does | Source |
 | --- | --- | --- |
@@ -1248,7 +1249,24 @@ ice behind its blocks and a pulse. Nothing new to learn; everything to use.
 Adding a level means adding an entry to `LEVELS` in `src/levels.js` (boundary
 polygon, obstacle polygons via `rect(cx, cy, w, h, angleDeg)`, optional
 `movers`, spawns, boss parameters) and a track to `src/audio/tracks.js`. The
-title screen lists every built level and lets you pick one.
+title screen lists every built level under **Levels** and lets you pick one.
+
+## The title screen
+
+Everything on the title screen fits on one screen, down to 1280 by 720 and a
+phone held upright, because most of it folds away. **Levels**, the frame's
+**Details**, **Controls**, **How to win** and **Settings** (Quality, Sound and
+Mouse) each open with a click on their heading and start closed. One you
+open stays open while the screen redraws (picking a level redraws it), and a
+fresh visit starts with all of them closed. The frame's dropdown, Difficulty
+and the own-ball rule stay out, since they change every game.
+
+A level's card (its number, name, boss, brief and record) is a context
+overlay rather than a panel. Hover over or tab to any level in the list and
+its card appears beside the list. The **i** next to the selected level on the
+Levels line pins that level's card, even with the list folded; this is also
+how a touch screen gets it. A click or tap elsewhere, or Esc, puts it away.
+`showTitle`, `foldHtml` and `bindLevelPop` in `src/main.js`.
 
 ## Lore
 
@@ -1261,8 +1279,9 @@ The written mark is that name being rewritten one reading at a time:
 REFLECTOR, DEFLECTOR, DEFECTOR, and a last reading, VECTOR, that the record
 has not filled in yet.
 
-The title screen carries the system bulletin about you, a dossier line for
-the resident program of the selected level, and a **Read the record** link
+The title screen carries the system bulletin about you, each level's card
+(its resident program, its brief and its line from the record, shown beside
+the level list), and a **Read the record** link
 to the full story with all ten residents. Clearing a level marks its resident
 STOPPED in the record (kept in the browser under `deflector.cleared`); the
 cleared and failed screens each carry a line from the record too. The text
@@ -1288,13 +1307,13 @@ renderer does three things about it:
   touching the renderer: the `copy` composite operation takes Chrome's slow
   full-surface layer path, and a glow blur costs by the bounding box of the
   path drawn, so never batch far-apart shapes into one glowing path.
-* **Sound setting** on the title screen: Snappy or Steady. Snappy asks the
+* **Sound setting** under Settings on the title screen: Snappy or Steady. Snappy asks the
   browser for its smallest output buffer, so a hit is heard the instant it
   lands; Steady asks for a 60 ms one, which a machine busy drawing (or a
   guest's, parsing sixty snapshots a second) can keep fed, at the cost of
   hearing hits a hair later. The music's sequencer schedules 300 ms ahead of
   the audio clock, so a main thread held up for less than that costs no note.
-* **Quality setting** on the title screen: Auto, High or Low. Low caps the
+* **Quality setting** under Settings on the title screen: Auto, High or Low. Low caps the
   pixel density at 1 and turns off the glow on moving things (the cached
   static layer keeps its glow). Auto starts high and steps down to Low for the
   rest of the session if 8% or more of the frames in a 90-frame window took

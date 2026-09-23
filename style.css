@@ -541,10 +541,58 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(-
   .bulletin p { line-height: 1.45; }
   .level-card { padding: 10px 16px; }
   .level-card .intro, .level-card .record { margin-top: 6px; }
-  .level-card .record { display: none; }
   .columns.three .controls { font-size: 13px; }
 }
-/* Short viewports: the bulletin keeps its heading and the record link only. */
+
+/* Title screen folds: sections that open on a click and start closed. */
+details.fold > summary { list-style: none; display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+details.fold > summary::-webkit-details-marker { display: none; }
+details.fold > summary::before {
+  content: '\25b8'; color: var(--cyan); font-size: 12px; line-height: 1; flex: none;
+  transition: transform 160ms ease;
+}
+details.fold[open] > summary::before { transform: rotate(90deg); }
+details.fold > summary h3 { margin: 0; }
+details.fold > summary:hover h3, details.fold > summary:hover .fold-label { color: #fff; }
+details.fold > summary:focus-visible { outline: 1px solid var(--cyan); outline-offset: 3px; border-radius: 4px; }
+details.fold .fold-body { margin-top: 8px; }
+.columns.folds { align-items: start; margin-top: 12px; }
+.columns.folds > div > details.fold + h3, .columns.folds > div > h3 { margin-top: 0; }
+.columns.folds .opt + details.fold { margin-top: 10px; }
+.frame-fold .fold-label { font-family: var(--display); font-size: 10px; letter-spacing: 0.25em; color: var(--muted); text-transform: uppercase; }
+.frame-card .opt { margin-bottom: 8px; }
+
+/* The level card as a context overlay beside the roster. */
+.top { position: relative; }
+.level-pop {
+  position: absolute; z-index: 5; margin: 0; text-align: left;
+  left: 0; right: 0; background: #0e0c0a;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6), 0 0 24px rgba(255, 179, 71, 0.12);
+  pointer-events: none; /* a card shown by hovering never stands in the way of a click */
+}
+.level-pop.pinned { pointer-events: auto; }
+.level-pop.beside { left: auto; width: min(460px, 100%); }
+.roster li:focus-visible { outline: 1px solid var(--cyan); outline-offset: 2px; border-radius: 3px; }
+.roster li.now::after { content: none; }
+.roster li .now-tag { font-style: normal; font-size: 11px; color: var(--orange); }
+.lv-info {
+  display: inline-grid; place-items: center; width: 17px; height: 17px; margin-left: 8px; padding: 0;
+  font: italic 700 11px Georgia, serif; line-height: 1; letter-spacing: 0; vertical-align: 1px;
+  color: var(--cyan); background: rgba(127, 233, 255, 0.08); border: 1px solid rgba(127, 233, 255, 0.5); border-radius: 50%;
+}
+.lv-info:hover, .lv-info[aria-expanded='true'] { background: rgba(127, 233, 255, 0.25); color: #fff; }
+.levels-fold > summary { flex-wrap: wrap; }
+.levels-fold .fold-now { font-size: 14px; color: #fff; }
+.levels-fold .fold-now span { font-family: var(--display); font-size: 11px; color: var(--orange); margin-right: 4px; }
+.levels-fold .lv-info { margin-left: 2px; }
+/* Short screens with the level list open: the bulletin keeps its heading and the record link, so the list fits. */
 @media (max-height: 760px) and (min-width: 721px) {
-  .bulletin > p:not(.you) { display: none; }
+  .top:has(details.fold[data-fold="levels"][open]) .bulletin > p:not(.you) { display: none; }
+  .roster { line-height: 1.32; }
+  .columns.folds { margin-top: 8px; }
+}
+/* One column on a phone: the folded headings get room between them. */
+@media (max-width: 720px) {
+  .top, .columns.folds { row-gap: 12px; }
+  .columns.folds { margin-top: 12px; }
 }

@@ -2378,8 +2378,28 @@ function frameCardHtml() {
     <div class="frame-card" title="The mark has four readings, and each one is a frame. Every frame is cut from the same ${FRAME_CELLS} cells, so none is richer than another. Whichever you wear, you wear in every mode.">
       <div class="eyebrow">YOUR FRAME</div>
       <div class="opt"><select id="opt-frame" class="sel">${opts}</select></div>
-      <div id="frame-panel">${framePanelHtml(frame)}</div>
+      ${foldHtml('frame', '<span class="fold-label">Details</span>', `<div id="frame-panel">${framePanelHtml(frame)}</div>`, 'frame-fold')}
     </div>`;
+}
+
+// ------------------------------------------------------------ title folds
+
+// The title screen's sections that fold away. Each starts closed; one you
+// open stays open while the title is redrawn (picking another level redraws
+// it), and a fresh visit starts with them all closed again.
+const titleOpen = { levels: false, frame: false, controls: false, win: false, settings: false };
+
+/** A section that folds: `head` is its summary line, `body` what opens under it. */
+function foldHtml(key, head, body, cls = '') {
+  return `<details class="fold ${cls}" data-fold="${key}" ${titleOpen[key] ? 'open' : ''}><summary>${head}</summary><div class="fold-body">${body}</div></details>`;
+}
+
+function bindFolds() {
+  for (const d of document.querySelectorAll('details.fold[data-fold]')) {
+    d.addEventListener('toggle', () => {
+      titleOpen[d.dataset.fold] = d.open;
+    });
+  }
 }
 
 function framePanelHtml(frame) {
@@ -2408,6 +2428,8 @@ function bindFrameCard() {
   sel.onchange = () => {
     setFrameSetting(sel.value);
     refreshFramePanel();
+    const fold = document.querySelector('details.fold[data-fold="frame"]');
+    if (fold && sel.value === CUSTOM_ID && !fold.open) fold.open = true; // its build buttons are in the fold
   };
   bindFrameSteps();
 }
@@ -4492,7 +4514,7 @@ function showTitle() {
   const def = SEQUENCE[levelIndex];
   const roster = SEQUENCE.map((r, idx) => {
     const cls = `${r.id === def.id ? 'now' : 'ready'}${r.conduit ? ' conduit' : ''}`;
-    return `<li class="${cls}" data-level="${idx}" title="${r.conduit ? 'Conduit: half-speed aim test between levels' : ''}"><span>${shortId(r)}</span> ${r.title}</li>`;
+    return `<li class="${cls}" data-level="${idx}" tabindex="0"><span>${shortId(r)}</span> ${r.title}${r.id === def.id ? '<em class="now-tag"> · ready</em>' : ''}</li>`;
   }).join('');
   showOverlay(`
     <h1 class="title mark" aria-label="${GAME_NAME}">${markHtml()}</h1>
@@ -4504,24 +4526,16 @@ function showTitle() {
           <p>${LORE.bulletin.text}</p>
           <p class="you"><span>${LORE.bulletin.you}</span><a id="btn-record" href="#record">${LORE.bulletin.link} ›</a></p>
         </div>
-        <div class="level-card">
-          <div class="eyebrow">${levelLabel(def).toUpperCase()}</div>
-          <div class="level-title">${def.title}</div>
-          <div class="muted">${def.conduit ? 'Aim test · half-speed ball' : `Boss: ${def.bossName}`}${clearedIds().has(def.id) ? ` · <span class="stopped">${def.conduit ? 'lit' : LORE.status.stopped.toLowerCase()}</span>` : ''}</div>
-          <p class="intro">${def.intro}</p>
-          ${def.record ? `<p class="record"><b>RECORD</b>${def.record}</p>` : ''}
-        </div>
         ${frameCardHtml()}
       </div>
-      <div>
-        <h3>Levels</h3>
-        <ol class="roster">${roster}</ol>
+      <div class="roster-col">
+        ${foldHtml('levels', `<h3>Levels</h3><span class="fold-now"><span>${shortId(def)}</span> ${def.title}</span><button class="lv-info" id="lv-info" aria-label="About ${def.title}" aria-expanded="false" title="About this level">i</button>`, `<ol class="roster">${roster}</ol>`, 'levels-fold')}
       </div>
+      <div id="level-pop" class="level-card level-pop" hidden></div>
     </div>
-    <div class="columns three">
+    <div class="columns three folds">
       <div>
-        <h3>Controls</h3>
-        <ul class="controls">
+        ${foldHtml('controls', '<h3>Controls</h3>', `<ul class="controls">
           <li><b>W A S D</b> (or the arrows), or <b>drag</b> on a phone — move</li>
           <li id="mouse-help">${mouseControlsHtml()}</li>
           <li><b>Left click</b> or <b>Space</b> — thrust the shield</li>
@@ -4530,19 +4544,16 @@ function showTitle() {
           <li><b>Blaster, Wormhole Variant</b>: <b>Q</b> and <b>E</b> (<b>LB</b> and <b>RB</b>) put each end of your wormhole pair on the first surface you face</li>
           <li><b>Galactic Golf</b>: the mouse aims the launcher, and in flight the pulses (hold right click and move sideways for fine aim), a left click launches then spends one ion pulse a click, P is the hole map</li>
           <li><b>Controller</b>: left stick moves, right stick or <b>LT</b>/<b>RT</b> rotate, <b>A</b> thrusts, <b>X</b> pulls in, <b>Start</b> pauses <span id="pad-state" class="small muted">${input.pad.connected ? `· detected: ${input.pad.id.slice(0, 40)}` : '· none detected yet (press any button on it)'}</span></li>
-        </ul>
+        </ul>`)}
       </div>
       <div>
-        <h3>How to win</h3>
-        <p class="small">The ball only counts when it hits a <b>body</b>. The boss's shield blocks its front: bank shots off walls and deflectors to hit its side or back. A hit on you costs a shield (the difficulty sets how many), and so does <b>standing still</b> within a body length for eight seconds or <b>touching the boss</b>, body or shield. A moving shield adds its speed to the ball; retreating removes it.</p>
+        ${foldHtml('win', '<h3>How to win</h3>', '<p class="small">The ball only counts when it hits a <b>body</b>. The boss\'s shield blocks its front: bank shots off walls and deflectors to hit its side or back. A hit on you costs a shield (the difficulty sets how many), and so does <b>standing still</b> within a body length for eight seconds or <b>touching the boss</b>, body or shield. A moving shield adds its speed to the ball; retreating removes it.</p>')}
       </div>
       <div>
         <h3>Rules</h3>
         ${difficultySelectHtml()}
         ${ownBallToggleHtml()}
-        ${qualitySelectHtml()}
-        ${audioSelectHtml()}
-        ${mouseSelectHtml()}
+        ${foldHtml('settings', '<h3>Settings</h3>', `${qualitySelectHtml()}${audioSelectHtml()}${mouseSelectHtml()}`)}
       </div>
     </div>
     <div class="row menu">${campaignButtonsHtml()}<button id="btn-start">${levelLabel(def)} only</button><button id="btn-golf" title="Galactic Golf: the course out in the void, the whole round or any one hole">Galactic Golf</button><button id="btn-tutorial">Tutorial</button><button id="btn-jukebox">Soundtrack</button><button id="btn-multi" title="${lanInfo && lanInfo.online ? 'Play online through the relay' : lanInfo ? 'Play on this Wi-Fi network' : 'Set a relay in the lobby, or run npm start on one PC and open its LAN address on both'}">${lanInfo && lanInfo.online ? 'Online match' : lanInfo ? 'LAN match' : 'Multiplayer'}</button>${fullscreenHint()}</div>
@@ -4550,6 +4561,8 @@ function showTitle() {
   `);
   $('btn-start').onclick = begin;
   bindCampaignButtons();
+  bindFolds();
+  bindLevelPop();
   bindFrameCard();
   bindDifficultySelect();
   bindQualitySelect();
@@ -4570,13 +4583,98 @@ function showTitle() {
   $('btn-full')?.addEventListener('click', toggleFullscreen);
   startMarkAnimation();
   for (const li of document.querySelectorAll('.roster li[data-level]')) {
-    li.onclick = () => {
+    const pick = () => {
       levelIndex = Number(li.dataset.level);
       renderer.setLevel(SEQUENCE[levelIndex]);
       renderer.resize();
       showTitle();
     };
+    li.onclick = (e) => {
+      if (e.target.closest('.lv-info')) return; // the info button pins the card, it does not pick
+      pick();
+    };
+    li.onkeydown = (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        pick();
+      }
+    };
   }
+}
+
+/** A level's card, as the title screen shows it in context: what it is, who holds it, and its record. */
+function levelCardHtml(def) {
+  return `
+    <div class="eyebrow">${levelLabel(def).toUpperCase()}</div>
+    <div class="level-title">${def.title}</div>
+    <div class="muted">${def.conduit ? 'Aim test · half-speed ball' : `Boss: ${def.bossName}`}${clearedIds().has(def.id) ? ` · <span class="stopped">${def.conduit ? 'lit' : LORE.status.stopped.toLowerCase()}</span>` : ''}</div>
+    <p class="intro">${def.intro}</p>
+    ${def.record ? `<p class="record"><b>RECORD</b>${def.record}</p>` : ''}`;
+}
+
+/**
+ * The level card as a context overlay: hovering or focusing a level in the
+ * roster shows its card beside the list, and the info button by the selected
+ * level (on the Levels line, so it is there with the list folded away) pins
+ * it open, which is the way in on a touch screen. A click elsewhere or Esc
+ * puts a pinned card away.
+ */
+function bindLevelPop() {
+  const pop = $('level-pop');
+  const top = pop && pop.parentElement;
+  if (!pop || !top) return;
+  let pinned = false;
+  const info = $('lv-info');
+  const show = (anchor, def) => {
+    if (!def) return;
+    pop.innerHTML = levelCardHtml(def);
+    pop.hidden = false;
+    // Beside the list where there is room for it; under the entry on a narrow screen.
+    const box = top.getBoundingClientRect();
+    const at = anchor.getBoundingClientRect();
+    const col = anchor.closest('.roster-col').getBoundingClientRect();
+    const beside = col.left - box.left > 320;
+    pop.classList.toggle('beside', beside);
+    pop.style.right = beside ? `${box.right - col.left + 16}px` : '';
+    const h = pop.offsetHeight;
+    const y = beside ? at.top - box.top - 12 : at.bottom - box.top + 6;
+    pop.style.top = `${Math.max(0, beside ? Math.min(y, top.offsetHeight - h) : y)}px`;
+  };
+  const hide = () => {
+    if (pinned) return;
+    pop.hidden = true;
+  };
+  const unpin = () => {
+    pinned = false;
+    pop.classList.remove('pinned');
+    if (info) info.setAttribute('aria-expanded', 'false');
+    pop.hidden = true;
+  };
+  for (const li of document.querySelectorAll('.roster li[data-level]')) {
+    const def = SEQUENCE[Number(li.dataset.level)];
+    li.addEventListener('mouseenter', () => !pinned && show(li, def));
+    li.addEventListener('mouseleave', hide);
+    li.addEventListener('focus', () => !pinned && show(li, def));
+    li.addEventListener('blur', hide);
+  }
+  if (info) {
+    info.onclick = (e) => {
+      e.preventDefault(); // it sits on the Levels line: pinning the card does not fold or unfold the list
+      e.stopPropagation();
+      if (pinned) return unpin();
+      show(info.closest('summary'), SEQUENCE[levelIndex]);
+      pinned = true;
+      pop.classList.add('pinned');
+      info.setAttribute('aria-expanded', 'true');
+    };
+  }
+  const away = (e) => {
+    if (!document.body.contains(pop)) return document.removeEventListener('pointerdown', away, true);
+    if (pinned && !pop.contains(e.target) && !(info && info.contains(e.target))) unpin();
+  };
+  document.addEventListener('pointerdown', away, true);
+  pop.addEventListener('keydown', (e) => e.key === 'Escape' && unpin());
+  top.addEventListener('keydown', (e) => e.key === 'Escape' && unpin());
 }
 
 async function begin() {
