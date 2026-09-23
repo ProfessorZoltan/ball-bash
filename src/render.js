@@ -5,6 +5,19 @@ import { clamp, lerp } from './vec.js';
 import { fitScale, cameraTarget, cameraOffset, easeCamera } from './camera.js';
 import { mouthOf, throughPortal, tangent } from './portals.js';
 import { portalHue } from './color.js';
+import { railPath } from './gamestate.js';
+
+/** Trace a body's rail into the current path: a circle, or the figure-eight (railPath). */
+function traceRail(ctx, rail) {
+  if (rail.shape !== 'eight') {
+    ctx.arc(rail.cx, rail.cy, rail.R, 0, Math.PI * 2);
+    return;
+  }
+  const pts = railPath(rail, 120);
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (const q of pts) ctx.lineTo(q.x, q.y);
+  ctx.closePath();
+}
 
 const WALL_HEIGHT = 9; // px of extrusion under each wall face
 
@@ -620,7 +633,7 @@ export class Renderer {
       ctx.globalAlpha = 0.3;
       ctx.strokeStyle = color;
       ctx.beginPath();
-      ctx.arc(w.rail.cx, w.rail.cy, w.rail.R, 0, Math.PI * 2);
+      traceRail(ctx, w.rail);
       ctx.stroke();
       ctx.setLineDash([]);
       ctx.globalAlpha = 1;
@@ -776,7 +789,7 @@ export class Renderer {
       ctx.globalAlpha = 0.22;
       ctx.strokeStyle = color;
       ctx.beginPath();
-      ctx.arc(w.rail.cx, w.rail.cy, w.rail.R, 0, Math.PI * 2);
+      traceRail(ctx, w.rail);
       ctx.stroke();
       ctx.setLineDash([]);
       ctx.beginPath();
@@ -1105,7 +1118,20 @@ export class Renderer {
     ctx.font = `600 ${15 / s}px Inter, system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    const label = (x, y, text, color, r) => {
+    // Where each name went, so two never print over each other: a second of
+    // the same name (two founts making a lens) is left to the first, and a
+    // different one steps up clear of it.
+    const placed = [];
+    const lineH = 18 / s;
+    const overlaps = (a, b) => Math.abs(a.x - b.x) < (a.w + b.w) / 2 + 4 / s && Math.abs(a.y - b.y) < lineH;
+    const text = (t, x, y) => {
+      const box = { t, x, y, w: ctx.measureText(t).width };
+      if (placed.some((q) => q.t === t && overlaps(q, box))) return;
+      for (let k = 0; k < 6 && placed.some((q) => overlaps(q, box)); k++) box.y -= lineH;
+      placed.push(box);
+      ctx.fillText(t, box.x, box.y);
+    };
+    const label = (x, y, name, color, r) => {
       ctx.strokeStyle = color;
       ctx.globalAlpha = 0.9;
       ctx.lineWidth = 2 / s;
@@ -1116,11 +1142,12 @@ export class Renderer {
       ctx.setLineDash([]);
       ctx.fillStyle = color;
       ctx.globalAlpha = 1;
-      ctx.fillText(text, x, y - r - 14 / s);
+      text(name, x, y - r - 14 / s);
     };
     for (const w of game.wells) {
       if (w.cup) label(w.x, w.y, 'THE CUP', p.cup || '#7dffc4', w.r + 26);
       else if (w.fount) label(w.x, w.y, 'FOUNT', p.fount || '#fff1b8', w.r + 22);
+      else if (w.breath) label(w.x, w.y, 'BREATHING', p.planet || '#ffb347', w.r + 16);
       else if (w.solid) label(w.x, w.y, 'STONE', p.planet || '#ffb347', w.r + 16);
       else label(w.x, w.y, 'MAW', p.well || '#b49cff', w.r + 16);
     }
@@ -1158,7 +1185,7 @@ export class Renderer {
       if (game.panes.findIndex((q) => q.unbreakable === pane.unbreakable) !== i) return;
       const c = pane.poly.reduce((a, q) => [a[0] + q[0] / pane.poly.length, a[1] + q[1] / pane.poly.length], [0, 0]);
       ctx.fillStyle = pane.color;
-      ctx.fillText(pane.unbreakable ? 'LEADED GLASS' : 'GLASS', c[0], c[1] - 30 / s);
+      text(pane.unbreakable ? 'LEADED GLASS' : 'GLASS', c[0], c[1] - 30 / s);
     });
     label(level.tee.x, level.tee.y, 'TEE', p.wall || '#8fd4ff', 46);
     ctx.restore();
@@ -1269,7 +1296,7 @@ export class Renderer {
         ctx.strokeStyle = color;
         ctx.globalAlpha = 0.5;
         ctx.beginPath();
-        ctx.arc(w.rail.cx, w.rail.cy, w.rail.R, 0, Math.PI * 2);
+        traceRail(ctx, w.rail);
         ctx.stroke();
         ctx.globalAlpha = 1;
       }

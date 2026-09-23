@@ -791,14 +791,14 @@ every hole on both courses has its own id). The Far Course is for a player
 who has finished the first one. No hole on it gives itself away, it is drawn
 in a colder light (`FAR_PALETTE`), and its music is in minor keys.
 
-It is being built in three rings of six. How hard each ring is, is measured
-as the share of launch lines and launch moments that sink with no fuel spent:
+It is laid out in three rings of six. How hard each ring is, is measured as
+the share of launch lines and launch moments that sink with no fuel spent:
 
 | Ring | Holes | Bare sinks allowed | Source |
 |---|---|---|---|
 | Outer | 1 to 6 | About one line in a hundred | `FAR_COURSE` in `src/golf.js` |
 | Middle | 7 to 12 | About one in two hundred | `FAR_COURSE` in `src/golf.js` |
-| Inner | 13 to 18 | None worth the name: the gauge is needed | (to come) |
+| Inner | 13 to 18 | None: the gauge is needed | `FAR_COURSE` in `src/golf.js` |
 
 The Far Course brings the arcade's pieces out to the void, with rules of
 their own on the course:
@@ -812,6 +812,7 @@ their own on the course:
 | Moving cup | The cup itself on a rail, like a maw on a rail | `placeRails` |
 | Slots | A flat pair of mouths set in wall faces (`slots()`): the charge goes into one face as it comes at it, and out of the other at the same speed and the same place across the slot, turned by the angle between the two faces. A slot takes only what comes at its face; one leaving a face is never taken back in | `warpCharge` |
 | A body that breathes | A body with a `breath` clock: its pull swells and fades by `amp` of itself, once every `period` seconds, so an orbit round it breathes too. A ring round it rises and falls with the pull | `breathPull`, `tickOrbits` |
+| The figure-eight | A rail of `shape: 'eight'`: the curve three equal bodies can chase each other round for ever (Chenciner and Montgomery, 2000), integrated once and kept as two short sine series, good to a twentieth of a pixel at the size a hole draws it. It crosses itself at its centre; three maws on it a third of a turn apart are the dance | `orbitPoint`, `railPath` |
 
 A new launch puts every piece back as the hole opened: panes whole, doors
 shut, switches dark (`golfRestore`). The test harness flies all of them
@@ -841,11 +842,40 @@ The middle six:
 | 11 | Clockwork | 5 | 20 s | Open space. A heavy charge (nothing speeds it past its launch) through three cages in a row on clocks of six, nine and twelve seconds, the cup in the last. The gauge can only brake, so launch early and brake into each gap; about half of all launch moments can be sunk that way | `FAR_COURSE[10]` |
 | 12 | Two Doors | 5 | 18 s | Two screens each way. The first switch opens the door out of the tee's room for six seconds; beyond it, the second opens the cup's door for five. Two banks off round switches, and a gauge of eight to steer through each door. No line sinks it bare | `FAR_COURSE[11]` |
 
+The inner six, where no line sinks bare and the gauge is part of every route:
+
+| Hole | Name | Par | Clock | What it asks | Source |
+|---|---|---|---|---|---|
+| 13 | Slingshot Ladder | 5 | 18 s | Open space. Four maws at the corners of a rectangle. At launch speed a rung turns a line by 56 degrees at most, so the ladder throws it away; one burn straight back on the run-up slows the charge until each rung turns it a quarter turn, all the way round to the cup behind the tee. A stone between the tee and the cup means there is no straight way home | `FAR_COURSE[12]` |
+| 14 | Contraflow | 5 | 24 s | Two screens each way. The tee parks you round a black hole; two mouths circle it opposite ways further out than any launch can climb, and a maw rides a rail between. Burn twice as the pink mouth comes round to meet you, and its far end, circling the cup in step, lets you go heading in. The gold mouth lets go inside a maw | `FAR_COURSE[13]` |
+| 15 | Pachinko | 5 | 10 s | Three screens tall. A heavy charge (500 px/s at most), two floors with one pane of glass each that breaks at 480, and a pane costs a sixth of the speed. The gauge holds two pulses, one per floor. Three lenses of founts, each focusing the line on the next window | `FAR_COURSE[14]` |
+| 16 | Figure Eight | 6 | 16 s | Open space. Three maws on the figure-eight. Nothing the dance lets go of leaves faster than about 430 px/s, and the glass round the cup on the far side breaks at 600: two burns as the charge whips through the dance, where it is falling fastest, throw it out fast enough. Broken into, the glass keeps too little speed to let the charge out again | `FAR_COURSE[15]` |
+| 17 | Long Night | 6 | 45 s | Open space. Three bodies in a row: park round the first (a black hole), burn twice out toward the second, burn back to stay with it, wait for the mouth that circles it, and come out on an orbit round the third, inside a house, where the cup rides a rail. Ten pulses | `FAR_COURSE[16]` |
+| 18 | Singularity | 7 | 60 s | A little over two screens wide and three tall. Bank off the switch (the core's door opens for twenty seconds), dive past the maw beside the glass and through it, burn twice to climb out of the maw's pull, through the door into the slot, drop into the core from the ceiling, burn back to park round the body that breathes, and burn back again to fall through the turning cage to the cup on its rail. Ten pulses | `FAR_COURSE[17]` |
+
+Three things keep the inner six from sinking bare, and each is checked by the
+tests rather than trusted:
+- **Energy.** A charge launched round a static body cannot climb above about
+  1.55 times its orbit on its own. Contraflow's mouths and Long Night's second
+  body are out of that reach. The ball's floor speed (150 px/s) would leak
+  energy into near-radial lines, so the body parked round is a black hole
+  (lines aimed at it fall in rather than bouncing back out) and a short wall
+  behind the tee turns lines fired straight out back into it. Nothing that
+  moves (a maw on a rail) is left where a bare orbit could reach it, since a
+  moving body can hand a charge energy.
+- **Speed.** Pachinko's and Figure Eight's glass needs more speed than a bare
+  charge can have there: more than the launch on Pachinko, and more than
+  anything the dance lets go of on Figure Eight.
+- **A chain.** Slingshot Ladder needs the charge slower than the launch, and
+  Singularity needs the switch, the glass, and a climb out of a maw's well
+  that only a burn makes.
+
 The course-wide tests check the Far Course every other degree rather than
 every degree (18 long holes at every degree would double the suite's time).
 Each hole must not sink on the line it opens on, and at most two of its 180
-bare lines may sink on the outer six, one on the rest. Each hole's own test
-then flies its route exactly and shows what carries it:
+bare lines may sink on the outer six, one on the middle six, and none on the
+inner six. Each hole's own test then flies its route exactly and shows what
+carries it:
 - **Needle:** the gauge is dry, the channel is wider than the charge and
   narrower than three, and the line sinks a quarter degree either side while
   a degree off does not.
@@ -883,11 +913,35 @@ then flies its route exactly and shows what carries it:
   and off it two brakes make it.
 - **Two Doors:** each switch has its own door, the first held longer; the route
   goes down, and not with the first switch gone or the second wired to nothing.
+- **Slingshot Ladder:** one burn back on the run-up sinks the line a quarter
+  degree either side; with no burn, or the burn a second late, it does not;
+  and no straight line from the tee sinks it, while without the stone five or
+  more of nine would.
+- **Contraflow:** the mouths share an orbit going opposite ways; no launch on
+  its own reaches either; two burns into the pink mouth sink it a quarter
+  degree or a frame either side, a second late they do not, and the gold
+  mouth lets go inside the trap.
+- **Pachinko:** the glass wants more than the launch and less than the cap,
+  and a charge through one pane is too slow for the next; the gauge holds
+  two; the line sinks a quarter degree either side, and not bare or with one
+  pulse.
+- **Figure Eight:** broken into, the glass keeps too little speed to break out;
+  two burns in the dance sink the dive a quarter degree or a frame either
+  side, and not without them or two seconds later.
+- **Long Night:** the whole route sinks a quarter degree or a frame either
+  side, through the mouth; not without the burn back at the second body, and
+  not with the mouth gone.
+- **Singularity:** a switch, a door, glass, slots, a body that breathes, a cup
+  on a rail and a cage; the route sinks from a quarter degree one side to a
+  tenth the other and a frame either side; not with no switch, not with one
+  burn as the glass goes, and not without the last burn.
 
 An engine test checks the new pieces on their own: a slot keeps the speed,
 turns the heading a right angle, sets the charge down at the same place across
 the far slot, and takes nothing leaving its face or beside it; and a breathing
 body pulls hardest a quarter of its clock in and least three quarters in.
+Another checks the figure-eight: its size, that it crosses itself at its
+centre, and that three maws on it never come within 150 px of each other.
 
 The Far Course's music:
 
@@ -905,6 +959,12 @@ The Far Course's music:
 | 10 | The Eye (Three Bodies Theme) | G# minor | 70 | `TRACKS.eye` |
 | 11 | Clockwork (Escapement Theme) | C minor | 90 | `TRACKS.clockwork` |
 | 12 | Two Doors (Locksmith Theme) | B-flat minor | 100 | `TRACKS.twodoors` |
+| 13 | Slingshot Ladder (Four Rungs Theme) | D harmonic minor | 78 | `TRACKS.slingshot` |
+| 14 | Contraflow (Two Currents Theme) | F# harmonic minor | 86 | `TRACKS.contraflow` |
+| 15 | Pachinko (Three Floors Theme) | A melodic minor | 104 | `TRACKS.pachinko` |
+| 16 | Figure Eight (Choreography Theme) | C harmonic minor | 72 | `TRACKS.figureeight` |
+| 17 | Long Night (Marathon Theme) | E minor | 60 | `TRACKS.longnight` |
+| 18 | Singularity (Core Theme) | B harmonic minor | 96 | `TRACKS.singularity` |
 
 They are slower and wetter than the first course's, and sparser: an arpeggio
 may now rest on a step (`null` in its pattern), so a figure can leave room

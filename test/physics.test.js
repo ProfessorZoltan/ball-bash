@@ -2410,8 +2410,8 @@ test('golf, the Far Course: no hole opens on its answer, and hardly a line in th
     // Every other degree, launched as the hole opens. Each hole's own test flies its route exactly.
     let sinks = 0;
     for (let deg = -180; deg < 180; deg += 2) if ((await golfFly(def, (deg * Math.PI) / 180)).end === 'cup') sinks++;
-    // The outer six: at most about one line in a hundred. The rings further in ask for fewer still.
-    const cap = def.hole <= 6 && !def.noBareLine ? 2 : 1;
+    // The outer six: at most about one line in a hundred; the middle six, one in two hundred; the inner six, none: the gauge is needed.
+    const cap = def.noBareLine ? 0 : def.hole <= 6 ? 2 : 1;
     assert.ok(sinks <= cap, `${def.title}: ${sinks} of 180 lines sink it bare`);
   }
 });
@@ -2709,4 +2709,138 @@ test('golf, the Far Course - Two Doors: one switch opens the way to the other, t
   for (const d of [-54.75, -54.5]) assert.equal((await golfFly(def, rad(d), { pulses: route })).end, 'cup', `${d}°: both switches, both doors`);
   assert.notEqual((await golfFly({ ...def, nodes: [{ ...def.nodes[1] }] }, rad(-54.5), { pulses: route })).end, 'cup', 'with no first switch, the first door stays shut');
   assert.notEqual((await golfFly({ ...def, nodes: [def.nodes[0], { ...def.nodes[1], toggles: [] }] }, rad(-54.5), { pulses: route })).end, 'cup', 'with the second wired to nothing, the cup stays shut');
+});
+
+test('golf, the Far Course\'s figure-eight: three bodies on one curve, crossing at its heart, never meeting', async () => {
+  const { orbitPoint, railPath, createGameState, tickOrbits } = await import('../src/gamestate.js');
+  const { PHYSICS_DT } = await import('../src/config.js');
+  const { FAR_COURSE } = await import('../src/golf.js');
+  const eight = { shape: 'eight', cx: 0, cy: 0, R: 100, period: 12, phase: 0 };
+  let w = 0;
+  let h = 0;
+  for (const p of railPath(eight, 720)) {
+    w = Math.max(w, Math.abs(p.x));
+    h = Math.max(h, Math.abs(p.y));
+  }
+  assert.ok(Math.abs(w - 108.1) < 0.2 && Math.abs(h - 35.8) < 0.2, `2.16 of its scale across and 0.72 tall (${w.toFixed(1)} by ${h.toFixed(1)})`);
+  for (const t of [0, 6]) {
+    const p = orbitPoint(eight, t);
+    assert.ok(Math.hypot(p.x, p.y) < 1e-9, `it crosses itself at its centre (t ${t})`);
+  }
+  // The dance on the hole: three maws a third of a turn apart, and in twelve seconds no two come near each other.
+  const def = FAR_COURSE.find((x) => x.id === 'f16');
+  const g = createGameState(def, {});
+  const trio = g.wells.filter((x) => x.rail && x.rail.shape === 'eight');
+  assert.equal(trio.length, 3);
+  let closest = Infinity;
+  for (let t = 0; t < 12; t += PHYSICS_DT) {
+    tickOrbits(g, PHYSICS_DT);
+    for (let i = 0; i < 3; i++) for (let j = i + 1; j < 3; j++) closest = Math.min(closest, Math.hypot(trio[i].x - trio[j].x, trio[i].y - trio[j].y));
+  }
+  assert.ok(closest > 150, `the three never meet (closest ${Math.round(closest)} px)`);
+});
+
+test('golf, the Far Course - Slingshot Ladder: four rungs turn a slow charge a quarter turn each, and a fast one far less', async () => {
+  const { FAR_COURSE } = await import('../src/golf.js');
+  const def = FAR_COURSE.find((h) => h.id === 'f13');
+  const rad = (d) => (d * Math.PI) / 180;
+  assert.equal(def.wells.filter((w) => w.hazard).length, 4, 'four rungs');
+  const back = [{ at: 1, a: rad(183) }];
+  for (const d of [2.75, 3, 3.25]) assert.equal((await golfFly(def, rad(d), { pulses: back })).end, 'cup', `${d}°, and straight back on the run-up: round all four and home`);
+  assert.notEqual((await golfFly(def, rad(3))).end, 'cup', 'at launch speed the first rung throws the line away');
+  assert.notEqual((await golfFly(def, rad(3), { pulses: [{ at: 2, a: rad(183) }] })).end, 'cup', 'the same burn a second late is taken on the first rung, not before it');
+  // The stone by the tee: no straight way to the cup behind it.
+  const wells = def.wells.filter((w) => !w.solid);
+  const open = { ...def, wells, cup: wells[wells.length - 1] };
+  let withStone = 0;
+  let without = 0;
+  for (let d = 170; d <= 178; d++) {
+    if ((await golfFly(def, rad(d))).end === 'cup') withStone++;
+    if ((await golfFly(open, rad(d))).end === 'cup') without++;
+  }
+  assert.equal(withStone, 0, 'no straight line home');
+  assert.ok(without > 4, `without the stone, ${without} of 9 straight lines would sink it`);
+});
+
+test('golf, the Far Course - Contraflow: two mouths circle a black hole opposite ways, beyond the reach of any launch, and only pink leads to the cup', async () => {
+  const { FAR_COURSE } = await import('../src/golf.js');
+  const def = FAR_COURSE.find((h) => h.id === 'f14');
+  const rad = (d) => (d * Math.PI) / 180;
+  const [pink, gold] = def.wormholes;
+  assert.ok(pink.orbitA.R === gold.orbitA.R && pink.orbitA.period === -gold.orbitA.period, 'one orbit, opposite ways');
+  assert.ok(pink.oneWay && gold.oneWay);
+  const hole = def.wells.find((w) => w.hazard && !w.rail && Math.hypot(w.x - pink.orbitA.cx, w.y - pink.orbitA.cy) < 1);
+  assert.ok(hole, 'the body parked round is a black hole');
+  // What a launch alone can climb to: nowhere near the mouths.
+  let warps = 0;
+  for (const T of [0, 5]) for (let d = -180; d < 180; d += 15) warps += (await golfFly(def, rad(d), { launchAt: T })).warps;
+  assert.equal(warps, 0, 'no launch on its own reaches either mouth');
+  const burns = [{ at: 5.14, a: rad(-27.7) }, { at: 5.39, a: rad(-12) }];
+  for (const [d, T] of [[-90, 4], [-90.25, 4], [-89.75, 4], [-90, 4 - 1 / 240], [-90, 4 + 1 / 240]]) {
+    const r = await golfFly(def, rad(d), { launchAt: T, pulses: burns });
+    assert.equal(r.end, 'cup', `parked, and two burns into the pink mouth (${d}°, ${T} s)`);
+    assert.equal(r.warps, 1);
+  }
+  assert.notEqual((await golfFly(def, rad(-90), { launchAt: 4, pulses: burns.map((p) => ({ ...p, at: p.at + 1 })) })).end, 'cup', 'a second late, the pink mouth has gone by');
+  const trapped = await golfFly(def, rad(-90), { launchAt: 4, pulses: [{ at: 0.75, a: rad(-28.1) }, { at: 1, a: rad(-12.3) }] });
+  assert.ok(trapped.warps === 1 && trapped.end === 'maw', 'the gold mouth lets go inside the trap');
+});
+
+test('golf, the Far Course - Pachinko: glass only a burned heavy charge breaks, a pulse a floor, and one line through three lenses', async () => {
+  const { FAR_COURSE } = await import('../src/golf.js');
+  const def = FAR_COURSE.find((h) => h.id === 'f15');
+  const rad = (d) => (d * Math.PI) / 180;
+  assert.ok(def.glass.breakSpeed > def.ball.speed && def.glass.breakSpeed < def.maxBallSpeed, 'the glass wants more than the launch gives, and less than the cap');
+  assert.ok(def.maxBallSpeed * def.glass.speedKeep < def.glass.breakSpeed, 'and a charge through one pane is too slow for the next');
+  assert.equal(def.fuel, 2, 'a pulse for each floor, and none spare');
+  const line = [{ at: 0.05, a: rad(104.5) }, { at: 1.68, a: rad(104.7) }];
+  for (const d of [104.25, 104.5, 104.75]) assert.equal((await golfFly(def, rad(d), { pulses: line })).end, 'cup', `${d}°: through both panes`);
+  assert.notEqual((await golfFly(def, rad(104.5))).end, 'cup', 'launched bare, the first pane holds');
+  assert.notEqual((await golfFly(def, rad(104.5), { pulses: line.slice(0, 1) })).end, 'cup', 'with no pulse after the first pane, the second holds');
+});
+
+test('golf, the Far Course - Figure Eight: nothing the dance lets go of is fast enough for the glass, unless it burned at the bottom of a fall', async () => {
+  const { FAR_COURSE } = await import('../src/golf.js');
+  const def = FAR_COURSE.find((h) => h.id === 'f16');
+  const rad = (d) => (d * Math.PI) / 180;
+  assert.ok(def.glass.breakSpeed / def.glass.speedKeep > def.maxBallSpeed / 2, 'broken into, the glass keeps too little speed to break out');
+  const burns = [{ at: 0.6, a: rad(5.4) }, { at: 1.05, a: rad(12.7) }];
+  for (const [d, T] of [[-2, 3], [-2.25, 3], [-1.75, 3], [-2, 3 - 1 / 240], [-2, 3 + 1 / 240]]) assert.equal((await golfFly(def, rad(d), { launchAt: T, pulses: burns })).end, 'cup', `through the dance, two burns at the bottom of the fall (${d}°, ${T} s)`);
+  assert.notEqual((await golfFly(def, rad(-2), { launchAt: 3 })).end, 'cup', 'without the burns, the same dive is too slow for the glass');
+  assert.notEqual((await golfFly(def, rad(-2), { launchAt: 5, pulses: burns })).end, 'cup', 'two seconds later, the dance is somewhere else');
+});
+
+test('golf, the Far Course - Long Night: park, transfer, stay, meet the mouth, and the cup at the end', async () => {
+  const { FAR_COURSE } = await import('../src/golf.js');
+  const def = FAR_COURSE.find((h) => h.id === 'f17');
+  const rad = (d) => (d * Math.PI) / 180;
+  assert.equal(def.wells.length, 4, 'three bodies and the cup');
+  assert.ok(def.fuel === 10 && def.flightSeconds === 45);
+  const route = [[0.6, -40.4], [0.85, -24.6], [6.1, 145.1], [22.5, 6.7]].map(([at, a]) => ({ at, a: rad(a) }));
+  for (const [d, T] of [[-90, 0], [-90.25, 0], [-89.75, 0], [-90, 1 / 240]]) {
+    const r = await golfFly(def, rad(d), { launchAt: T, pulses: route });
+    assert.equal(r.end, 'cup', `the whole night (${d}°, ${T} s)`);
+    assert.equal(r.warps, 1, 'through the mouth');
+  }
+  assert.notEqual((await golfFly(def, rad(-90), { pulses: route.filter((p, i) => i !== 2) })).end, 'cup', 'without the burn back at the second body, it flies on past');
+  assert.notEqual((await golfFly({ ...def, wormholes: [] }, rad(-90), { pulses: route })).end, 'cup', 'the third body\'s house has no way in but the mouth');
+});
+
+test('golf, the Far Course - Singularity: switch, glass, door, slot, the body that breathes, and the cup in its cage', async () => {
+  const { FAR_COURSE } = await import('../src/golf.js');
+  const def = FAR_COURSE.find((h) => h.id === 'f18');
+  const rad = (d) => (d * Math.PI) / 180;
+  assert.ok(def.nodes.length === 1 && def.doors.length === 1 && def.obstacles.some((o) => o.glass), 'a switch, a door, and glass');
+  assert.ok(def.wormholes.length === 1 && def.wormholes[0].flat, 'a pair of slots');
+  assert.ok(def.wells.some((w) => w.breath) && def.cup.rail && def.movers.some((m) => m.type === 'orbiter'), 'a body that breathes, a cup on a rail, and a cage');
+  assert.equal(def.par, 7);
+  const route = [[3.55, 15.5], [3.8, 24.6], [8.36, 263.5], [8.51, 268.8], [17, 303.8]].map(([at, a]) => ({ at, a: rad(a) }));
+  for (const [d, T] of [[-61, 4.5], [-61.25, 4.5], [-60.9, 4.5], [-61, 4.5 - 1 / 240], [-61, 4.5 + 1 / 240]]) {
+    const r = await golfFly(def, rad(d), { launchAt: T, pulses: route });
+    assert.equal(r.end, 'cup', `the whole course in one launch (${d}°, ${T} s)`);
+    assert.equal(r.warps, 1, 'down the slot');
+  }
+  assert.notEqual((await golfFly({ ...def, nodes: [] }, rad(-61), { launchAt: 4.5, pulses: route })).end, 'cup', 'with no switch, the door stays shut');
+  assert.notEqual((await golfFly(def, rad(-61), { launchAt: 4.5, pulses: route.filter((p, i) => i !== 1) })).end, 'cup', 'with one burn as the glass goes, the maw pulls the charge back');
+  assert.notEqual((await golfFly(def, rad(-61), { launchAt: 4.5, pulses: route.slice(0, 4), maxT: 25 })).end, 'cup', 'parked round the body, the cup does not come by itself in time');
 });

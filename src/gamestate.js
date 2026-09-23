@@ -206,8 +206,8 @@ export function levelWells(def) {
     hazard: !!w.hazard,
     fount: !!w.fount, // a white hole: its pull is negative, so it pushes away
     cup: def.cup ? w === def.cup : false,
-    // A body on a rail: it circles (cx, cy) at R, once every `period` seconds, from `phase`.
-    rail: w.rail ? { cx: w.rail.cx, cy: w.rail.cy, R: w.rail.R, period: w.rail.period, phase: w.rail.phase || 0 } : null,
+    // A body on a rail: it circles (cx, cy) at R, once every `period` seconds, from `phase` (or runs the figure-eight: orbitPoint).
+    rail: w.rail ? { cx: w.rail.cx, cy: w.rail.cy, R: w.rail.R, period: w.rail.period, phase: w.rail.phase || 0, shape: w.rail.shape || 'circle' } : null,
     // A phasing body is there for `on` seconds and gone for `off`, on the level's clock from `offset`: gone, it neither pulls nor stops anything.
     phasing: w.phasing ? { on: w.phasing.on, off: w.phasing.off, offset: w.phasing.offset || 0 } : null,
     absent: false,
@@ -243,8 +243,7 @@ export class StoneMover {
   set(t) {
     const r = this.well.rail;
     this.angle = r.phase + this.omega * t;
-    this.well.x = r.cx + Math.cos(this.angle) * r.R;
-    this.well.y = r.cy + Math.sin(this.angle) * r.R;
+    ({ x: this.well.x, y: this.well.y } = orbitPoint(r, t));
   }
 
   update(dt) {
@@ -273,14 +272,48 @@ export class StoneMover {
   /** The body's own velocity along its rail; every point of it moves alike. */
   surfaceVelocityAt() {
     const r = this.well.rail;
+    if (r.shape === 'eight') {
+      const a = orbitPoint(r, this.t - 1e-3);
+      const b = orbitPoint(r, this.t + 1e-3);
+      return { x: (b.x - a.x) / 2e-3, y: (b.y - a.y) / 2e-3 };
+    }
     return { x: -Math.sin(this.angle) * r.R * this.omega, y: Math.cos(this.angle) * r.R * this.omega };
   }
 }
 
-/** Where a point on an orbit is at level time t: it circles (cx, cy) at R, once every `period` seconds (a negative period goes the other way), from `phase`. */
+/**
+ * The figure-eight three equal bodies can chase each other round for ever
+ * (Chenciner & Montgomery, 2000), as sine series in the angle round it: the
+ * orbit integrated once and fitted, good to a twentieth of a pixel at the
+ * size a hole draws it. It crosses itself at its centre, and is 2.2 of its
+ * scale across and 0.72 tall.
+ */
+const EIGHT_X = [[1, -1.100841], [5, 0.025392], [7, 0.005876], [11, -0.000423], [13, -0.000123]];
+const EIGHT_Y = [[2, -0.33881], [4, -0.055964], [8, 0.003004], [10, 0.000806], [14, -0.000068]];
+
+/**
+ * Where a point on an orbit is at level time t: it circles (cx, cy) at R,
+ * once every `period` seconds (a negative period goes the other way), from
+ * `phase`. An orbit of `shape: 'eight'` runs the figure-eight instead, R its
+ * scale; three a third of a turn apart are the dance itself.
+ */
 export function orbitPoint(o, t) {
   const a = o.phase + ((Math.PI * 2) / o.period) * t;
+  if (o.shape === 'eight') {
+    let x = 0;
+    let y = 0;
+    for (const [k, c] of EIGHT_X) x += c * Math.sin(k * a);
+    for (const [k, c] of EIGHT_Y) y += c * Math.sin(k * a);
+    return { x: o.cx + x * o.R, y: o.cy + y * o.R };
+  }
   return { x: o.cx + Math.cos(a) * o.R, y: o.cy + Math.sin(a) * o.R };
+}
+
+/** A rail's whole path as points, for drawing it: a circle, or the figure-eight. */
+export function railPath(o, n = 96) {
+  const pts = [];
+  for (let i = 0; i < n; i++) pts.push(orbitPoint({ ...o, phase: (i / n) * Math.PI * 2, period: 1 }, 0));
+  return pts;
 }
 
 /** Put every orbiting wormhole mouth where it is at level time t. Runs from the start of the level, like a body on a rail, so a launch is timed against it. */

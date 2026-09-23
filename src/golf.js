@@ -1019,6 +1019,200 @@ export const FAR_COURSE = [
       { x: 2650, y: 380, r: 56, kind: 'switch', toggles: [1], holdOpen: 5 },
     ],
   }),
+  farHole({
+    id: 'f13',
+    hole: 13,
+    par: 5,
+    noBareLine: true,
+    title: 'Slingshot Ladder',
+    track: 'slingshot',
+    intro: 'Four maws stand at the corners of a square, and each is a rung: pass one close and it turns you. At launch speed a rung turns a charge barely half a right angle, and the ladder throws it away. Burn straight back on the run-up, before the first rung, and every one of them turns you a quarter of the way round, all the way back to the cup behind the tee. The stone beside the tee is there so that nothing gets to the cup any other way.',
+    record: 'The rungs were set for something slower than anything that leaves a tee. It was a long time before anyone thought of slowing down.',
+    sunk: 'Four rungs, four quarter turns, and home again.',
+    open: true,
+    width: 20000,
+    height: 20000,
+    view: SCREEN,
+    area: { x: 8550, y: 8850, w: 2900, h: 2300 },
+    boundary: room(20000, 20000),
+    flightSeconds: 18,
+    tee: { x: 9900, y: 9310, angle: 0 },
+    // The rungs: at launch speed each turns a line by at most 56 degrees; slowed by a pulse, by a right angle.
+    wells: [
+      ...[[10750, 9550], [10750, 10450], [9250, 10450], [9250, 9550]].map(([x, y]) => maw(x, y, { r: 40, range: 400, pull: 100000 })),
+      // Between the tee and the cup: no straight way home.
+      planet(9725, 9320, { r: 45, range: 140, pull: 8000 }),
+    ],
+    cup: cup(9550, 9330, { range: 110 }),
+  }),
+  farHole({
+    id: 'f14',
+    hole: 14,
+    par: 5,
+    noBareLine: true,
+    title: 'Contraflow',
+    track: 'contraflow',
+    intro: 'The tee parks you round a black hole, and two mouths circle it further out than any launch can climb: the pink one against your flow, the gold one with it. Pink lets go at the cup, gold at a maw. Burn twice as the pink mouth comes round to meet you, just after it crosses the far side of the hole, and you climb into it. A beat late and the gold one takes you instead, or the maw riding the rail between the two orbits.',
+    record: 'Two mouths on one orbit, going opposite ways, and only one of them worth taking. The course calls that a choice.',
+    sunk: 'Up against the flow, into the right mouth, and down.',
+    width: 3200,
+    height: 1800,
+    view: SCREEN,
+    boundary: room(3200, 1800),
+    flightSeconds: 24,
+    tee: { x: 600, y: 900, angle: -Math.PI / 2 },
+    wells: [
+      // A black hole to park round: a line aimed at it falls in rather than bouncing back out.
+      maw(900, 900, { r: 120, range: 1000, pull: 184900 }),
+      // The rider between the orbits, beyond anything a launch reaches on its own.
+      maw(1460, 900, { r: 30, range: 90, pull: 50000, rail: { cx: 900, cy: 900, R: 560, period: -6, phase: 0 } }),
+      maw(2500, 1350, { r: 70, range: 300, pull: 120000 }), // the trap: the gold mouth lets go inside its horizon
+    ],
+    cup: cup(2500, 450),
+    obstacles: [
+      rect(1800, 900, 24, 1680), // the orbit's side, sealed off from the right
+      rect(2476, 900, 1328, 24), // the cup's side above, the trap's below
+      rect(480, 900, 16, 240), // behind the tee: a line fired straight out comes back to the hole
+    ],
+    wormholes: [
+      // Pink's far mouth circles the cup in step with the near one, a little behind, so it lets go heading in.
+      orbitingWarp({ cx: 900, cy: 900, R: 620, period: -10, phase: 0 }, { cx: 2500, cy: 450, R: 110, period: -10, phase: (-149 * Math.PI) / 180 }, 44, null, { oneWay: true }),
+      // Gold's lets go at the heart of the trap.
+      orbitingWarp({ cx: 900, cy: 900, R: 620, period: 10, phase: Math.PI }, { x: 2500, y: 1350 }, 44, GOLD, { oneWay: true }),
+    ],
+  }),
+  farHole({
+    id: 'f15',
+    hole: 15,
+    par: 5,
+    noBareLine: true,
+    title: 'Pachinko',
+    track: 'pachinko',
+    intro: 'Three floors, and the charge is heavy: nothing speeds it past five hundred a second. Each floor has one window of glass that gives only to a charge moving four hundred and eighty or more, and a pane breaking costs a sixth of your speed, so you reach the next floor too slow. The gauge holds two pulses: one off the tee, one as the first pane goes. Above each window a pair of founts makes a lens, and the one line that threads the lenses runs through both windows to the cup.',
+    record: 'The board was built to sort charges by the line they took. Nearly all of them end up in the gutters, which is what the gutters are for.',
+    sunk: 'Two panes, three lenses, one line, and the gauge empty at the bottom.',
+    width: 1600,
+    height: 2700,
+    view: SCREEN,
+    boundary: room(1600, 2700),
+    flightSeconds: 10,
+    fuel: 2,
+    maxBallSpeed: 500,
+    glass: { breakSpeed: 480 },
+    tee: { x: 1150, y: 200, angle: Math.PI / 2 },
+    wells: [
+      // Three lenses, each a pair of founts, stepping down and to the left.
+      ...[[1050, 520], [810, 1350], [600, 2200]].flatMap(([x, y]) => [fount(x - 90, y, { range: 200, pull: -50000 }), fount(x + 90, y, { range: 200, pull: -50000 })]),
+      // The gutters, in the corners of every floor.
+      ...[810, 1710, 2600].flatMap((y) => [maw(150, y, { r: 34, range: 200, pull: 60000 }), maw(1450, y, { r: 34, range: 200, pull: 60000 })]),
+    ],
+    cup: cup(530, 2500, { range: 110 }),
+    obstacles: [
+      // Two floors, solid but for one pane of glass each.
+      rect(472.5, 900, 825, 16, 0),
+      rect(1257.5, 900, 565, 16, 0),
+      { poly: rect(930, 900, 90, 16, 0), color: '#7fe9d6', glass: true },
+      rect(356.5, 1800, 593, 16, 0),
+      rect(1141.5, 1800, 797, 16, 0),
+      { poly: rect(698, 1800, 90, 16, 0), color: '#b8fff0', glass: true },
+    ],
+  }),
+  farHole({
+    id: 'f16',
+    hole: 16,
+    par: 6,
+    noBareLine: true,
+    title: 'Figure Eight',
+    track: 'figureeight',
+    intro: 'Three maws chase each other round a figure-eight, a third of a turn apart, the way three equal bodies can for ever. Nothing the dance lets go of leaves faster than it came, and the glass round the cup on the far side gives to nothing under six hundred a second. Dive through the middle of the dance and burn as you whip past a maw, when you are falling fastest: a pulse spent there is worth far more than one spent anywhere else.',
+    record: 'Chenciner and Montgomery found the figure-eight in the year 2000: three bodies on one curve, for ever. The course found three maws willing to try it.',
+    sunk: 'Through the dance, out the far side at full tilt, and through the glass.',
+    open: true,
+    width: 20000,
+    height: 20000,
+    view: SCREEN,
+    area: { x: 8800, y: 9000, w: 3600, h: 2000 },
+    boundary: room(20000, 20000),
+    flightSeconds: 16,
+    glass: { breakSpeed: 600, speedKeep: 0.7 },
+    tee: { x: 9200, y: 10000, angle: -Math.PI / 2 },
+    // Three maws on the figure-eight, a third of a turn apart: from outside they pull like one body.
+    wells: [0, 1, 2].map((k) => maw(10000, 10000, { r: 36, range: 1400, pull: 61633, rail: { shape: 'eight', cx: 10000, cy: 10000, R: 420, period: 12, phase: (k * 2 * Math.PI) / 3 } })),
+    cup: cup(12000, 10000, { range: 150, pull: 60000 }),
+    // The cup's glass box: broken into at six hundred, it keeps too little of that to break out again.
+    obstacles: [rect(12000, 9820, 376, 16, 0), rect(12000, 10180, 376, 16, 0), rect(11820, 10000, 16, 344, 0), rect(12180, 10000, 16, 344, 0)].map((poly, i) => ({ poly, color: i % 2 ? '#b8fff0' : '#7fe9d6', glass: true })),
+  }),
+  farHole({
+    id: 'f17',
+    hole: 17,
+    par: 6,
+    noBareLine: true,
+    title: 'Long Night',
+    track: 'longnight',
+    intro: 'Three bodies, and a long way between them. Park round the first, a black hole, and burn twice as your orbit points you at the second. Burn back as you fall past the second to stay with it. A mouth circles it; wait for the mouth to meet you, and it sets you down on an orbit round the third, in a house where the cup rides a rail. Forty-five seconds, and ten pulses to spend on the way.',
+    record: 'The longest flight on the course, and the only one with time in it to think. Most of the thinking is waiting.',
+    sunk: 'Three bodies, two transfers, one mouth, and the cup at the end of the night.',
+    open: true,
+    width: 20000,
+    height: 20000,
+    view: SCREEN,
+    area: { x: 7600, y: 9000, w: 6000, h: 2000 },
+    boundary: room(20000, 20000),
+    flightSeconds: 45,
+    fuel: 10,
+    tee: { x: 8300, y: 10000, angle: -Math.PI / 2 },
+    wells: [
+      maw(8600, 10000, { r: 120, range: 900, pull: 184900 }),
+      planet(10600, 10000, { r: 60, range: 900, pull: 184900 }),
+      planet(12600, 10000, { r: 60, range: 900, pull: 184900 }),
+    ],
+    cup: cup(13050, 10000, { range: 110, rail: { cx: 12600, cy: 10000, R: 450, period: -10, phase: 0 } }),
+    obstacles: [
+      rect(8180, 10000, 16, 240, 0), // behind the tee
+      // The third body's house: the mouth is the only way in.
+      rect(12600, 9300, 1424, 24, 0),
+      rect(12600, 10700, 1424, 24, 0),
+      rect(11900, 10000, 24, 1376, 0),
+      rect(13300, 10000, 24, 1376, 0),
+    ],
+    wormholes: [orbitingWarp({ cx: 10600, cy: 10000, R: 450, period: 9, phase: (3 * Math.PI) / 4 }, { cx: 12600, cy: 10000, R: 300, period: 9, phase: (3 * Math.PI) / 4 }, 44, null, { oneWay: true })],
+  }),
+  farHole({
+    id: 'f18',
+    hole: 18,
+    par: 7,
+    noBareLine: true,
+    title: 'Singularity',
+    track: 'singularity',
+    intro: 'Everything, once more, in order. Bank off the switch, and the core\'s door opens for twenty seconds. The maw beside the glass throws you through it; burn twice along the hall as the glass goes, or the maw pulls you back. Through the door, and the slot behind it drops you into the core from the ceiling. Burn back as you swing past the body that breathes, to park round it, then burn back again as the cup comes round inside its turning cage.',
+    record: 'The core was the first thing built out here, and everything else on the course was laid out to keep it hard to reach.',
+    sunk: 'Switch, glass, door, slot, the body that breathes, and the cup in its cage. The Far Course is played.',
+    width: 3400,
+    height: 2700,
+    view: SCREEN,
+    boundary: room(3400, 2700),
+    flightSeconds: 60,
+    fuel: 10,
+    tee: { x: 250, y: 250, angle: 0.2 },
+    wells: [
+      maw(1450, 300, { r: 40, range: 800, pull: 300000 }), // beside the glass: the only thing out here fast enough to break it
+      planet(2470, 1770, { r: 60, range: 1100, pull: 184900, breath: { period: 8, amp: 0.2 } }),
+    ],
+    cup: cup(2670, 1770, { range: 110, rail: { cx: 2470, cy: 1770, R: 200, period: -7, phase: 0 } }),
+    obstacles: [
+      // The tee room's east wall, all glass.
+      ...[0, 1, 2, 3].map((i) => ({ poly: rect(1600, 60 + 207 * (i + 0.5), 16, 207, 0), color: i % 2 ? '#b8fff0' : '#7fe9d6', glass: true })),
+      rect(2470, 900, 1740, 24, 0), // the hall's floor, and the core's ceiling
+      [[60, 900], [1600, 900], [1600, 2640], [140, 2640], [60, 2560]], // the dead corner below the tee room
+      rect(3200, 170, 24, 220, 0), // the hall's far wall, above the door
+      rect(3200, 784, 24, 208, 0), // and below it
+    ],
+    doors: [rect(3200, 480, 24, 400, 0)],
+    nodes: [{ x: 650, y: 700, r: 56, kind: 'switch', toggles: [0], holdOpen: 20 }],
+    movers: [cage(2470, 1770, { radius: 300, count: 3, length: 200, thick: 6, period: 12 })],
+    // Behind the door, a slot in the far wall; its partner in the core's ceiling turns the charge a right angle, down.
+    wormholes: [slots({ x: 3340, y: 480, face: 180 }, { x: 2550, y: 912, face: 90 }, { half: 190 })],
+  }),
 ];
 
 /** "Hole 2", for the HUD and the roster. */

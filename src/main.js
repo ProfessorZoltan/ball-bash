@@ -5252,6 +5252,7 @@ function golfMap(mode) {
     <ul class="golf-key">
       <li><span class="k cup"></span>${g.wells.some((w) => w.cup && w.rail) ? 'The cup — it rides a rail, so send the charge where it will be' : 'The cup — get the charge past its horizon'}</li>
       ${g.wells.some((w) => w.hazard) ? '<li><span class="k maw"></span>A maw — its horizon ends the shot</li>' : ''}
+      ${g.wells.some((w) => w.rail && w.rail.shape === 'eight') ? '<li><span class="k maw"></span>Maws on a figure-eight — three of them chasing each other round one curve, a third of a turn apart</li>' : ''}
       ${g.wells.some((w) => w.breath) ? '<li><span class="k breath"></span>A body that breathes — its pull swells and fades on a clock, and the ring round it rises and falls with it</li>' : ''}
       ${g.wells.some((w) => w.phasing) ? '<li><span class="k phase"></span>A body that comes and goes — the ring round it is its clock, and while it is gone it neither pulls nor stops anything</li>' : ''}
       ${g.wells.some((w) => w.solid && !w.fount && !w.phasing && !w.breath) ? '<li><span class="k planet"></span>A stone — solid, and its field bends what passes</li>' : ''}
