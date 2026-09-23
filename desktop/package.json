@@ -1,6 +1,6 @@
 {
   "name": "deflector-desktop",
-  "version": "1.6.0-alpha",
+  "version": "2.0.0-alpha",
   "private": true,
   "description": "Deflector for Windows: the game in its own window, with the LAN server built in.",
   "author": "ProfessorZoltan",
