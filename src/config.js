@@ -52,7 +52,7 @@ export const BALL = {
 export const SPEED_CEILING = 2250; // px/s: 9.4 px per step, 85% of the ball's radius
 
 /**
- * Volley: a versus mode with no ball of its own. Every fighter carries a
+ * Blaster: a versus mode with no ball of its own. Every fighter carries a
  * charge in its own colour at the centre of its shield and fires it with the
  * thrust. A charge lives `life` seconds and the next one forms when it dies,
  * so a fighter has exactly one in the air at a time, and a charge in anyone

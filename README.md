@@ -137,7 +137,13 @@ toward it with a 1/distance fall-off that fades out over the outer third:
 the ball accelerates by `pull / d` px/s² and a player drifts `drag / d`
 px/s, so close in the drift outruns a player's own speed. Inside the horizon
 `r` the ball is taken (a free re-serve) and a player loses a shield and
-restarts at their spawn; drones are never pulled. With a well the dotted
+restarts at their spawn; drones are never pulled. A level with
+`wellReturns: true` (the Event Horizon) gives the ball straight back instead:
+it comes out at a random spot outside every well's reach, clear of walls,
+solids, moving parts and 220 px from every fighter, on the same course at the
+same speed, preferably one not heading back at the well, and play goes on
+with no re-serve (`wellReturnSpot` in `src/gamestate.js`, `returnBall` in
+`src/main.js`). With a well the dotted
 guide is integrated through the field instead of cast straight, so it shows
 the bend. A drone with `phasing: { on, off }` is solid for `on` seconds from
 each serve and then intangible for `off`: drawn faint, ignored by the ball
@@ -194,7 +200,7 @@ Conduits built so far:
 | 5½ Reliquary | Glass Cathedral | a nave ending in an apse walled off by three panes of stained glass, of which only the amber one breaks, and only to a strike of 600 px/s or more under the 750 cap; the relic node behind it must be reached before the pane heals four seconds later; two choristers loop the nave and block | `src/conduits.js` |
 | 6½ Lamplighter | The Undercroft | an unlit crypt stair where five candle nodes light their corners when struck and the exit only answers once the candles beside it burn; two lantern drones loop the dark with their light shuttered while they move and shown while they stand or block; no guide line | `src/conduits.js` |
 | 7½ Relay Mast | Signal Spire | a mast splits the room and the only lane is over its top; two floor emitters pulse half a period apart and every ring flings the ball, so a shot waits for the silence or rides a ring over; two turrets fire on the same beat; the receiver on the far side is hooded to take the ball only from above and to the left, the way a lob arrives | `src/conduits.js` |
-| 8½ Event Horizon | Nullspace | a gravity well at the centre of a chamber whose top and bottom walls breathe; inside its dotted reach the ball bends toward it and players drift after it, and the horizon takes whatever crosses it (the ball for a free re-serve, a player for a shield and a trip back to the spawn); the shot guide bends with the pull; Umbra, a shadow of the Absence, circles the well solid three seconds in five and has to be knocked out while it is; the node waits beyond the well's reach, straight across from the player, so only a slingshot or a bank reaches it | `src/conduits.js` |
+| 8½ Event Horizon | Nullspace | a gravity well at the centre of a chamber whose top and bottom walls breathe; inside its dotted reach the ball bends toward it and players drift after it, and the horizon takes whatever crosses it (the ball comes straight back out somewhere far from the well on the same course, with no re-serve; a player loses a shield and goes back to the spawn); the shot guide bends with the pull; Umbra, a shadow of the Absence, circles the well solid three seconds in five and has to be knocked out while it is; the node waits beyond the well's reach, straight across from the player, so only a slingshot or a bank reaches it | `src/conduits.js` |
 | 9½ Drafting Room | The Last Arcade | the exam: a ricochet node in the corner, a hooded node screened so it opens only from below, a switch that opens the door of a bay whose glass pane breaks only to a 600 px/s strike with a plain node behind it, a turret in the floor whose shot has to be sent back into it, a signature node on the far side that answers only once the other three are lit, a cart on the middle rail, two coolant vents and the prism at the centre | `src/conduits.js` |
 
 ## Frames (the four readings)
@@ -305,9 +311,10 @@ Both players open that address on the same network. On the title screen,
 code (and a share link), the others join with it. The host picks the arena,
 the shields per player and the rules. One loss ends a round; with no shields
 left you are out, and the last one standing wins. Each
-player keeps one colour for the whole match whichever side they spawn on (the
-host wears the arena's wall colour, the guest its obstacle colour), and the
-score, names and point notices are tinted to match. Boss-only abilities are
+player keeps one colour for the whole match whichever side they spawn on,
+chosen to stand well apart from the arena's wall and obstacle colours and from
+each other's (see Versus below), and the score, names and point notices are
+tinted to match. Boss-only abilities are
 off in multiplayer; ice trails lay for either player's blocks and only freeze
 the other player (its core is tinted in the colour of whoever laid it).
 
@@ -380,7 +387,8 @@ two, clear of walls, obstacles and everywhere the movers sweep.
 Six of the conduits are versus arenas too, at the bottom of the list, played
 at the conduits' 750 px/s cap and stripped to their hazards: the nodes, the
 switch-operated doors and the drones are gone, and what remains is what
-happens to everyone alike.
+happens to everyone alike. There is no objective either: knocking a turret
+out or lighting something there does not end a versus or Blaster match.
 
 | Arena | What stays | What a player can lose a shield to, besides the ball | Source |
 |---|---|---|---|
@@ -388,7 +396,7 @@ happens to everyone alike.
 | 2½ Condensers | a chamber each, the tunnel between them sliding shut and open, six coolant vents | ice from the vents (a freeze, not a shield) | same |
 | 3½ Orbit Deck | the two plates circling the centre, two wall turrets that fire at whoever is nearest | a turret shot on the body | same |
 | 7½ Relay Mast | the mast between the sides, two floor emitters flinging the ball, two turrets on the beat; a third player takes the lane over the mast | a turret shot on the body | same |
-| 8½ Event Horizon | the well and the breathing walls; every seat starts outside its reach | being dragged over the horizon (a swallowed ball just re-serves) | same |
+| 8½ Event Horizon | the well and the breathing walls; every seat starts outside its reach | being dragged over the horizon (a swallowed ball comes straight back out elsewhere and play goes on) | same |
 | 9½ Drafting Room | the prism, the floor turret, two vents, the bay with its door gone and its glass still up | a turret shot on the body | same |
 
 Three conduits stay campaign-only: **Signal Box** is nothing but its switches
@@ -398,7 +406,7 @@ Each versus conduit lists its own seats under `spawns` for two and three
 players; a level or conduit without a seat list gets fair seats worked out at
 match time, never inside a well's reach or on a turret.
 
-### Volley (no ball, every shield loaded)
+### Blaster (no ball, every shield loaded)
 
 A third mode in the lobby, on any versus arena. There is no ball at all.
 Every fighter carries a **charge** in its own colour at the centre of its
@@ -411,13 +419,14 @@ loss; your own colour cannot hurt you.
 | One charge each | it lives three seconds and the next forms as it dies, so nobody ever has two in the air | `VOLLEY` in `src/config.js` |
 | The thrust fires it | rotating only turns the shield, so swinging at a charge never spends yours | `fireCharge` in `src/main.js` |
 | Reload runs from firing | three seconds whatever the charge meets, so shooting a nearby wall is not a free reload | same |
-| Walls turn it back | walls, doors and moving parts bounce a charge instead of ending it, and a moving part lends it its motion | `stepVolley`, same file |
+| Walls turn it back | walls, doors and moving parts bounce a charge instead of ending it, and a moving part lends it its motion | `stepBlaster`, same file |
 | Shields move it | a charge leaves at the middle of the arena's range, and after that a shield swung into it adds speed and a retreating one takes it away, exactly as they do the ball | `clampCharge`, same file |
 | The arena's cap holds it | whatever a shield does, a charge stays between the floor and the arena's own limit | same |
-| Deflection is aim | a shield turns a charge away without taking it over: it keeps its colour, its owner and its clock | `stepVolley` |
+| Deflection is aim | a shield turns a charge away without taking it over: it keeps its colour, its owner and its clock | `stepBlaster` |
 | Your own is harmless | it bounces off your body and flies on | same |
 | The arena still applies | the Event Horizon's well bends a charge in flight and the horizon takes it, just as it does the ball | same |
 | Nobody walks through anybody | bodies block each other, so no one can shove into a rival and fire point blank | `separateFighters` in `src/main.js` |
+| A wall close ahead | a charge is formed beyond your shield, but the way out is swept from your centre, so one fired into a wall you are standing against forms on the room's side of it and bounces, rather than beyond it | `chargeMuzzle` in `src/main.js` |
 | The carried charge is drawn only | it is never part of the physics, so it cannot widen your shield | `drawCharges` in `src/render.js` |
 
 A loaded charge is meant to be read across the room: a bright core, a halo
@@ -442,6 +451,30 @@ simulated seconds to prove nothing can pump it past that. A shield retreating
 at exactly the charge's speed cancels it dead; rather than leave it hanging in
 the air it goes on along the contact normal at the floor speed, the same
 recovery the ball gets when it stalls.
+
+### Wormhole Variant (Blaster)
+
+A tick box under the mode in the lobby, shown when Blaster is picked. Every
+player gets a pair of wormholes of their own, in their own colour, and can put
+each end on any wall, obstacle or moving part.
+
+| Rule | What it means | Source |
+|---|---|---|
+| Deploying | **Q** or **LB** puts out the light end, **E** or **RB** the dark end, on the first wall, obstacle side or moving part straight ahead along your facing. Pressing the same key again moves that end there | `aimPortal` in `src/portals.js`, `portalButtons` in `src/main.js` |
+| Two ends, two shades | the light end is your colour mixed toward white, the dark end toward black, each with a glow in your own colour. One end alone is dashed and dim; a pair is open once both are out, with a white core and sparks drifting across it | `portalHue` in `src/color.js`, `drawPortals` in `src/render.js` |
+| Wide enough | 96 px across, room for the biggest frame; on a surface long enough it slides along so all of it lies on the surface | `PORTAL.halfWidth` in `src/portals.js` |
+| On a moving part | it rides with it (a breathing wall, a sliding slab, an orbiting plate); if its surface goes, a pane broken, the end goes too | `framePortal` in `src/portals.js`, `refreshPortals` in `src/main.js` |
+| Anyone's | any fighter can go through any open pair, yours or a rival's | `mouthOf` in `src/portals.js` |
+| Going through | the moment your centre crosses the surface you come out of the other end, with the same speed, and your direction and facing turned by the angle between the two ends | `throughPortal`, `portalFighter` in `src/portals.js` |
+| Grace | for 0.35 s after coming out you cannot go back in (at most halfway), so two ends facing the same way cannot bounce you to and fro | `PORTAL.grace` |
+| Halfway | stop with your body across a mouth and you stay there, drawn half at each end. The mouth is open across its width and to whatever lies just behind it (so a thin slab with the room's wall behind it still lets you through), while the surface either side stands | `carve` in `src/portals.js`, `drawFighterThrough` in `src/render.js` |
+| Charges | go through the same way, anyone's, and are looked for a step ahead so a fast one reaches the mouth before the wall; one fired with a mouth nearer than the muzzle is formed on the far side | `stepBlaster`, `chargeMuzzle` in `src/main.js` |
+| How long | an end stays until you move it or the round ends | `buildGame` in `src/main.js` |
+| Online | the host decides every crossing. Ends travel in the snapshot (a wall end as where it is, a moving one as which part and where on it), a guest predicts its own crossings, and nothing is interpolated across a jump | `encodePortal`, `decodePortal` in `src/portals.js`, `src/netstate.js` |
+
+The half of you already through is drawn at the far end but is not solid
+there until you cross. There are no touch buttons for wormholes yet: on a
+phone the variant needs a keyboard or a controller.
 
 ### Ball speed
 
@@ -478,8 +511,13 @@ own-ball rule on), standing still, a turret's shot or a gravity well costs
 that player one shield, play stops,
 and everyone is reseated for a fresh serve. A player with no shields left is
 out and watches the rest; the last one standing wins. Seats are fixed for the
-match (the host wears the arena's wall colour, the first guest its obstacle
-colour, the third player the arena's `palette.third`); the survivors take the
+match, and so are colours: nobody wears the arena's wall or obstacle colour,
+or anything close to it, since a Blaster wormhole sits in those surfaces and
+has to stand out from them. The arena's `palette.third` comes first where it
+qualifies, then a fixed list (`PLAYER_COLORS`), each at least 110 apart (RGB
+distance) from the walls, the obstacles and the other players; every arena
+meets that, and a test checks it (`versusColors` in `src/gamestate.js`). The
+survivors take the
 spawn set for their number, and who starts where rotates every round. Each
 arena lists a spawn set per player count under `spawns`; a fourth set is the
 only thing a four-player match will need.
@@ -869,6 +907,7 @@ static Vercel deployment cannot relay, so the button is disabled there.
 | Pause / mute / restart | **P** (or the ❚❚ button in the HUD, which is how a phone pauses) / **M** / **R** |
 | Galactic Golf: launch, then one ion pulse per click | **Left click** or **Space** (the mouse aims the launcher, and in flight the pulses; **right click** held with sideways travel is fine aim, an eighth of the travel; **right click** runs a spent flight out, **P** is the hole map) |
 | Controller (Xbox or any standard gamepad) | **left stick** moves, **right stick** or **LT** / **RT** rotate (further is faster), **A** thrusts, **X** pulls the shield in, **Start** pauses, **A** also confirms on menus |
+| Blaster, Wormhole Variant: put out each end of your pair | **Q** (light end) and **E** (dark end), or **LB** and **RB** on a controller; each goes on the first surface you face, and pressing again moves it |
 | Netcode switches (online play) | **1** prediction, **2** render buffer, **3** latency compensation, **4** hit prediction, **5** direct connection, each on or off; also in the lobby under Netcode |
 
 The mouse has three ways to turn the frame, chosen under **Mouse** on the

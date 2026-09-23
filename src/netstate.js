@@ -1,13 +1,14 @@
 // Snapshots of the host's game state for the guest to mirror, and the
 // inverse. Everything is rounded to keep the JSON small; positions to 0.1 px.
 import { rebuildWalls } from './gamestate.js';
+import { encodePortal, decodePortal, framePortal } from './portals.js';
 import { wrapAngle } from './vec.js';
 
 const r1 = (v) => Math.round(v * 10) / 10;
 const r3 = (v) => Math.round(v * 1000) / 1000;
 
 export function fighterState(f) {
-  return [r1(f.x), r1(f.y), r3(f.angle), r1(f.paddleOffset), r1(f.frozen), f.lungeState === 'out' ? 1 : 0, r1(f.hitFlash), r1(f.invuln), r1(f.campTimer), f.down ? 1 : 0, f.glow ? 1 : 0, f.phased ? 1 : 0, f.charged ? 1 : 0, r1(f.chargeAt)];
+  return [r1(f.x), r1(f.y), r3(f.angle), r1(f.paddleOffset), r1(f.frozen), f.lungeState === 'out' ? 1 : 0, r1(f.hitFlash), r1(f.invuln), r1(f.campTimer), f.down ? 1 : 0, f.glow ? 1 : 0, f.phased ? 1 : 0, f.charged ? 1 : 0, r1(f.chargeAt), f.warps || 0, r1(f.portalGrace || 0)];
 }
 
 export function applyFighter(f, a) {
@@ -25,6 +26,8 @@ export function applyFighter(f, a) {
   f.phased = !!a[11];
   f.charged = !!a[12];
   f.chargeAt = a[13] || 0;
+  f.warps = a[14] || 0;
+  f.portalGrace = a[15] || 0;
 }
 
 export function moverState(m) {
@@ -47,7 +50,7 @@ export function buildSnapshot(g, meta, events = [], includeIce = true) {
     t: 's',
     ...meta,
     time: r3(g.time || 0), // to the millisecond: a guest interpolates between two of these
-    ball: [r1(b.x), r1(b.y), r1(b.vx), r1(b.vy), b.held ? 1 : 0],
+    ball: [r1(b.x), r1(b.y), r1(b.vx), r1(b.vy), b.held ? 1 : 0, b.warps || 0],
     f: g.fighters.map(fighterState),
     mv: g.movers.map(moverState),
   };
@@ -58,7 +61,11 @@ export function buildSnapshot(g, meta, events = [], includeIce = true) {
   if (pulsers.length) s.pu = pulsers.map((p) => [r1(p.t), r1(p.nextAt), p.active ? 1 : 0, r1(p.radius || 0), r1(p.x), r1(p.y)]);
   if (g.turrets && g.turrets.length) s.tu = g.turrets.map((t) => [t.down ? 1 : 0, r3(t.aim)]);
   if ((g.turrets && g.turrets.length) || g.volley) {
-    s.pj = g.shots.map((p) => [r1(p.x), r1(p.y), r1(p.vx), r1(p.vy), p.deflected ? 1 : 0, p.owner || '', r1(p.r)]);
+    s.pj = g.shots.map((p) => [r1(p.x), r1(p.y), r1(p.vx), r1(p.vy), p.deflected ? 1 : 0, p.owner || '', r1(p.r), p.warps || 0]);
+  }
+  if (g.portals) {
+    s.ph = {};
+    for (const [slot, pair] of Object.entries(g.portals)) if (pair) s.ph[slot] = [encodePortal(pair[0]), encodePortal(pair[1])];
   }
   if (includeIce && g.ice) s.ice = { u: r1(g.ice.layUntil), o: g.ice.owner, p: g.ice.points.map((p) => [r1(p.x), r1(p.y), r1(p.t)]), q: g.ice.patches.map((p) => [r1(p.x), r1(p.y), p.r, r1(p.t)]) };
   if (events.length) s.ev = events;
@@ -178,13 +185,26 @@ export function lerpView(g, a, b, u, skipSlot = null) {
   const sb = b.s;
   const L = (x, y) => x + (y - x) * u;
   const ball = g.ball;
-  ball.x = L(sa.ball[0], sb.ball[0]);
-  ball.y = L(sa.ball[1], sb.ball[1]);
+  if ((sa.ball[5] || 0) !== (sb.ball[5] || 0)) {
+    // It jumped between the two (the Event Horizon's return): it is in one place or the other, never on the way.
+    const near = u < 0.5 ? sa : sb;
+    ball.x = near.ball[0];
+    ball.y = near.ball[1];
+  } else {
+    ball.x = L(sa.ball[0], sb.ball[0]);
+    ball.y = L(sa.ball[1], sb.ball[1]);
+  }
   for (let i = 0; i < g.fighters.length && i < sa.f.length && i < sb.f.length; i++) {
     const f = g.fighters[i];
     if (f.slot === skipSlot) continue;
     const fa = sa.f[i];
     const fb = sb.f[i];
+    if ((fa[14] || 0) !== (fb[14] || 0)) {
+      // It went through a wormhole between the two: at one mouth or the other, never on the way.
+      const near = u < 0.5 ? fa : fb;
+      [f.x, f.y, f.angle, f.paddleOffset] = [near[0], near[1], near[2], near[3]];
+      continue;
+    }
     f.x = L(fa[0], fb[0]);
     f.y = L(fa[1], fb[1]);
     f.angle = fa[2] + wrapAngle(fb[2] - fa[2]) * u;
@@ -197,9 +217,14 @@ export function lerpView(g, a, b, u, skipSlot = null) {
   }
   if (sa.pj && sb.pj && sa.pj.length === sb.pj.length && g.shots.length === sb.pj.length) {
     for (let i = 0; i < g.shots.length; i++) {
-      g.shots[i].x = L(sa.pj[i][0], sb.pj[i][0]);
-      g.shots[i].y = L(sa.pj[i][1], sb.pj[i][1]);
+      const near = (sa.pj[i][7] || 0) !== (sb.pj[i][7] || 0) ? (u < 0.5 ? sa.pj[i] : sb.pj[i]) : null; // through a wormhole between the two
+      g.shots[i].x = near ? near[0] : L(sa.pj[i][0], sb.pj[i][0]);
+      g.shots[i].y = near ? near[1] : L(sa.pj[i][1], sb.pj[i][1]);
     }
+  }
+  if (g.portals) {
+    // Wormholes on moving parts ride with them, and the parts were just drawn where they were then.
+    for (const pair of Object.values(g.portals)) for (const p of pair || []) if (p && p.host.kind === 'mover') framePortal(g, p);
   }
 }
 
@@ -211,6 +236,7 @@ export function applySnapshot(g, s) {
   b.vx = s.ball[2];
   b.vy = s.ball[3];
   b.held = !!s.ball[4];
+  b.warps = s.ball[5] || 0;
   for (let i = 0; i < g.fighters.length && i < s.f.length; i++) applyFighter(g.fighters[i], s.f[i]);
   for (let i = 0; i < s.mv.length && i < g.movers.length; i++) applyMover(g.movers[i], s.mv[i]);
   let glassChanged = false;
@@ -259,7 +285,12 @@ export function applySnapshot(g, s) {
       g.turrets[i].aim = s.tu[i][1];
     }
   }
-  if (s.pj) g.shots = s.pj.map(([x, y, vx, vy, d, owner, r]) => ({ x, y, vx, vy, r: r || 8, deflected: !!d, owner: owner || null }));
+  if (s.pj) g.shots = s.pj.map(([x, y, vx, vy, d, owner, r, warps]) => ({ x, y, vx, vy, r: r || 8, deflected: !!d, owner: owner || null, warps: warps || 0 }));
+  if (s.ph && g.portals) {
+    const next = {};
+    for (const [slot, pair] of Object.entries(s.ph)) next[slot] = [decodePortal(g, slot, 0, pair[0]), decodePortal(g, slot, 1, pair[1])];
+    g.portals = next;
+  }
   if (s.ice && g.ice) {
     g.ice.layUntil = s.ice.u;
     g.ice.owner = s.ice.o ?? null;

@@ -524,6 +524,8 @@ CONDUITS.push({
   ],
   // The well: `r` is the horizon, `range` where the pull begins, `pull` the ball's acceleration and `drag` a player's drift, both over distance.
   well: { x: 800, y: 450, r: 40, range: 420, pull: 60000, drag: 45000 },
+  // What the horizon takes it gives back: the ball comes out somewhere far from the well, on the course it went in on, and play carries on.
+  wellReturns: true,
   // The node sits beyond the well's reach, straight across from the player: no straight shot gets there.
   nodes: [{ x: 1400, y: 450, r: 26, kind: 'plain' }],
   drones: [shadow()],

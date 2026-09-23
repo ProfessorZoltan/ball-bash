@@ -72,6 +72,7 @@ export class Input {
     this.screenToWorld = screenToWorld;
     this.keys = new Set();
     this.pressed = new Set(); // keys pressed since last poll (edge-triggered)
+    this.tapped = new Set(); // keys pressed since the physics last ran: a tap shorter than a frame still counts once
     this.pointer = { x: 0, y: 0, down: false, id: null, type: 'mouse' };
     // Floating joystick for touch: the first touch point becomes the stick's
     // centre and dragging away from it sets the direction. Screen pixels.
@@ -105,7 +106,10 @@ export class Input {
 
     window.addEventListener('keydown', (e) => {
       const k = normalizeKey(e);
-      if (!this.keys.has(k)) this.pressed.add(k);
+      if (!this.keys.has(k)) {
+        this.pressed.add(k);
+        this.tapped.add(k);
+      }
       this.keys.add(k);
       if (PREVENT.has(k)) e.preventDefault();
     });
@@ -434,6 +438,8 @@ export class Input {
     };
     pad.lunge = down(0); // A
     pad.retract = down(2); // X
+    pad.pa = down(4); // LB: Blaster's light wormhole
+    pad.pb = down(5); // RB: and its dark one
     // Edge-triggered buttons feed the same press queue as the keyboard.
     const edges = [[0, 'Enter'], [9, 'p'], [1, 'Escape']];
     const prev = pad.buttons;
@@ -454,6 +460,11 @@ export class Input {
 
   clearPresses() {
     this.pressed.clear();
+  }
+
+  /** The end of a frame: taps are forgotten once physics has run on them (a frame with no step keeps them for the next). */
+  endFrame(stepped) {
+    if (stepped) this.tapped.clear();
   }
 
   /** Build the movement intent for the player this frame. */
@@ -498,7 +509,10 @@ export class Input {
 
     const lunge = this.mouse.left || k.has(' ') || this.touchButtons.whack || (pad.connected && pad.lunge);
     const retract = this.mouse.right || this.touchButtons.retract || (pad.connected && pad.retract);
-    return { mx, my, turn, lunge, retract };
+    // Blaster's Wormhole Variant: Q and E (LB and RB) put down each end of your pair.
+    const pa = k.has('q') || this.tapped.has('q') || (pad.connected && !!pad.pa);
+    const pb = k.has('e') || this.tapped.has('e') || (pad.connected && !!pad.pb);
+    return { mx, my, turn, lunge, retract, pa, pb };
   }
 }
 

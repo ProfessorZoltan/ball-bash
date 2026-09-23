@@ -8,11 +8,13 @@ import { SEQUENCE, VERSUS_CONDUITS, levelLabel, shortId, campaignNextIndex } fro
 import { COURSE, COURSE_PAR, GOLF, holeLabel, toPar } from './golf.js';
 import { LORE } from './lore.js';
 import { SYSTEMS, TIERS, FRAME_CELLS, STANDARD, DEFAULT_FRAME, CUSTOM_ID, allFrames, frameById, withinBudget, cellsSpent, systemValue } from './frames.js';
-import { createGameState, rebuildWalls as rebuildWallsState, bodyHitCounts, tickCamp, versusSpawns, rotateSpawns, versusColors, VERSUS_IDS, nodeAccepts, objectiveDone, constrainToRail, wellsDrag, wellsAccel, swallowingWell, dronePhased, seatLauncher, solidPolysNow } from './gamestate.js';
+import { createGameState, rebuildWalls as rebuildWallsState, bodyHitCounts, tickCamp, versusSpawns, rotateSpawns, versusColors, VERSUS_IDS, nodeAccepts, objectiveDone, constrainToRail, wellsDrag, wellsAccel, swallowingWell, dronePhased, seatLauncher, solidPolysNow, wellReturnSpot } from './gamestate.js';
 import { NetClient, relayConfig, saveRelay } from './net.js';
 import { buildSnapshot, applySnapshot, bracket, lerpView, noteArrival, bufferFor, advanceRenderClock, insertSnapshot, INTERP_MIN, EXTRAPOLATE_MAX } from './netstate.js';
 import { rewoundContact, viewLag, MAX_LAG } from './lagcomp.js';
 import { InputQueue, inputRecord, splitAck, REDUNDANCY } from './inputqueue.js';
+import { PORTAL, aimPortal, framePortal, portalFighter, mouthOf, portalLocal, throughPortal, notePortalMouth, openedSegments } from './portals.js';
+import { portalHue } from './color.js';
 import { Input, MOUSE_MODES } from './input.js';
 import { Renderer } from './render.js';
 import { Effects } from './fx.js';
@@ -43,8 +45,8 @@ let fps = 60;
 
 // ------------------------------------------------------------------ setup
 
-function buildGame(def, pvp = false, rules = { ownBallLoss: ownBallLoss() }, coop = false, spawns = null, frames = null, maxSpeed = null, volley = false) {
-  const g = createGameState(def, { pvp, coop, volley, rules, spawns, frames: frames || soloFrames(), maxSpeed });
+function buildGame(def, pvp = false, rules = { ownBallLoss: ownBallLoss() }, coop = false, spawns = null, frames = null, maxSpeed = null, volley = false, portals = false) {
+  const g = createGameState(def, { pvp, coop, volley, portals, rules, spawns, frames: frames || soloFrames(), maxSpeed });
   const bossHits = g.coop ? g.humans.length * COOP.bossHitsPerHuman : 1;
   return {
     ...g,
@@ -103,7 +105,7 @@ function startLevel(index) {
 function launchBall() {
   const def = game.def;
   if (game.volley) {
-    // Volley has no ball. The round opens with everyone armed instead.
+    // Blaster has no ball. The round opens with everyone armed instead.
     game.ball.held = true;
     game.shots.length = 0;
     for (const f of game.humans) armCharge(f, simTime);
@@ -163,6 +165,7 @@ function step(dt) {
   for (const f of g.fighters) f.markRender();
 
   for (const m of g.movers) m.update(dt);
+  if (g.portals) refreshPortals(); // a wormhole on a moving part rides with it
 
   // Intents by slot. a = the host's human (the left spawn), b = the AI boss
   // or, in versus, the rival human, c = the co-op ally. Whichever slot is
@@ -205,11 +208,12 @@ function step(dt) {
     for (const it of list) {
       const wasIdle = f.lungeState === 'idle';
       f.update(dt, it);
+      if (g.portals && (state === 'playing' || state === 'countdown')) portalButtons(f, it);
       // Aiming on the course: the charge is the pivot, and the frame swings round it.
       if (g.golf && g.golf.phase === 'aim') seatLauncher(f, g.def.tee);
       if (wasIdle && f.lungeState === 'out') {
         onWhack();
-        // Volley: the thrust is also the trigger. Rotating the shield never fires.
+        // Blaster: the thrust is also the trigger. Rotating the shield never fires.
         if (g.volley && state === 'playing') fireCharge(f);
         // Golf: the same thrust sends the charge off the tee.
         if (g.golf && state === 'playing' && g.golf.phase === 'aim') golfLaunch();
@@ -295,7 +299,7 @@ function step(dt) {
   if (g.turrets.length && state === 'playing') stepShots(dt);
   if (g.volley && state === 'playing') {
     for (const f of g.humans) if (!f.charged && simTime >= f.chargeAt) armCharge(f);
-    stepVolley(dt);
+    stepBlaster(dt);
   }
 
   if (g.ice) {
@@ -350,6 +354,7 @@ function stepShots(dt) {
   const active = activeFighters();
   for (let i = g.shots.length - 1; i >= 0; i--) {
     const shot = g.shots[i];
+    if (shot.turret < 0) continue; // a Blaster charge, which stepBlaster flies
     if (simTime - shot.born > g.turrets[shot.turret].life) {
       g.shots.splice(i, 1);
       continue;
@@ -378,7 +383,7 @@ function stepShots(dt) {
 }
 
 /** Aim at the nearest human, leading it a little, and loose a shot. */
-// ------------------------------------------------------------------ volley
+// ------------------------------------------------------------------ blaster
 
 /** Give a fighter its charge back. It sits at the centre of the shield until the thrust sends it. */
 function armCharge(f, at = simTime) {
@@ -397,7 +402,8 @@ function fireCharge(f) {
   const fy = Math.sin(f.angle);
   const out = f.paddleBase + f.paddleThick / 2 + VOLLEY.radius + VOLLEY.muzzle;
   const speed = volleySpeed(g.maxSpeed);
-  const shot = new Shot(f.x + fx * out, f.y + fy * out, fx * speed, fy * speed, VOLLEY.radius, simTime, -1);
+  const at = chargeMuzzle(f, out, fx, fy, VOLLEY.radius);
+  const shot = new Shot(at.x, at.y, at.dx * speed, at.dy * speed, VOLLEY.radius, simTime, -1);
   shot.owner = f.slot;
   shot.pace = speed; // it holds this speed for its whole life
   shot.bounce = true; // walls, doors and moving parts turn it back
@@ -405,6 +411,52 @@ function fireCharge(f) {
   g.shots.push(shot);
   fireChargeFx(f);
   netEvent({ e: 'volley', s: f.slot, x: shot.x, y: shot.y, vx: shot.vx, vy: shot.vy });
+  if (at.warp) {
+    shot.portalUntil = simTime + PORTAL.shotGrace;
+    warpFx(at.warp.x, at.warp.y, shot.x, shot.y, f.color);
+    netEvent({ e: 'warp', x: at.warp.x, y: at.warp.y, x2: shot.x, y2: shot.y, s: f.slot });
+  }
+}
+
+/**
+ * Where a charge fired along (fx, fy) is formed: `out` beyond the fighter's
+ * centre, clear of its shield, unless something is nearer. The way out is
+ * swept from the centre, so a charge fired into a wall close ahead is formed
+ * against it on the room's side, to bounce off it, rather than beyond it, and
+ * one fired into a wormhole close ahead is formed on the far side, as if it
+ * had flown through. Returns { x, y, dx, dy, warp }: its place, its direction
+ * and, if it went through, where it went in.
+ */
+function chargeMuzzle(f, out, fx, fy, r) {
+  const g = game;
+  const STEP = 2;
+  let x = f.x;
+  let y = f.y;
+  let dx = fx;
+  let dy = fy;
+  let warp = null;
+  for (let d = 0; d < out; d += STEP) {
+    const step = Math.min(STEP, out - d);
+    const nx = x + dx * step;
+    const ny = y + dy * step;
+    const hole = g.portals && !warp ? mouthOf(g, x, y, r, step) : null;
+    if (hole && hole.v >= 0 && portalLocal(hole.p, nx, ny).v < 0) {
+      const o = throughPortal(hole.p, hole.q, nx, ny, dx, dy);
+      warp = { x: nx, y: ny };
+      x = o.x;
+      y = o.y;
+      dx = o.vx;
+      dy = o.vy;
+      continue;
+    }
+    const segs = openedSegments(hole, g.walls).filter((s) => !s.broken);
+    for (const m of g.movers) if (m.segments) segs.push(...openedSegments(hole, m.segments(), m.thick || 0).map((sg) => ({ ...sg, thick: m.thick || 0 })));
+    const blocked = segs.some((s) => circleVsCapsule(nx, ny, r, s.ax, s.ay, s.bx, s.by, s.thick || 0));
+    if (blocked) break;
+    x = nx;
+    y = ny;
+  }
+  return { x, y, dx, dy, warp };
 }
 
 function fireChargeFx(f) {
@@ -414,7 +466,7 @@ function fireChargeFx(f) {
 }
 
 /**
- * Volley's shots. A charge lives exactly VOLLEY.life from the moment it is
+ * Blaster's shots. A charge lives exactly VOLLEY.life from the moment it is
  * fired: walls, movers and shields turn it back without extending it, and only
  * a body ends it early. It is harmless to the fighter whose colour it wears,
  * bouncing off them, and costs anyone else a shield.
@@ -442,11 +494,12 @@ function clampCharge(shot, nx = 0, ny = 0) {
   shot.vy *= c / s;
 }
 
-function stepVolley(dt) {
+function stepBlaster(dt) {
   const g = game;
   const active = activeFighters();
   for (let i = g.shots.length - 1; i >= 0; i--) {
     const shot = g.shots[i];
+    if (shot.turret >= 0) continue; // a turret's shot, which stepShots flies
     if (simTime - shot.born > VOLLEY.life || !pointInPolygon(shot.x, shot.y, g.def.boundary)) {
       // Its three seconds are up, or numerical trouble put it outside the room.
       chargeFadeFx(shot);
@@ -473,7 +526,13 @@ function stepVolley(dt) {
     const mine = fighterBySlot(shot.owner);
     const skip = simTime < shot.graceUntil ? mine : null;
     const was = Math.hypot(shot.vx, shot.vy); // advanceShot reflects a shield hit itself
-    const hit = advanceShot(shot, g.walls, active, dt, g.movers, skip);
+    // At a wormhole's mouth the surface is open: the charge flies into it, and out of the other end.
+    // It is looked for a step ahead, so a fast charge cannot reach the wall before it reaches the mouth.
+    const hole = g.portals && simTime >= shot.portalUntil ? mouthOf(g, shot.x, shot.y, shot.r, Math.hypot(shot.vx, shot.vy) * dt) : null;
+    const walls = openedSegments(hole, g.walls);
+    const cut = hole ? (segs, thick) => openedSegments(hole, segs, thick) : null;
+    const hit = advanceShot(shot, walls, active, dt, g.movers, skip, cut);
+    if (!hit && hole && hole.v >= 0 && portalLocal(hole.p, shot.x, shot.y).v < 0) shotThroughPortal(shot, hole);
     if (!hit) continue;
     if (hit.kind === 'paddle') {
       // A shield turns a charge away without taking it over: it keeps its
@@ -501,7 +560,7 @@ function stepVolley(dt) {
         continue;
       }
       g.shots.splice(i, 1);
-      onVolleyHit(hit.f, hit.h, shot);
+      onBlasterHit(hit.f, hit.h, shot);
       return; // the round is over; the rest of the shots go with the reset
     }
     // A wall keeps its speed; a moving part lends it its own, like the ball.
@@ -515,6 +574,89 @@ function stepVolley(dt) {
   }
 }
 
+// ---- Blaster's Wormhole Variant
+
+/** Host: bring every wormhole up to date with what it sits on; one whose surface has gone (glass broken, a door opened) is gone too. */
+function refreshPortals() {
+  const g = game;
+  for (const [slot, pair] of Object.entries(g.portals)) {
+    for (let w = 0; w < 2; w++) {
+      const p = pair && pair[w];
+      if (p && !framePortal(g, p)) {
+        pair[w] = null;
+        portalFx(p.cx, p.cy, portalColor(slot, w), true);
+        netEvent({ e: 'unportal', s: slot, w, x: p.cx, y: p.cy });
+      }
+    }
+  }
+}
+
+/** The colour of one end of a player's pair: the light end and the dark end of their own colour. */
+function portalColor(slot, which) {
+  const f = fighterBySlot(slot);
+  const base = (f && f.color) || net.colors[slot] || '#ffffff';
+  return portalHue(base, which);
+}
+
+/** Host: Q and E (LB and RB) put down each end of a fighter's pair, one press at a time. */
+function portalButtons(f, it) {
+  const held = [!!it.pa, !!it.pb];
+  for (let w = 0; w < 2; w++) if (held[w] && !f.portalHeld[w] && !f.down) deployPortal(f, w);
+  f.portalHeld = held;
+}
+
+/**
+ * Put one end of f's pair on the first wall, obstacle side or moving part
+ * straight ahead of it. Deploying an end again moves it.
+ */
+function deployPortal(f, which) {
+  const g = game;
+  const p = aimPortal(g, f, which);
+  if (!p) return;
+  const pair = g.portals[f.slot] || (g.portals[f.slot] = [null, null]);
+  pair[which] = p;
+  portalFx(p.cx, p.cy, portalColor(f.slot, which));
+  netEvent({ e: 'portal', s: f.slot, w: which, x: p.cx, y: p.cy });
+}
+
+function portalFx(x, y, color, gone = false) {
+  const g = game;
+  g.fx.ring(x, y, color, gone ? 50 : 80, gone ? 0.3 : 0.4);
+  if (!gone) g.fx.burst(x, y, 0, 0, 10, color, 160, Math.PI, 0.35);
+  audio.sfxPulse();
+}
+
+/** A fighter went through: a flash at both mouths (the host plays it; a guest hears it from the host). */
+function onFighterWarp(f, warp) {
+  if (net.mode === 'guest') return;
+  f.markRender(); // it is where it came out: never drawn sliding across the room
+  warpFx(warp.from.x, warp.from.y, warp.to.x, warp.to.y, f.color);
+  netEvent({ e: 'warp', x: warp.from.x, y: warp.from.y, x2: warp.to.x, y2: warp.to.y, s: f.slot });
+}
+
+function warpFx(x, y, x2, y2, color) {
+  const g = game;
+  g.fx.ring(x, y, color, 70, 0.3);
+  g.fx.ring(x2, y2, color, 90, 0.35);
+  g.fx.burst(x2, y2, 0, 0, 12, color, 200, Math.PI, 0.35);
+  audio.sfxPulse();
+}
+
+/** A charge went into a mouth: it comes out of the other end, momentum carried through and turned. */
+function shotThroughPortal(shot, hole) {
+  const o = throughPortal(hole.p, hole.q, shot.x, shot.y, shot.vx, shot.vy);
+  const from = { x: shot.x, y: shot.y };
+  shot.x = o.x;
+  shot.y = o.y;
+  shot.vx = o.vx;
+  shot.vy = o.vy;
+  shot.warps++;
+  shot.portalUntil = simTime + PORTAL.shotGrace;
+  const owner = fighterBySlot(shot.owner);
+  warpFx(from.x, from.y, shot.x, shot.y, (owner && owner.color) || '#ffffff');
+  netEvent({ e: 'warp', x: from.x, y: from.y, x2: shot.x, y2: shot.y, s: shot.owner });
+}
+
 function chargeFadeFx(shot) {
   const g = game;
   const f = fighterBySlot(shot.owner);
@@ -522,7 +664,7 @@ function chargeFadeFx(shot) {
 }
 
 /** A charge in someone else's colour found a body: that costs a shield and ends the round. */
-function onVolleyHit(f, h, shot) {
+function onBlasterHit(f, h, shot) {
   playerHitFx(f, h.cx, h.cy, h.nx, h.ny);
   netEvent({ e: 'shield', s: f.slot, x: h.cx, y: h.cy, nx: h.nx, ny: h.ny });
   pvpLoss(f, 'volley', shot.owner);
@@ -703,6 +845,38 @@ function swallowBall(w) {
   reserve('swallow', null);
 }
 
+/**
+ * The Event Horizon gives back what it takes: the ball comes out at a random
+ * spot far from the well, on the course it went in on, and play carries on
+ * with no reset. Nothing it did before the jump can be rewound into.
+ */
+function returnBall(w) {
+  const g = game;
+  const b = g.ball;
+  const spot = wellReturnSpot(g, b.vx, b.vy);
+  if (!spot) return swallowBall(w); // a room with nowhere to put it: the old way
+  b.x = spot.x;
+  b.y = spot.y;
+  b.warps++;
+  b.trail.length = 0;
+  b.markRender();
+  g.history.reset();
+  g.history.push(simTime, b);
+  g.lastBounceAt = simTime;
+  guideFrame = 0;
+  returnFx(spot.x, spot.y, w);
+  netEvent({ e: 'return', x: spot.x, y: spot.y });
+}
+
+function returnFx(x, y, w = game.wells[0]) {
+  const g = game;
+  swallowFx(w);
+  const color = g.def.palette.well || '#b49cff';
+  g.fx.ring(x, y, color, 120, 0.45);
+  g.fx.ring(x, y, '#ffffff', 50, 0.3);
+  g.fx.burst(x, y, 0, 0, 16, color, 180, Math.PI, 0.4);
+}
+
 function swallowFx(w = game.wells[0]) {
   const g = game;
   g.fx.ring(w.x, w.y, g.def.palette.well || '#b49cff', 150, 0.5);
@@ -864,10 +1038,13 @@ function freezeFx(f) {
   g.fx.addShake(4);
 }
 
-function pushOutOfMovers(f) {
-  for (const m of game.movers) {
+function pushOutOfMovers(f, hole = null) {
+  const g = game;
+  for (let mi = 0; mi < g.movers.length; mi++) {
+    const m = g.movers[mi];
+    // A wormhole's mouth in a moving part is an opening there, for whoever is in it.
     const segs = m.segments().map((sg) => ({ ...sg, thick: m.thick }));
-    resolveCircleVsSegments(f, segs);
+    resolveCircleVsSegments(f, openedSegments(hole, segs));
   }
 }
 
@@ -886,9 +1063,19 @@ function pushOutOfMovers(f) {
  */
 function settleFighter(f) {
   const g = game;
-  resolveCircleVsSegments(f, g.walls);
-  pushOutOfMovers(f);
-  resolveCircleVsSegments(f, g.walls);
+  // Blaster's wormholes: a fighter whose centre has gone through a mouth comes
+  // out of the other; one in a mouth (partway, or stopped halfway) is let into
+  // the surface there, and nowhere else.
+  let hole = null;
+  if (g.portals) {
+    const r = portalFighter(g, f);
+    hole = r.mouth;
+    if (r.warp) onFighterWarp(f, r.warp);
+  }
+  const walls = openedSegments(hole, g.walls);
+  resolveCircleVsSegments(f, walls);
+  pushOutOfMovers(f, hole);
+  resolveCircleVsSegments(f, walls);
   for (const poly of g.solidPolys) if (ejectFromPolygon(f, poly)) break;
   clampInsidePolygon(f, g.def.boundary);
 }
@@ -977,6 +1164,7 @@ function moveBall(dt) {
     const took = swallowingWell(g.wells, b.x, b.y);
     if (took) {
       if (g.golf) golfSwallowed(took);
+      else if (g.def.wellReturns) returnBall(took);
       else swallowBall(took);
       return;
     }
@@ -1365,7 +1553,9 @@ function runFrame(now, draw) {
     acc += dt * golfTimeScale();
     const simulate = !guest && (state === 'countdown' || state === 'playing');
     const predict = guest && (state === 'countdown' || state === 'playing');
+    let stepped = 0;
     while (acc >= PHYSICS_DT) {
+      stepped++;
       if (simulate) step(PHYSICS_DT);
       else if (predict) {
         guestStep(PHYSICS_DT);
@@ -1441,7 +1631,8 @@ function runFrame(now, draw) {
     updateHud();
     if (net.mode === 'host') hostSend(dt);
     else if (net.mode === 'guest') guestSend(dt);
-  }
+    input.endFrame(stepped > 0 || !(simulate || predict));
+  } else input.endFrame(true);
 
   if (state === 'jukebox') {
     jukeboxTick(now / 1000);
@@ -1936,7 +2127,7 @@ function updateHud() {
   } else if (g.pvp) {
     setText('hud-lives-label', 'SHIELDS');
     setHtml('hud-lives', net.players.map((p) => tint(p.id, shieldPips(p.id))).join(' <span class="label">·</span> '));
-    setText('hud-boss-label', g.volley ? 'VOLLEY' : 'MATCH');
+    setText('hud-boss-label', g.volley ? (g.portals ? 'BLASTER · WORMHOLES' : 'BLASTER') : 'MATCH');
     setHtml('hud-boss', `${net.players.map((p) => tint(p.id, esc(p.name).toUpperCase())).join(' <span class="label">VS</span> ')} · LAST ONE STANDING`);
     setText('hud-level', `ROUND ${net.round} · ${g.def.title.toUpperCase()}`);
   } else {
@@ -2687,6 +2878,7 @@ const net = {
   maxShields: DEFAULT_VERSUS_SHIELDS,
   speed: DEFAULT_VERSUS_SPEED, // versus: the pace the host picked, an id in VERSUS_SPEEDS
   volley: false, // versus: no ball, everyone carries a charge in their own colour
+  portals: false, // Blaster: the Wormhole Variant, every player with a pair of wormholes
   out: {}, // versus: player id -> the round they were eliminated in
   last: null, // versus: the latest loss, { id, reason: 'hit' | 'own' | 'camp' | 'shot' | 'well', by, out }
   names: { host: 'Host', guest: 'Guest' },
@@ -2817,6 +3009,7 @@ function endMatch() {
   net.mode = null;
   net.coop = false;
   net.volley = false;
+  net.portals = false;
   net.coopCampaign = false;
   net.seq = 0;
   net.queues = {};
@@ -3180,13 +3373,15 @@ function renderHostLobby(client) {
   const prevMode = $('mp-mode') ? $('mp-mode').value : net.coop ? 'coop' : 'versus';
   // Between matches the pickers come back on whatever was played last.
   const prevLevel = $('mp-level') ? $('mp-level').value : String(net.levelIndex || 0);
+  const prevWormholes = $('mp-wormholes') ? $('mp-wormholes').checked : net.portals;
   {
       lobbyStatus(`
         <div class="mp-code">${client.code}</div>
         <p>${names} joined${net.roster.length < COOP.maxAllies ? ` · room for ${COOP.maxAllies - net.roster.length} more` : ' · the room is full'}.</p>
         <p class="small muted" id="mp-pings">${pingsHtml()}</p>
-        <div class="row"><label class="mp-field">Mode <select id="mp-mode"><option value="versus">Versus · ${people} players, last one standing</option><option value="volley">Volley · ${people} players, no ball, every shield loaded</option><option value="coop">Co-op · ${people} of you against the boss</option></select></label></div>
+        <div class="row"><label class="mp-field">Mode <select id="mp-mode"><option value="versus">Versus · ${people} players, last one standing</option><option value="volley">Blaster · ${people} players, no ball, every shield loaded</option><option value="coop">Co-op · ${people} of you against the boss</option></select></label></div>
         <div class="row" id="mp-versus-opts"><label class="mp-field">Arena <select id="mp-level">${arenaOptions}</select></label><label class="mp-field">Shields each <select id="mp-shields">${VERSUS_SHIELDS.map((n) => `<option value="${n}" ${n === versusShieldsSetting() ? 'selected' : ''}>${n}</option>`).join('')}</select></label><label class="mp-field" title="How fast the ball is allowed to get. Every setting scales the arena's own campaign limit, so Standard plays exactly as the campaign does.">Ball speed <select id="mp-speed">${VERSUS_SPEEDS.map((sp) => `<option value="${sp.id}" ${sp.id === versusSpeedSetting() ? 'selected' : ''}>${sp.name} · ${sp.blurb}</option>`).join('')}</select></label></div>
+        <div class="row" id="mp-wormholes-row"><label class="opt" title="Every player gets a pair of wormholes in their own colour, a light end and a dark end. Fighters and charges that go into one come out of the other."><input type="checkbox" id="mp-wormholes" ${prevWormholes ? 'checked' : ''} /><span><b>Wormhole Variant</b> <span class="small muted">· <b>Q</b> and <b>E</b> (<b>LB</b> and <b>RB</b>) put each end of your pair on the first wall, obstacle or moving part you face</span></span></label></div>
         <p class="small muted" id="mp-speed-note"></p>
         <p class="small muted" id="mp-versus-note">Every player for themselves. A body hit, an own ball or standing still costs that player a shield and resets everyone; with no shields left they are out. The last one standing wins.</p>
         <div class="row" id="mp-coop-opts" hidden>
@@ -3219,14 +3414,16 @@ function renderHostLobby(client) {
         $('mp-versus-opts').hidden = coop;
         $('mp-versus-note').hidden = coop;
         $('mp-speed-note').hidden = coop;
+        $('mp-wormholes-row').hidden = mode !== 'volley';
         $('mp-versus-note').textContent = mode === 'volley'
-          ? `No ball. Every fighter carries a charge in its own colour at the centre of its shield and fires it with the thrust, never by turning. A charge flies for ${VOLLEY.life} seconds, bouncing off walls, doors and moving parts, and the next one forms as it dies. Your own colour cannot hurt you; anyone else's costs a shield on the body. Deflecting a charge turns it away without taking it over.`
+          ? `No ball. Every fighter carries a charge in its own colour at the centre of its shield and fires it with the thrust, never by turning. A charge flies for ${VOLLEY.life} seconds, bouncing off walls, doors and moving parts, and the next one forms as it dies. Your own colour cannot hurt you; anyone else's costs a shield on the body. Deflecting a charge turns it away without taking it over.${$('mp-wormholes').checked ? ' Wormholes: each player puts down a light end (Q or LB) and a dark end (E or RB) of their own pair, on the first surface they face; deploying an end again moves it. Anyone and any charge that goes into an open mouth, yours or anyone\'s, comes out of the other end with its speed, turned the way the two mouths are turned.' : ''}`
           : 'Every player for themselves. A body hit, an own ball or standing still costs that player a shield and resets everyone; with no shields left they are out. The last one standing wins.';
         $('mp-coop-opts').hidden = !coop;
         $('mp-coop-note').hidden = !coop;
         $('mp-coop-level').parentElement.hidden = coop && $('mp-coop-play').value !== 'level';
       };
       $('mp-mode').onchange = syncMode;
+      $('mp-wormholes').onchange = syncMode;
       $('mp-coop-play').onchange = syncMode;
       syncMode();
       $('mp-start').onclick = () => {
@@ -3238,7 +3435,8 @@ function renderHostLobby(client) {
             // storage unavailable: the choice lasts for this match
           }
           setVersusSpeedSetting($('mp-speed').value);
-          return startNetMatch(Number($('mp-level').value), shields, $('mp-speed').value, $('mp-mode').value === 'volley');
+          const blaster = $('mp-mode').value === 'volley';
+          return startNetMatch(Number($('mp-level').value), shields, $('mp-speed').value, blaster, blaster && $('mp-wormholes').checked);
         }
         const play = $('mp-coop-play').value;
         startCoop({ campaign: play !== 'level', resume: play === 'resume', mode: play === 'full' ? 'full' : 'short', levelIdx: Number($('mp-coop-level').value) });
@@ -3280,10 +3478,11 @@ async function joinRoom(code) {
 }
 
 /** Host: begin a versus match on the chosen arena with everyone in the room. */
-function startNetMatch(levelIdx, shields = net.maxShields, speed = net.speed, volley = net.volley) {
+function startNetMatch(levelIdx, shields = net.maxShields, speed = net.speed, volley = net.volley, portals = net.portals) {
   net.mode = 'host';
   net.speed = VERSUS_SPEEDS.some((s) => s.id === speed) ? speed : DEFAULT_VERSUS_SPEED;
   net.volley = !!volley;
+  net.portals = !!volley && !!portals;
   if (net.roster[0]) net.names.guest = net.roster[0].name;
   net.levelIndex = levelIdx;
   net.rules = { ownBallLoss: ownBallLoss() };
@@ -3304,7 +3503,7 @@ function startNetRound() {
   newInputEpoch();
   net.events = [];
   net.frames = rosterFrames();
-  net.client.send({ t: 'setup', ep: net.epoch, level: net.levelIndex, round: net.round, shields: net.shields, max: net.maxShields, out: net.out, last: net.last, players: net.players, names: net.names, rules: net.rules, frames: net.frames, speed: net.speed, volley: net.volley });
+  net.client.send({ t: 'setup', ep: net.epoch, level: net.levelIndex, round: net.round, shields: net.shields, max: net.maxShields, out: net.out, last: net.last, players: net.players, names: net.names, rules: net.rules, frames: net.frames, speed: net.speed, volley: net.volley, wh: net.portals ? 1 : 0 });
   beginNetRound();
 }
 
@@ -3341,6 +3540,7 @@ function onSetup(msg) {
   net.maxShields = msg.max || DEFAULT_VERSUS_SHIELDS;
   net.speed = VERSUS_SPEEDS.some((s) => s.id === msg.speed) ? msg.speed : DEFAULT_VERSUS_SPEED;
   net.volley = !!msg.volley;
+  net.portals = !!msg.volley && !!msg.wh;
   net.shields = msg.shields || Object.fromEntries(net.players.map((p) => [p.id, net.maxShields]));
   net.out = msg.out || {};
   net.last = msg.last || null;
@@ -3369,7 +3569,7 @@ function beginNetRound() {
   for (const p of net.players) net.colors[p.id] = colors[VERSUS_IDS.indexOf(p.id)] || colors[net.players.indexOf(p)];
   const seats = rotateSpawns(versusSpawns(def, n), net.round).map((sp, i) => ({ ...sp, id: alive[i].id, color: net.colors[alive[i].id] }));
   // The ball's colour ramp follows the match's own cap, not the arena's.
-  game = buildGame(def, n, net.rules, false, seats, netFrames(), netMaxSpeed(def), net.volley);
+  game = buildGame(def, n, net.rules, false, seats, netFrames(), netMaxSpeed(def), net.volley, net.portals);
   for (const f of game.fighters) f.name = playerName(f.slot) + (net.localSlot === f.slot ? ' (you)' : '');
   game.local = localFighter();
   renderer.setLevel(def, game.maxSpeed);
@@ -3777,6 +3977,7 @@ function guestReconcile(ack, predX, predY, predA) {
   // The host has played every record up to the ack's seq and some steps past it; replay the rest.
   const { keep, replay } = splitAck(net.inputs, ack);
   net.inputs = keep;
+  if (game.portals) notePortalMouth(game, me); // where the host has it now, for a wormhole it is about to go through
   const frozenNow = me.frozen;
   for (const p of replay) guestAdvance(me, p.dt, p.intent);
   me.frozen = frozenNow; // the host's word on freezes stands
@@ -4013,6 +4214,20 @@ function playEvent(ev) {
     case 'swallow':
       if (g.wells.length) swallowFx();
       break;
+    case 'return':
+      if (g.wells.length) returnFx(ev.x, ev.y);
+      break;
+    case 'portal':
+      portalFx(ev.x, ev.y, portalColor(ev.s, ev.w));
+      break;
+    case 'unportal':
+      portalFx(ev.x, ev.y, portalColor(ev.s, ev.w), true);
+      break;
+    case 'warp': {
+      const who = fighterBySlot(ev.s);
+      warpFx(ev.x, ev.y, ev.x2, ev.y2, (who && who.color) || '#ffffff');
+      break;
+    }
     case 'fell':
       if (g.wells.length) fellFx(fighterBySlot(ev.s) || g.player);
       break;
@@ -4311,6 +4526,7 @@ function showTitle() {
           <li><b>Left click</b> or <b>Space</b> — thrust the shield</li>
           <li><b>Right click</b> — pull the shield in (soft return)</li>
           <li><b>P</b> pause · <b>M</b> mute · <b>R</b> restart</li>
+          <li><b>Blaster, Wormhole Variant</b>: <b>Q</b> and <b>E</b> (<b>LB</b> and <b>RB</b>) put each end of your wormhole pair on the first surface you face</li>
           <li><b>Galactic Golf</b>: the mouse aims the launcher, and in flight the pulses (hold right click and move sideways for fine aim), a left click launches then spends one ion pulse a click, P is the hole map</li>
           <li><b>Controller</b>: left stick moves, right stick or <b>LT</b>/<b>RT</b> rotate, <b>A</b> thrusts, <b>X</b> pulls in, <b>Start</b> pauses <span id="pad-state" class="small muted">${input.pad.connected ? `· detected: ${input.pad.id.slice(0, 40)}` : '· none detected yet (press any button on it)'}</span></li>
         </ul>

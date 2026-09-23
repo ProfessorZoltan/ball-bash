@@ -3,6 +3,8 @@
 import { BALL, PLAYER } from './config.js';
 import { clamp, lerp } from './vec.js';
 import { fitScale, cameraTarget, cameraOffset, easeCamera } from './camera.js';
+import { mouthOf, throughPortal, tangent } from './portals.js';
+import { portalHue } from './color.js';
 
 const WALL_HEIGHT = 9; // px of extrusion under each wall face
 
@@ -170,6 +172,7 @@ export class Renderer {
     if (game.vents && game.vents.length) this.drawVents(game.vents, level.palette.ice || '#cdf6ff', game.time || 0);
     if (game.ice) this.drawIce(game.ice, level.palette.ice || '#cdf6ff', time, ((game.fighters || []).find((f) => f.slot === game.ice.owner) || game.boss).color, game.time || 0);
     for (const m of game.movers || []) this.drawMover(m, level.palette.obstacle);
+    if (game.portals) this.drawPortals(game, time);
     for (const d of game.drones || [game.boss]) if (d.pulser && !d.down) this.drawPulse(d, level.palette.obstacle, time);
     for (const e of game.emitters || []) {
       this.drawEmitter(e, level.palette);
@@ -182,8 +185,14 @@ export class Renderer {
     if (game.shots && game.shots.length) this.drawShots(game.shots, level.palette, game.player ? game.player.color : '#ffffff', game.volley ? (slot) => (game.fighters.find((f) => f.slot === slot) || {}).color : null);
     if (game.volley) this.drawCharges(game.fighters || [], game.time || 0, time);
     this.drawRings(game.fx);
-    for (const f of game.fighters || [game.boss, game.player]) if (!f.down) this.drawFighter(f, time, f.color);
-    if (!game.volley) this.drawBall(game.ball, state); // Volley has no ball to draw
+    for (const f of game.fighters || [game.boss, game.player]) {
+      if (f.down) continue;
+      // Partway through a wormhole: cut off at one mouth, coming out of the other.
+      const m = game.portals ? mouthOf(game, f.x, f.y, f.r) : null;
+      if (m && m.q && m.v < f.r) this.drawFighterThrough(f, m, time);
+      else this.drawFighter(f, time, f.color);
+    }
+    if (!game.volley) this.drawBall(game.ball, state); // Blaster has no ball to draw
     if (game.golf) this.drawGolfAim(game, state, time);
     this.drawParticles(game.fx);
 
@@ -1061,7 +1070,7 @@ export class Renderer {
   }
 
   /**
-   * The charge each fighter carries in Volley: an orb of its own colour at the
+   * The charge each fighter carries in Blaster: an orb of its own colour at the
    * centre of the shield, with the reload closing round it while it is spent.
    * It is drawn only, never part of the physics.
    */
@@ -1245,7 +1254,7 @@ export class Renderer {
   }
 
   /** Energy shots: small hot orbs; one you have deflected wears your colour. */
-  /** Turret shots wear the level's shot colour; a Volley charge wears the colour of whoever threw it. */
+  /** Turret shots wear the level's shot colour; a Blaster charge wears the colour of whoever threw it. */
   drawShots(shots, palette, ownColor, byOwner = null) {
     const ctx = this.ctx;
     const color = palette.shot || '#ff9f6a';
@@ -1562,6 +1571,105 @@ export class Renderer {
     for (const seg of path) ctx.lineTo(seg.bx, seg.by);
     ctx.stroke();
     ctx.restore();
+  }
+
+  /**
+   * Blaster's wormholes: each end an opening along its surface in the
+   * player's own colour, the light end and the dark end, glowing on the room
+   * side. One end alone is dashed and dim: it leads nowhere yet.
+   */
+  drawPortals(game, time) {
+    const ctx = this.ctx;
+    for (const [slot, pair] of Object.entries(game.portals)) {
+      if (!pair) continue;
+      const f = (game.fighters || []).find((x) => x.slot === slot);
+      const base = (f && f.color) || '#ffffff';
+      const open = !!(pair[0] && pair[1]);
+      for (let w = 0; w < 2; w++) {
+        const p = pair[w];
+        if (!p) continue;
+        const color = portalHue(base, w);
+        const t = tangent(p);
+        const L = p.hw;
+        const pulse = 0.75 + 0.25 * Math.sin(time * 4 + w * Math.PI);
+        ctx.save();
+        ctx.translate(p.cx, p.cy);
+        ctx.rotate(Math.atan2(t.y, t.x)); // along the mouth is +x; the room side is -y
+        // The glow: a pool of light on the room side, bloomed in the owner's own colour.
+        ctx.shadowColor = base;
+        ctx.shadowBlur = this.blur(open ? 28 : 12);
+        ctx.globalAlpha = (open ? 0.5 : 0.18) * pulse;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.ellipse(0, -8, L, open ? 16 : 11, 0, 0, Math.PI * 2);
+        ctx.fill();
+        // The rim along the surface; an end still waiting for its partner is dashed.
+        ctx.shadowColor = color;
+        ctx.shadowBlur = this.blur(open ? 16 : 6);
+        ctx.globalAlpha = open ? 1 : 0.6;
+        ctx.strokeStyle = color;
+        ctx.lineCap = 'round';
+        ctx.lineWidth = open ? 8 : 4;
+        if (!open) ctx.setLineDash([10, 8]);
+        ctx.beginPath();
+        ctx.moveTo(-L, 0);
+        ctx.lineTo(L, 0);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        if (open) {
+          // A live pair: a white-hot core, and sparks drifting across the mouth (inward at one end, outward at the other).
+          ctx.shadowBlur = 0;
+          ctx.globalAlpha = 0.9;
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(-L * 0.8, 0);
+          ctx.lineTo(L * 0.8, 0);
+          ctx.stroke();
+          ctx.fillStyle = '#ffffff';
+          for (let k = 0; k < 4; k++) {
+            const ph = (time * 0.45 + k / 4) % 1;
+            const d = w === 0 ? ph : 1 - ph;
+            ctx.globalAlpha = 0.7 * Math.sin(Math.PI * ph);
+            ctx.beginPath();
+            ctx.arc((k % 2 ? 1 : -1) * L * (0.15 + 0.6 * ((k * 0.37) % 1)), -3 - d * 16, 1.8, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+        ctx.restore();
+      }
+    }
+  }
+
+  /** A fighter partway into a mouth: the part still in the room here, and the part already through coming out of the other end. */
+  drawFighterThrough(f, m, time) {
+    const ctx = this.ctx;
+    ctx.save();
+    this.clipFront(m.p);
+    this.drawFighter(f, time, f.color);
+    ctx.restore();
+    const o = throughPortal(m.p, m.q, f.x, f.y, 0, 0, f.angle);
+    const saved = [f.x, f.y, f.angle];
+    [f.x, f.y, f.angle] = [o.x, o.y, o.angle];
+    ctx.save();
+    this.clipFront(m.q);
+    this.drawFighter(f, time, f.color);
+    ctx.restore();
+    [f.x, f.y, f.angle] = saved;
+  }
+
+  /** Clip to the room side of a mouth's surface. */
+  clipFront(p) {
+    const ctx = this.ctx;
+    const t = tangent(p);
+    const B = 5000;
+    ctx.beginPath();
+    ctx.moveTo(p.cx + t.x * B, p.cy + t.y * B);
+    ctx.lineTo(p.cx - t.x * B, p.cy - t.y * B);
+    ctx.lineTo(p.cx - t.x * B + p.nx * B, p.cy - t.y * B + p.ny * B);
+    ctx.lineTo(p.cx + t.x * B + p.nx * B, p.cy + t.y * B + p.ny * B);
+    ctx.closePath();
+    ctx.clip();
   }
 
   drawFighter(f, time, color) {

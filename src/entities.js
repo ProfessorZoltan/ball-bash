@@ -16,6 +16,7 @@ export class Ball {
     this.lastTeam = null; // team of that fighter (the own-ball rule works per team)
     this.banked = false; // bounced off a wall or mover since the last shield touch (ricochet nodes)
     this.played = false; // a shield has touched it since the launch: until then the bare serve beats nobody and lights nothing
+    this.warps = 0; // times it has jumped from one place to another (the Event Horizon's return): a guest never draws it sliding between
   }
 
   get speed() {
@@ -122,6 +123,14 @@ export class Fighter {
     this.ry = this.y;
     this.rAngle = this.angle;
     this.rPaddle = this.paddleOffset;
+    // Blaster's wormholes (src/portals.js): how many times it has gone through
+    // one (a guest never draws it sliding between the two mouths), the grace
+    // after coming out, the mouth it was in front of last step, and whether
+    // each deploy button was already held (a deploy is a press).
+    this.warps = 0;
+    this.portalGrace = 0;
+    this.lastMouth = null;
+    this.portalHeld = [false, false];
   }
 
   /** Keep-moving rule: count the current spot as the new anchor. */
@@ -183,6 +192,7 @@ export class Fighter {
   update(dt, intent) {
     this.prevX = this.x;
     this.prevY = this.y;
+    this.portalGrace = Math.max(0, this.portalGrace - dt);
     if (this.frozen > 0) {
       this.frozen = Math.max(0, this.frozen - dt);
       intent = { mx: 0, my: 0, turn: 0, lunge: false, retract: false };

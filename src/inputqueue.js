@@ -4,7 +4,7 @@
 // pulled back for an input the host played differently.
 //
 // The guest sends one record per frame, [seq, steps, mx, my, turn, lunge,
-// retract, vt], and repeats its last few in every message, so a lost or late
+// retract, vt, pa, pb] (pa and pb: Blaster's wormhole buttons), and repeats its last few in every message, so a lost or late
 // message costs nothing. vt is the host time the guest's view was showing
 // (for latency compensation), or null.
 //
@@ -43,7 +43,7 @@ export const REDUNDANCY = 6;
 
 /** A record as a guest sends it, from its intent. */
 export function inputRecord(seq, steps, it, vt) {
-  return [seq, steps, +(+it.mx || 0).toFixed(3), +(+it.my || 0).toFixed(3), +(+it.turn || 0).toFixed(4), it.lunge ? 1 : 0, it.retract ? 1 : 0, vt == null ? null : Math.round(vt * 1000) / 1000];
+  return [seq, steps, +(+it.mx || 0).toFixed(3), +(+it.my || 0).toFixed(3), +(+it.turn || 0).toFixed(4), it.lunge ? 1 : 0, it.retract ? 1 : 0, vt == null ? null : Math.round(vt * 1000) / 1000, it.pa ? 1 : 0, it.pb ? 1 : 0];
 }
 
 export class InputQueue {
@@ -80,7 +80,7 @@ export class InputQueue {
       this.lastSeq = r[0];
       const n = Math.max(0, Math.min(16, r[1] | 0));
       if (!n) continue;
-      this.q.push({ seq: r[0], n, used: 0, vt: r[7] == null ? null : Number(r[7]), intent: { mx: +r[2] || 0, my: +r[3] || 0, turn: +r[4] || 0, lunge: !!r[5], retract: !!r[6] } });
+      this.q.push({ seq: r[0], n, used: 0, vt: r[7] == null ? null : Number(r[7]), intent: { mx: +r[2] || 0, my: +r[3] || 0, turn: +r[4] || 0, lunge: !!r[5], retract: !!r[6], pa: !!r[8], pb: !!r[9] } });
     }
     const depth = this.depth;
     if (depth > this.stats.maxDepth) this.stats.maxDepth = depth;

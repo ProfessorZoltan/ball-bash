@@ -1,5 +1,6 @@
 // DOM-free construction of a level's live objects, shared by the game, the
 // multiplayer guest mirror and the tests.
+import { colorDistance } from './color.js';
 import { Ball, Fighter, Boss, Pulser, createMover } from './entities.js';
 import { IceTrail } from './ice.js';
 import { polygonEdges, pointInPolygon, closestPointOnSegment } from './physics.js';
@@ -278,7 +279,8 @@ export function dronePhased(phasing, t) {
 
 /** A conduit is cleared when every node is lit and, if the objective asks, every drone is down. Switches are controls, not targets. */
 export function objectiveDone(g) {
-  if (!g.def.conduit) return false;
+  // Versus and Blaster on a conduit's arena have no objective: a turret knocked out or a node lit there is scenery, not the end of the match.
+  if (!g.def.conduit || g.pvp) return false;
   if (g.nodes.some((n) => n.kind !== 'switch' && !n.lit)) return false;
   if (g.objective.drones && g.drones.some((d) => !d.down)) return false;
   if (g.objective.turrets && g.turrets.some((t) => !t.down)) return false;
@@ -376,9 +378,78 @@ export function findVersusSpawn(def, movers = [], taken = []) {
   return { x: best.x, y: best.y, angle: Math.atan2(def.ball.y - best.y, def.ball.x - best.x) };
 }
 
-/** Versus colours by seat: the host wears the wall colour, the first guest the obstacle colour, the second the arena's third. */
+/** Event Horizon: how far a returned ball is kept from walls and moving parts, and from every fighter. */
+export const RETURN_CLEAR = 36;
+export const RETURN_FROM_FIGHTERS = 220;
+
+/**
+ * Where a ball the well took comes back (Event Horizon): a random spot in the
+ * room, outside every well's pull, clear of walls, solids, moving parts and
+ * fighters. Preferably one where the course it keeps (vx, vy) does not point
+ * back at the well it fell into, so it is not taken again at once. Null when
+ * no sample qualifies. `rand` is Math.random unless a test supplies one.
+ */
+export function wellReturnSpot(g, vx, vy, rand = Math.random) {
+  const pts = g.def.boundary;
+  const xs = pts.map((p) => p[0]);
+  const ys = pts.map((p) => p[1]);
+  const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+  const r = g.ball.r;
+  const segs = g.walls.concat(...g.movers.filter((m) => m.segments).map((m) => m.segments().map((sg) => ({ ...sg, thick: m.thick || 0 }))));
+  const speed = Math.hypot(vx, vy) || 1;
+  const away = [];
+  const any = [];
+  for (let i = 0; i < 120; i++) {
+    const x = x0 + rand() * (x1 - x0);
+    const y = y0 + rand() * (y1 - y0);
+    if (!pointInPolygon(x, y, pts)) continue;
+    if (g.solidPolys.some((poly) => pointInPolygon(x, y, poly))) continue;
+    if (segs.some((s) => {
+      const q = closestPointOnSegment(x, y, s.ax, s.ay, s.bx, s.by);
+      return Math.hypot(x - q.x, y - q.y) < r + RETURN_CLEAR + (s.thick || 0);
+    })) continue;
+    if (g.wells.some((w) => Math.hypot(x - w.x, y - w.y) < (w.range || w.r * 4))) continue;
+    if (g.fighters.some((f) => !f.down && Math.hypot(x - f.x, y - f.y) < RETURN_FROM_FIGHTERS)) continue;
+    const spot = { x, y };
+    any.push(spot);
+    const w = g.wells.reduce((best, c) => (!best || Math.hypot(x - c.x, y - c.y) < Math.hypot(x - best.x, y - best.y) ? c : best), null);
+    const dx = w ? w.x - x : 0;
+    const dy = w ? w.y - y : 0;
+    const toward = w ? (vx * dx + vy * dy) / (speed * (Math.hypot(dx, dy) || 1)) : -1;
+    if (toward < 0.5) away.push(spot); // not heading within 60 degrees of the well
+  }
+  const from = away.length ? away : any;
+  return from.length ? from[Math.floor(rand() * from.length) % from.length] : null;
+}
+
+/** Colours a player can wear in versus, in order of preference after the level's own third colour. */
+export const PLAYER_COLORS = ['#ff4fd8', '#ffb347', '#9dff5c', '#4d8dff', '#ffd23f', '#b98cff', '#ff4040', '#5ce1ff', '#ffffff'];
+/** Two colours closer than this (on colorDistance's scale) are too alike to tell apart at a glance. */
+export const COLOR_APART = 110;
+
+/**
+ * The seats' colours in versus. None is the level's wall or obstacle colour,
+ * or close to it: a player's wormholes sit in those surfaces and must stand
+ * out from them, and a fighter against a wall of its own colour is hard to
+ * read anyway. The level's own third colour comes first where it qualifies,
+ * then a fixed list, each at least COLOR_APART from the others. Should a
+ * level's colours rule out too many, the players' distance from each other is
+ * relaxed first and their distance from the walls last.
+ */
 export function versusColors(def) {
-  return [def.palette.wall, def.palette.obstacle, def.palette.third || COOP.allyColors[1]];
+  const avoid = [def.palette.wall, def.palette.obstacle].filter(Boolean);
+  const pool = [def.palette.third, COOP.allyColors[1], ...PLAYER_COLORS].filter(Boolean);
+  for (const [fromWalls, fromEachOther] of [[COLOR_APART, COLOR_APART], [COLOR_APART, 70], [80, 50], [0, 0]]) {
+    const out = [];
+    for (const c of pool) {
+      if (out.includes(c)) continue;
+      if (avoid.some((a) => colorDistance(a, c) < fromWalls)) continue;
+      if (out.some((o) => colorDistance(o, c) < fromEachOther)) continue;
+      out.push(c);
+      if (out.length === 3) return out;
+    }
+  }
+  return PLAYER_COLORS.slice(0, 3);
 }
 
 /** The spawn order for a round: seat k takes spawn (k + round - 1) mod n, so everyone starts everywhere in turn. */
@@ -393,7 +464,7 @@ export function rotateSpawns(spawns, round) {
  * `coop`: false, or the number of allies (true means one) playing beside the
  * host's human against the boss.
  */
-export function createGameState(def, { pvp = false, coop = false, volley = false, rules = DEFAULT_RULES, spawns = null, frames = null, maxSpeed = null } = {}) {
+export function createGameState(def, { pvp = false, coop = false, volley = false, portals = false, rules = DEFAULT_RULES, spawns = null, frames = null, maxSpeed = null } = {}) {
   const frameFor = (slot) => (frames && frames[slot]) || STANDARD;
   const allyCount = coop === true ? 1 : Math.max(0, Math.min(COOP.maxAllies, Number(coop) || 0));
   const pvpCount = pvp === true ? 2 : Math.max(0, Math.min(VERSUS_IDS.length, Number(pvp) || 0));
@@ -497,7 +568,7 @@ export function createGameState(def, { pvp = false, coop = false, volley = false
   const humans = pvp ? fighters.slice() : [player, ...allies];
   // Where each human started: the well puts a player it swallows back there.
   for (const f of humans) f.spawn = { x: f.x, y: f.y, angle: f.angle };
-  // Volley: everyone starts the round armed.
+  // Blaster: everyone starts the round armed.
   for (const f of humans) {
     f.charged = !!volley;
     f.chargeAt = 0;
@@ -520,7 +591,7 @@ export function createGameState(def, { pvp = false, coop = false, volley = false
   // The frame each human seat wears, so the HUD and the tests can read it back.
   const wornFrames = {};
   for (const f of humans) wornFrames[f.slot] = frameFor(f.slot);
-  const g = { def, staticWalls, staticPolys, panes, doors, walls: [], solidPolys: [], player, ally, allies, boss, drones, nodes, turrets, emitters, shots: [], objective, fighters, humans, movers, ice, vents, well, wells, wormholes, golf: null, frames: wornFrames, ball, volley: !!volley && pvp, maxSpeed: maxSpeed || def.maxBallSpeed || BALL.maxSpeed, pvp, players: pvpCount, coop: !pvp && allyCount > 0, rules: { ...DEFAULT_RULES, ...rules } };
+  const g = { def, staticWalls, staticPolys, panes, doors, walls: [], solidPolys: [], player, ally, allies, boss, drones, nodes, turrets, emitters, shots: [], objective, fighters, humans, movers, ice, vents, well, wells, wormholes, golf: null, frames: wornFrames, ball, volley: !!volley && pvp, portals: portals && volley && pvp ? {} : null, maxSpeed: maxSpeed || def.maxBallSpeed || BALL.maxSpeed, pvp, players: pvpCount, coop: !pvp && allyCount > 0, rules: { ...DEFAULT_RULES, ...rules } };
   rebuildWalls(g);
   return g;
 }

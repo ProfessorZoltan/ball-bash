@@ -153,10 +153,12 @@ export class Shot {
     this.born = born;
     this.turret = turret; // which turret fired it
     this.deflected = false; // touched a shield: now it can knock a turret out
-    this.owner = null; // Volley: the slot of the fighter whose colour it wears
-    this.pace = 0; // Volley: the one speed it travels at, whatever it bounces off
-    this.bounce = false; // Volley: walls and movers turn it back instead of ending it
-    this.graceUntil = 0; // Volley: until this time it passes through the shield that fired it
+    this.owner = null; // Blaster: the slot of the fighter whose colour it wears
+    this.pace = 0; // Blaster: the one speed it travels at, whatever it bounces off
+    this.bounce = false; // Blaster: walls and movers turn it back instead of ending it
+    this.graceUntil = 0; // Blaster: until this time it passes through the shield that fired it
+    this.warps = 0; // times it has gone through a wormhole (a guest never draws it sliding between the mouths)
+    this.portalUntil = 0; // until this time it cannot go through another
   }
 
   get speed() {
@@ -174,9 +176,10 @@ export class Shot {
  * ('paddle', already reflected), a body ('body'), or a wall or moving part
  * ('wall', with the mover in `m` when it was one). `skip` is a fighter whose
  * shield and body are ignored, which is how a freshly fired charge gets clear
- * of the shield that fired it.
+ * of the shield that fired it. `cut(segs, thick)`, if given, is what is left
+ * of a moving part's segments (a wormhole's mouth cut out of them).
  */
-export function advanceShot(shot, walls, fighters, dt, movers = [], skip = null) {
+export function advanceShot(shot, walls, fighters, dt, movers = [], skip = null, cut = null) {
   shot.x += shot.vx * dt;
   shot.y += shot.vy * dt;
   for (const f of fighters) {
@@ -195,7 +198,7 @@ export function advanceShot(shot, walls, fighters, dt, movers = [], skip = null)
   }
   for (const m of movers) {
     if (!m.segments) continue;
-    for (const seg of m.segments()) {
+    for (const seg of cut ? cut(m.segments(), m.thick || 0) : m.segments()) {
       const h = circleVsCapsule(shot.x, shot.y, shot.r, seg.ax, seg.ay, seg.bx, seg.by, m.thick || 0, shot.vx, shot.vy);
       if (h) return { kind: 'wall', seg, h, m };
     }
