@@ -666,10 +666,15 @@ hand; a
 **left click** or **Space** launches, then spends one pulse per click; the
 **right button** runs a spent flight out at triple speed once the gauge is
 empty and the outcome is fixed; **R** re-tees (abandoning a flight, or
-restarting the hole from the tee); **P**, or the ❚❚ button in the HUD, brings
-up the hole as a map, with every body named and the wormhole mouths paired.
-On a controller and a phone the course plays as the arena does: rotate to
-aim, thrust to launch, pull in for fine aim.
+restarting the hole from the tee); **P** (a controller's Start) brings up the
+hole as a map and nothing else, every body named and the wormhole mouths
+paired, and P, Esc, Enter or a tap on it goes back to the hole; **Esc** (a
+controller's B, or the ❚❚ button in the HUD) brings up the same map with a
+slim row of buttons along the bottom: resume, restart the hole, the course,
+the main menu. On a controller and a phone the course plays as the arena
+does: rotate to aim, thrust to launch, pull in for fine aim. The launch is a
+fresh press: a thrust still held from closing the map (a controller's A both
+presses Tee off and thrusts) waits to be let go, so it never spends a launch.
 
 The **Galactic Golf** button opens the course: the holes as a roster, each
 with its par and your best on it, and the round as one button. A tab at the
@@ -678,7 +683,8 @@ and the card at the end reads every hole against its par; pick a hole and it
 plays on its own, scored against its own par and best, with its card offering
 the same hole again, the next one, or the course.
 
-Each hole opens on that map as a briefing, and every flight leaves a ghost: the
+Each hole opens on that map as a briefing (its name, what it asks, the key to
+the map and the controls, shown only then), and every flight leaves a ghost: the
 line your last shot flew is drawn faint under the next one, so an aim is
 adjusted against something rather than guessed again.
 
@@ -1050,7 +1056,7 @@ static Vercel deployment cannot relay, so the button is disabled there.
 | Thrust the shield forward ("whack") | **Left click** or **Space** |
 | Pull the shield in (soft return, slows the ball) | **Right click** |
 | Pause / mute / restart | **P** (or the ❚❚ button in the HUD, which is how a phone pauses) / **M** / **R** |
-| Galactic Golf: launch, then one ion pulse per click | **Left click** or **Space** (the mouse aims the launcher, and in flight the pulses; **right click** held with sideways travel is fine aim, an eighth of the travel; **right click** runs a spent flight out, **P** is the hole map) |
+| Galactic Golf: launch, then one ion pulse per click | **Left click** or **Space** (the mouse aims the launcher, and in flight the pulses; **right click** held with sideways travel is fine aim, an eighth of the travel; **right click** runs a spent flight out, **P** is the hole map and **Esc** the menu over it) |
 | Controller (Xbox or any standard gamepad) | **left stick** moves, **right stick** or **LT** / **RT** rotate (further is faster), **A** thrusts, **X** pulls the shield in, **Start** pauses, **A** also confirms on menus |
 | Blaster, Wormhole Variant: put out each end of your pair | **Q** (light end) and **E** (dark end), or **LB** and **RB** on a controller; each goes on the first surface you face, and pressing again moves it |
 | Netcode switches (online play) | **1** prediction, **2** render buffer, **3** latency compensation, **4** hit prediction, **5** direct connection, each on or off; also in the lobby under Netcode |

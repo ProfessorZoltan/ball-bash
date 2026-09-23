@@ -367,6 +367,9 @@ button[disabled] { opacity: 0.45; cursor: default; }
 #overlay.map .panel { width: min(760px, 100%); background: rgba(6, 10, 22, 0.92); padding: 18px 24px; }
 #overlay.map .panel h1 { font-size: 22px; }
 #overlay.map .panel .intro { font-size: 14px; }
+/* The menu over the map: a slim row of buttons, and the whole map above it. */
+#overlay.map.slim .panel { width: auto; padding: 10px 14px; }
+#overlay.map.slim .panel .row { margin: 0; }
 
 @media (max-width: 720px) {
   .columns, .columns.three, .top { grid-template-columns: 1fr; }

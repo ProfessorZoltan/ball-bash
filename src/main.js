@@ -1975,10 +1975,12 @@ function handleGlobalKeys() {
     audio.setMuted(!audio.muted);
     $('hud-mute').textContent = audio.muted ? 'MUTED [M]' : 'SOUND ON [M]';
   }
-  if (input.consumePress('p') || input.consumePress('Escape')) {
+  const mapKey = input.consumePress('p');
+  if (mapKey || input.consumePress('Escape')) {
     // In a live match one press only arms the exit; it takes a second one.
+    // On the course P is the bare map and Esc the menu over it.
     if (net.mode) requestLeave();
-    else if (state === 'playing' && game && game.golf) golfPause();
+    else if (state === 'playing' && game && game.golf) golfMap(mapKey ? 'map' : 'menu');
     else if (state === 'playing') pause();
     else if (state === 'paused') resume();
     else if (state === 'jukebox') leaveJukebox();
@@ -2033,6 +2035,11 @@ function resume() {
   if (audio.ctx) audio.ctx.resume();
   last = performance.now();
   state = 'playing';
+  golfMapBare = false;
+  // On the course the press that closed the map (a controller's A is also its
+  // thrust, and Space on a focused button is too) must come up before the
+  // next one launches or pulses.
+  if (game && game.golf) game.golf.held = true;
 }
 
 /** Leave the current level (from pause or an end screen) and show the title. */
@@ -2228,13 +2235,14 @@ function formatTime(t) {
 
 function showOverlay(html) {
   const o = $('overlay');
+  o.classList.remove('map', 'slim'); // whatever comes up next is laid out as itself, not as the map it replaced
   o.innerHTML = `<div class="panel">${html}</div>`;
   o.hidden = false;
 }
 
 function hideOverlay() {
   $('overlay').hidden = true;
-  $('overlay').classList.remove('map');
+  $('overlay').classList.remove('map', 'slim');
   stopMarkAnimation();
 }
 
@@ -4551,7 +4559,7 @@ function showTitle() {
           <li><b>Right click</b> — pull the shield in (soft return)</li>
           <li><b>P</b> pause · <b>M</b> mute · <b>R</b> restart</li>
           <li><b>Blaster, Wormhole Variant</b>: <b>Q</b> and <b>E</b> (<b>LB</b> and <b>RB</b>) put each end of your wormhole pair on the first surface you face</li>
-          <li><b>Galactic Golf</b>: the mouse aims the launcher, and in flight the pulses (hold right click and move sideways for fine aim), a left click launches then spends one ion pulse a click, P is the hole map</li>
+          <li><b>Galactic Golf</b>: the mouse aims the launcher, and in flight the pulses (hold right click and move sideways for fine aim), a left click launches then spends one ion pulse a click, P is the hole map and Esc the menu over it</li>
           <li><b>Controller</b>: left stick moves, right stick or <b>LT</b>/<b>RT</b> rotate, <b>A</b> thrusts, <b>X</b> pulls in, <b>Start</b> pauses <span id="pad-state" class="small muted">${input.pad.connected ? `· detected: ${input.pad.id.slice(0, 40)}` : '· none detected yet (press any button on it)'}</span></li>
         </ul>`)}
       </div>
@@ -4701,6 +4709,7 @@ async function begin() {
 const GOLF_KEY = 'deflector.golf';
 let golfRound = null; // { course, holeIndex, card: [{ id, hole, par, launches }], single } while a round is being played
 let courseShown = 'outer'; // the course the course page last showed, and goes back to
+let golfMapBare = false; // the hole's map is up with nothing over it (P), and a tap on it goes back to the hole
 
 /** The course the round is on: COURSES.outer or COURSES.far. */
 function roundCourse() {
@@ -4784,7 +4793,7 @@ function startGolfHole(index) {
   audio.playTrack(TRACKS[def.track]);
   golfNote(`PAR ${def.par}`, 4);
   updateHud(); // the brief goes up before a step is taken, so the HUD is written now
-  golfMap(true); // every hole opens on its own map
+  golfMap('brief'); // every hole opens on its own map, with its brief
 }
 
 /** Put the charge back on the tee, ready to be aimed. */
@@ -4879,8 +4888,10 @@ function golfIntent(local, dt) {
     return ZERO_INTENT;
   }
   if (gf.phase !== 'aim') return ZERO_INTENT;
-  // The launcher is bolted to the tee: it turns, and that is all it does.
-  return { mx: 0, my: 0, turn: local.turn * fine, lunge: local.lunge, retract: false };
+  // The launcher is bolted to the tee: it turns, and that is all it does. It
+  // launches on a fresh press, never on one carried over from before the aim
+  // (the press that closed the map, or the last pulse of the last flight).
+  return { mx: 0, my: 0, turn: local.turn * fine, lunge: edge, retract: false };
 }
 
 /** Thrust on the tee: the charge goes, and the launch is counted whatever becomes of it. */
@@ -5186,7 +5197,7 @@ function showCourse(course = courseShown) {
       <div>
         <h3>The round</h3>
         <p class="small">${c.holes.length} holes, par ${c.par}. Every launch counts, and the card at the end reads each hole against its par.${round ? ` Your best round is <b>${round}</b> (${toPar(round - c.par)}).` : ''}</p>
-        <p class="small muted"><b>Mouse</b> aims, <b>right click</b> held for fine aim · <b>left click</b> or <b>Space</b> launches, then one ion pulse per click · <b>right click</b> runs a spent flight out · <b>R</b> re-tees · <b>P</b> the hole map</p>
+        <p class="small muted"><b>Mouse</b> aims, <b>right click</b> held for fine aim · <b>left click</b> or <b>Space</b> launches, then one ion pulse per click · <b>right click</b> runs a spent flight out · <b>R</b> re-tees · <b>P</b> the hole map · <b>Esc</b> the menu</p>
       </div>
     </div>
     <div class="row"><button id="btn-course" class="primary">Play ${c.name.replace(/^The /, 'the ')}</button><button id="btn-menu">Main menu</button></div>
@@ -5197,26 +5208,45 @@ function showCourse(course = courseShown) {
   for (const b of document.querySelectorAll('.course-tabs [data-course]')) b.onclick = () => showCourse(b.dataset.course);
 }
 
-function golfPause() {
-  golfMap(false);
-}
-
 /**
- * The hole as a map: the world dims, everything on it is named, and the panel
- * carries the brief and the controls. `brief` is the look the hole opens on,
- * before a charge has been sent; otherwise it is the pause.
+ * The hole as a map: the world dims and everything on it is named. `mode`
+ * says what else is shown with it:
+ *  brief  the look each hole opens on: its name, what it asks, the key to
+ *         the map and the controls, and Tee off;
+ *  map    the map and nothing else (P in play), so all of it can be seen;
+ *         P, Esc, Enter or a tap goes back to the hole;
+ *  menu   the map with a slim row of buttons along the bottom (Esc, the
+ *         controller's B or the pause button): resume, restart, the course.
  */
-function golfMap(brief) {
+function golfMap(mode) {
   state = 'paused';
   setInGame(false);
-  if (audio.ctx && !brief) audio.ctx.suspend();
+  if (audio.ctx && mode !== 'brief') audio.ctx.suspend();
+  golfMapBare = mode === 'map';
+  if (mode === 'map') {
+    hideOverlay();
+    return;
+  }
   const g = game;
   const def = g.def;
-  const gf = g.golf;
+  const course = () => {
+    audio.stopTrack(0.6);
+    if (audio.ctx && audio.ctx.state === 'suspended') audio.ctx.resume();
+    showCourse(golfRound ? golfRound.course : courseShown);
+  };
+  if (mode === 'menu') {
+    showOverlay(`<div class="row"><button id="btn-resume" class="primary">Resume</button><button id="btn-restart">Restart hole</button><button id="btn-course">The course</button><button id="btn-menu">Main menu</button></div>`);
+    $('overlay').classList.add('map', 'slim'); // the map, and only the buttons over it
+    $('btn-resume').onclick = resume;
+    $('btn-restart').onclick = () => startGolfHole(golfRound.holeIndex);
+    $('btn-course').onclick = course;
+    $('btn-menu').onclick = goToMenu;
+    return;
+  }
   showOverlay(`
-    <div class="eyebrow">${holeLabel(def).toUpperCase()} · PAR ${def.par}${brief ? '' : ` · LAUNCH ${Math.max(1, gf.launches)}`}</div>
+    <div class="eyebrow">${holeLabel(def).toUpperCase()} · PAR ${def.par}</div>
     <h1>${def.title}</h1>
-    ${brief ? `<p class="intro">${def.intro}</p>` : ''}
+    <p class="intro">${def.intro}</p>
     <ul class="golf-key">
       <li><span class="k cup"></span>${g.wells.some((w) => w.cup && w.rail) ? 'The cup — it rides a rail, so send the charge where it will be' : 'The cup — get the charge past its horizon'}</li>
       ${g.wells.some((w) => w.hazard) ? '<li><span class="k maw"></span>A maw — its horizon ends the shot</li>' : ''}
@@ -5230,17 +5260,12 @@ function golfMap(brief) {
       ${g.wormholes.length > 1 ? '<li><span class="k warp"></span>Wormhole mouths — a mouth leads to the one in its own colour, and keeps your heading</li>' : g.wormholes.length ? '<li><span class="k warp"></span>Wormhole mouths — paired, and they keep your heading</li>' : ''}
       <li><span class="k tee"></span>The tee</li>
     </ul>
-    <p class="small muted"><b>Mouse</b> aims, and steers the ion pulses in flight · hold <b>right click</b> for fine aim · <b>left click</b> or <b>Space</b> launches, then one pulse per click · <b>right click</b> runs a spent flight out · <b>R</b> re-tees · <b>P</b> this map</p>
-    <div class="row"><button id="btn-resume" class="primary">${brief ? 'Tee off' : 'Resume'}</button>${brief ? '' : '<button id="btn-restart">Restart hole</button>'}<button id="btn-course">The course</button><button id="btn-menu">Main menu</button></div>
+    <p class="small muted"><b>Mouse</b> aims, and steers the ion pulses in flight · hold <b>right click</b> for fine aim · <b>left click</b> or <b>Space</b> launches, then one pulse per click · <b>right click</b> runs a spent flight out · <b>R</b> re-tees · <b>P</b> the map · <b>Esc</b> the menu</p>
+    <div class="row"><button id="btn-resume" class="primary">Tee off</button><button id="btn-course">The course</button><button id="btn-menu">Main menu</button></div>
   `);
   $('overlay').classList.add('map'); // the scrim lifts so the hole shows through
   $('btn-resume').onclick = resume;
-  if (!brief) $('btn-restart').onclick = () => startGolfHole(golfRound.holeIndex);
-  $('btn-course').onclick = () => {
-    audio.stopTrack(0.6);
-    if (audio.ctx && audio.ctx.state === 'suspended') audio.ctx.resume();
-    showCourse(golfRound ? golfRound.course : courseShown);
-  };
+  $('btn-course').onclick = course;
   $('btn-menu').onclick = goToMenu;
 }
 
@@ -5499,7 +5524,14 @@ $('hud-full').hidden = !canFullscreen();
 $('hud-full').addEventListener('click', toggleFullscreen);
 // The HUD's pause button is the P key: on a phone there is no other way to
 // pause, and in a live match it arms the same two-press exit P does.
-$('hud-pause').addEventListener('click', () => input.pressed.add('p'));
+// The pause button is the menu: on the course that is the map with its buttons (P alone shows the bare map).
+$('hud-pause').addEventListener('click', () => input.pressed.add(game && game.golf ? 'Escape' : 'p'));
+// A tap or click on the course's bare map goes back to the hole, for a hand with no P key to press.
+canvas.addEventListener('pointerdown', (e) => {
+  if (state !== 'paused' || !golfMapBare) return;
+  e.preventDefault();
+  resume();
+});
 document.title = `${GAME_NAME} — ${GAME_TAGLINE}`;
 for (const [id, name] of [['tb-left', 'left'], ['tb-right', 'right'], ['tb-whack', 'whack'], ['tb-retract', 'retract']]) {
   input.bindTouchButton($(id), name);
