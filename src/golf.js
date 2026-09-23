@@ -74,6 +74,17 @@ function oneWay(ax, ay, bx, by, r = 36, color = null) {
   return warp(ax, ay, bx, by, r, color, { oneWay: true });
 }
 
+/**
+ * A pair whose mouths each circle something: `a` and `b` are orbits
+ * { cx, cy, R, period, phase } (a negative period turns the other way). They
+ * run on the level's clock from the moment the hole opens, like a stone on a
+ * rail, so where a mouth will be is a matter of when you launch.
+ */
+function orbitingWarp(a, b, r = 36, color = null) {
+  const at = (o) => [o.cx + Math.cos(o.phase || 0) * o.R, o.cy + Math.sin(o.phase || 0) * o.R];
+  return warp(...at(a), ...at(b), r, color, { orbitA: a, orbitB: b });
+}
+
 /** The second pair's colour on a hole that has two. The first wears the palette's. */
 const GOLD = '#ffd23f';
 
@@ -436,6 +447,25 @@ export const COURSE = [
     wells: binary(800, 450, 220, 16, { r: 56, range: 380, pull: 56000 }).concat([maw(1500, 450, { r: 36, range: 150, pull: 50000 })]),
     // A miss is not handed back by the wall behind the cup: the maw there takes it.
     cup: cup(1330, 450),
+  }),
+  hole({
+    id: 'g13',
+    hole: 13,
+    par: 3,
+    title: 'Lockstep',
+    track: 'lockstep',
+    intro: 'The wall is sealed, and both mouths are moving. One circles a maw on this side, the other circles the cup on the far side, and they turn together: wherever the first stands on its maw, the second stands in the same place on the cup. Go into the first heading for the maw\'s heart and you come out of the second heading for the cup\'s. Aim at the maw, and launch as the mouth swings round into your line. Miss it, and the maw is where that line was going.',
+    record: 'Two mouths that keep time with each other and with nothing else. The void set them turning at the same moment, and in all the time since, neither has gained a step.',
+    sunk: 'Into the black hole\'s line, out on the cup\'s. The mouths never missed a step; the launch had to.',
+    boundary: ROOM,
+    tee: { x: 200, y: 450, angle: -0.35 },
+    obstacles: [
+      rect(840, 450, 24, 780), // the wall, sealed: only the mouths cross it
+    ],
+    wells: [maw(540, 450, { r: 40, range: 300, pull: 52000 })],
+    cup: cup(1240, 450),
+    // In step: the same period and phase, so each mouth sits at the same angle on its own body.
+    wormholes: [orbitingWarp({ cx: 540, cy: 450, R: 150, period: 7, phase: 0 }, { cx: 1240, cy: 450, R: 175, period: 7, phase: 0 })],
   }),
 ];
 

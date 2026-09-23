@@ -1607,12 +1607,15 @@ async function golfFly(def, angle, { pulses = [], maxT = null, events = false, w
   let inWatch = 0; // seconds spent inside `watch`'s reach, a body to keep an eye on
   let bounces = 0; // walls and movers touched
   void events;
-  const { createGameState, wellsAccel, swallowingWell, solidPolysNow } = await import('../src/gamestate.js');
+  const { createGameState, wellsAccel, swallowingWell, solidPolysNow, placeMouths } = await import('../src/gamestate.js');
   const { PHYSICS_DT, SURFACE_VELOCITY_FACTOR } = await import('../src/config.js');
   const { GOLF } = await import('../src/golf.js');
   const g = createGameState(def, {});
   // A launch some seconds into the level: whatever moves on it has moved that far.
-  for (let k = 0; k < Math.round(launchAt / PHYSICS_DT); k++) for (const m of g.movers) m.update(PHYSICS_DT);
+  for (let k = 0; k < Math.round(launchAt / PHYSICS_DT); k++) {
+    for (const m of g.movers) m.update(PHYSICS_DT);
+    placeMouths(g.wormholes, (g.mouthTime += PHYSICS_DT));
+  }
   const f = g.player;
   f.angle = angle;
   const b = g.ball;
@@ -1624,6 +1627,7 @@ async function golfFly(def, angle, { pulses = [], maxT = null, events = false, w
   const cup = g.wells.find((w) => w.cup);
   for (; t < (maxT || def.flightSeconds); t += PHYSICS_DT) {
     for (const m of g.movers) m.update(PHYSICS_DT);
+    placeMouths(g.wormholes, (g.mouthTime += PHYSICS_DT));
     for (const p of plan) {
       if (p.done || t < p.at) continue;
       p.done = true;
@@ -1806,6 +1810,51 @@ test('golf: a wormhole keeps the heading, sets the charge down clear of the far 
     }
   }
   assert.ok(GOLF.warpHold > 0, 'and it ignores every mouth for a moment afterwards');
+});
+
+test('golf: Lockstep\'s mouths circle a maw and the cup in step, the maw\'s heart is the line when the mouth meets it, and nothing crosses the wall any other way', async () => {
+  const { createGameState, placeMouths } = await import('../src/gamestate.js');
+  const { COURSE } = await import('../src/golf.js');
+  const def = COURSE.find((h) => h.id === 'g13');
+  const g = createGameState(def, {});
+  const [w] = g.wormholes;
+  const maw = g.wells.find((x) => x.hazard);
+  const cup = g.wells.find((x) => x.cup);
+  let moved = 0;
+  for (const t of [0, 1.3, 2.9, 5.5]) {
+    const before = [w.ax, w.ay];
+    placeMouths(g.wormholes, t);
+    moved += Math.hypot(w.ax - before[0], w.ay - before[1]);
+    assert.ok(Math.abs(Math.hypot(w.ax - maw.x, w.ay - maw.y) - w.orbitA.R) < 1e-6, 'one mouth circles the maw');
+    assert.ok(Math.abs(Math.hypot(w.bx - cup.x, w.by - cup.y) - w.orbitB.R) < 1e-6, 'the other circles the cup');
+    const a = Math.atan2(w.ay - maw.y, w.ax - maw.x);
+    const b = Math.atan2(w.by - cup.y, w.bx - cup.x);
+    assert.ok(Math.cos(a - b) > 1 - 1e-9, `in step at ${t} s`);
+    assert.ok(w.orbitB.R > cup.range && w.orbitA.R > maw.r + w.r, 'neither mouth sits inside a horizon or on top of the cup');
+  }
+  assert.ok(moved > 100, 'they move');
+  // Straight at the maw's heart: sunk through the mouths in the moment the mouth comes round into the line, and a period later too.
+  const heart = Math.atan2(maw.y - def.tee.y, maw.x - def.tee.x);
+  let hit = null;
+  for (let T = 0; T < w.orbitA.period && !hit; T += 0.05) {
+    const r = await golfFly(def, heart, { launchAt: T });
+    if (r.end === 'cup') hit = { T, r };
+  }
+  assert.ok(hit, 'some moment sinks the line at the maw');
+  assert.ok(hit.r.warps === 1 && hit.r.t < 3, `through one pair and down in ${hit.r.t.toFixed(1)} s`);
+  assert.equal((await golfFly(def, heart, { launchAt: hit.T + w.orbitA.period })).end, 'cup', 'the moment comes round again');
+  assert.equal((await golfFly(def, heart, { launchAt: hit.T + w.orbitA.period / 2 })).end, 'maw', 'at any other moment the maw is where the line goes');
+  // Every line, launched across a whole turn of the mouths: whatever sinks went through them.
+  let sinks = 0;
+  for (let T = 0; T < w.orbitA.period; T += 0.5) {
+    for (let deg = -180; deg < 180; deg += 4) {
+      const r = await golfFly(def, (deg * Math.PI) / 180, { launchAt: T });
+      if (r.end !== 'cup') continue;
+      sinks++;
+      assert.ok(r.warps > 0, `${deg} degrees at ${T} s reached the cup without the mouths`);
+    }
+  }
+  assert.ok(sinks > 0);
 });
 
 test('golf: the charge is held to the arena cap, so nothing a field does to it can tunnel a wall', async () => {

@@ -1040,4 +1040,44 @@ export const TRACKS = {
     ],
     loopFrom: 1,
   },
+  lockstep: {
+    key: 'E-flat lydian',
+    title: 'Lockstep (Two Mouths Theme)',
+    bpm: 94,
+    fx: { reverb: 0.78, delay: 0.62, feedback: 0.6, tone: 3000, delayBeats: 1 },
+    pad: { attack: 2.2, release: 3, lfoRate: 1 / 7, lfoDepth: 460, cutoff: 520, detune: 14 }, // the wobble turns once every 7 s: the mouths' own period
+    progression: [
+      { chord: [63, 67, 70, 74], pad: [39, 46, 51, 55, 57], bass: 27, bars: 2 }, // Ebmaj7 with the lydian A
+      { chord: [65, 69, 72, 74], pad: [41, 48, 53, 57], bass: 29, bars: 2 }, // F6: the lydian lift
+      { chord: [60, 63, 67, 70], pad: [36, 43, 48, 51], bass: 24, bars: 2 }, // Cm7
+      { chord: [58, 62, 65, 69], pad: [34, 41, 46, 50], bass: 34, bars: 2 }, // Bbmaj7
+    ],
+    // Two voices in step: the pattern's second half is its first, a chord tone higher, never a beat apart.
+    arp: { octave: 12, gate: 0.55, wave: 'triangle', delay: 0.5, reverb: 0.3, pattern: [0, 2, 1, 3, 0, 2, 1, 3, 1, 3, 2, 4, 1, 3, 2, 4] },
+    bell: { octave: 24, ring: 9, pattern: [0, null, null, null, null, null, null, null, 0, null, null, null, null, null, null, null] },
+    bass: { pattern: [[0, 4], 0, 0, 0, 0, 0, [0, 2], 0, [7, 4], 0, 0, 0, 0, 0, [0, 2], 0] },
+    drums: {
+      kick: [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0],
+      snare: [0, 0, 0, 0, 0.35, 0, 0, 0, 0, 0, 0, 0, 0.35, 0, 0, 0],
+      hat: [0.35, 0, 0.45, 0, 0.35, 0, 0.45, 0, 0.35, 0, 0.45, 0, 0.35, 0, 0.45, 0.25],
+      hatOpen: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+    },
+    lead: {
+      length: 128,
+      notes: [
+        [0, 75, 8], [8, 79, 8], [16, 81, 12], [28, 79, 4],
+        [32, 77, 8], [40, 74, 8], [48, 72, 16],
+        [64, 75, 8], [72, 79, 8], [80, 82, 12], [92, 81, 4],
+        [96, 79, 8], [104, 77, 8], [112, 75, 16],
+      ],
+    },
+    sections: [
+      { name: 'two turning', bars: 8, layers: ['pad', 'bell'] },
+      { name: 'in step', bars: 8, layers: ['pad', 'bell', 'arp'], arpDensity: 8 },
+      { name: 'the window', bars: 16, layers: ['pad', 'bell', 'arp', 'kick', 'bass', 'hat'], arpDensity: 8, padBright: 0.35 },
+      { name: 'the far side', bars: 8, layers: ['pad', 'bell', 'lead', 'arp'], arpDensity: 8, arpOctave: 12 },
+      { name: 'through', bars: 16, layers: ['pad', 'bell', 'arp', 'kick', 'bass', 'hat', 'snare', 'lead'], padBright: 0.5 },
+    ],
+    loopFrom: 1,
+  },
 };

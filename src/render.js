@@ -733,6 +733,18 @@ export class Renderer {
     const ctx = this.ctx;
     const color = w.color || palette.warp || '#ff8df0';
     ctx.save();
+    // A mouth that circles something: its orbit, the way a stone's rail is drawn.
+    for (const o of [w.orbitA, w.orbitB]) {
+      if (!o) continue;
+      ctx.setLineDash([4, 9]);
+      ctx.lineDashOffset = (-time * 12 * o.period) / Math.abs(o.period); // the dots drift the way the mouth goes
+      ctx.lineWidth = 2;
+      ctx.globalAlpha = 0.55;
+      ctx.strokeStyle = color;
+      ctx.beginPath();
+      ctx.arc(o.cx, o.cy, o.R, 0, Math.PI * 2);
+      ctx.stroke();
+    }
     // The thread: which mouth leads where, without claiming a path.
     ctx.setLineDash([2, 16]);
     ctx.lineDashOffset = -time * 24;
@@ -1011,6 +1023,16 @@ export class Renderer {
     for (const w of game.wormholes) {
       const color = w.color || p.warp || '#ff8df0';
       ctx.strokeStyle = color;
+      for (const o of [w.orbitA, w.orbitB]) {
+        if (!o) continue;
+        ctx.setLineDash([3 / s, 8 / s]);
+        ctx.lineWidth = 1.5 / s;
+        ctx.globalAlpha = 0.5;
+        ctx.beginPath();
+        ctx.arc(o.cx, o.cy, o.R, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
       ctx.lineWidth = 2 / s;
       for (const [x, y] of [[w.ax, w.ay], [w.bx, w.by]]) {
         ctx.setLineDash([w.r * 0.5, w.r * 0.35]);

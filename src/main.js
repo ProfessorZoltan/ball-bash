@@ -8,7 +8,7 @@ import { SEQUENCE, VERSUS_CONDUITS, levelLabel, shortId, campaignNextIndex } fro
 import { COURSE, COURSE_PAR, GOLF, holeLabel, toPar } from './golf.js';
 import { LORE } from './lore.js';
 import { SYSTEMS, TIERS, FRAME_CELLS, STANDARD, DEFAULT_FRAME, CUSTOM_ID, allFrames, frameById, withinBudget, cellsSpent, systemValue } from './frames.js';
-import { createGameState, rebuildWalls as rebuildWallsState, bodyHitCounts, tickCamp, versusSpawns, rotateSpawns, versusColors, VERSUS_IDS, nodeAccepts, objectiveDone, constrainToRail, wellsDrag, wellsAccel, swallowingWell, dronePhased, seatLauncher, solidPolysNow, wellReturnSpot } from './gamestate.js';
+import { createGameState, rebuildWalls as rebuildWallsState, bodyHitCounts, tickCamp, versusSpawns, rotateSpawns, versusColors, VERSUS_IDS, nodeAccepts, objectiveDone, constrainToRail, wellsDrag, wellsAccel, swallowingWell, dronePhased, seatLauncher, solidPolysNow, wellReturnSpot, placeMouths } from './gamestate.js';
 import { NetClient, relayConfig, saveRelay } from './net.js';
 import { buildSnapshot, applySnapshot, bracket, lerpView, noteArrival, bufferFor, advanceRenderClock, insertSnapshot, INTERP_MIN, EXTRAPOLATE_MAX } from './netstate.js';
 import { rewoundContact, viewLag, MAX_LAG } from './lagcomp.js';
@@ -166,6 +166,7 @@ function step(dt) {
 
   for (const m of g.movers) m.update(dt);
   if (g.portals) refreshPortals(); // a wormhole on a moving part rides with it
+  if (g.wormholes.length) placeMouths(g.wormholes, (g.mouthTime += dt)); // the course's mouths that circle a body
 
   // Intents by slot. a = the host's human (the left spawn), b = the AI boss
   // or, in versus, the rival human, c = the co-op ally. Whichever slot is

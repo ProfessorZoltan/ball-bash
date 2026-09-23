@@ -529,7 +529,7 @@ existing `ellipse`) live next to the arenas, and every arena is fired at in
 ## Galactic Golf (the Outer Course)
 
 A solo mode that is not Pong at all. Out past the last room the Architect drew
-there is a course: a tee, a charge, and twelve holes with nothing in them to
+there is a course: a tee, a charge, and thirteen holes with nothing in them to
 deflect. Tilt the frame to pick a line, thrust once to launch, and from then
 on the only say you have is the **ion gauge** — six pulses that shove the charge
 sideways mid-flight. Reach the cup and the hole is done; the launches it took
@@ -572,6 +572,7 @@ time, in the order they are easiest to learn. The back nine begins:
 | 10 | The Deep | 3 | 12 s | Open space: no walls, nothing to bank off; a line that misses flies on into the dark until the clock takes it | `COURSE[9]` in `src/golf.js` |
 | 11 | The Long Way | 2 | 10.4 s | Three screens long, and a heavy charge that nothing can push past the speed it leaves at: the straight line makes the cup with the clock all but spent, and the mouth by the tee is a shortcut that comes with time to fix your line | `COURSE[10]` in `src/golf.js` |
 | 12 | Binary | 3 | 14 s | Two equal stones circling each other on rails; the line to the cup runs between them, and whether it is open is a matter of when you launch | `COURSE[11]` in `src/golf.js` |
+| 13 | Lockstep | 3 | 9 s | Moving mouths behind a sealed wall: one circles a maw, the other circles the cup, in step. Go into the first heading for the maw's heart and you come out of the second heading for the cup's; aim at the maw and launch as the mouth swings into the line, or the maw takes it | `COURSE[12]` in `src/golf.js` |
 
 **Open space** (`open: true`) draws no floor and no walls, only a starfield at
 two depths; the hole's room is twenty thousand pixels square so that no line
@@ -585,7 +586,15 @@ the start of the level; a solid one is a mover in the physics, a disc of wall
 that carries its own velocity into the ball like a spinner's bar, and its
 field moves with it. They are turning while you aim, so a launch is timed
 against them, and the ghost of the last flight shows what a different moment
-did.
+did. **Mouths on orbits** (`orbitingWarp()`, an `orbitA` and `orbitB` on a
+pair) work the same way: each circles its own centre on the level's clock
+(`placeMouths` in `src/gamestate.js`), its orbit drawn as a dotted ring in the
+pair's colour. On Lockstep the two share a period and a phase, so each always
+stands at the same angle on its own body. The only way across the wall is
+through them: its test flies every fourth degree at every half second of a
+turn and requires every sink to have gone through a mouth, finds the moment
+the line at the maw's heart sinks in one warp and under three seconds, and
+requires the same line half a turn later to end in the maw.
 
 On the last three the direct line is proved not to work: the tests fly the
 straight shot into hole 4's and hole 5's mouths and require it to end in the
@@ -703,6 +712,7 @@ nowhere else in the game, and drums that come in late if at all.
 | 10 | The Deep (Open Space Theme) | C# minor | 74 | `TRACKS.deep` |
 | 11 | The Long Way (Clock Theme) | G major | 108 | `TRACKS.longway` |
 | 12 | Binary (Two Stones Theme) | F lydian | 90 | `TRACKS.binary` |
+| 13 | Lockstep (Two Mouths Theme) | E-flat lydian | 94 | `TRACKS.lockstep` |
 
 To get there the engine gained a few knobs a track may set, all of which the
 level tracks leave at their old defaults: `fx` sizes the room (the reverb and

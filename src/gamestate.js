@@ -264,6 +264,20 @@ export class StoneMover {
   }
 }
 
+/** Where a point on an orbit is at level time t: it circles (cx, cy) at R, once every `period` seconds (a negative period goes the other way), from `phase`. */
+export function orbitPoint(o, t) {
+  const a = o.phase + ((Math.PI * 2) / o.period) * t;
+  return { x: o.cx + Math.cos(a) * o.R, y: o.cy + Math.sin(a) * o.R };
+}
+
+/** Put every orbiting wormhole mouth where it is at level time t. Runs from the start of the level, like a body on a rail, so a launch is timed against it. */
+export function placeMouths(wormholes, t) {
+  for (const w of wormholes) {
+    if (w.orbitA) ({ x: w.ax, y: w.ay } = orbitPoint(w.orbitA, t));
+    if (w.orbitB) ({ x: w.bx, y: w.by } = orbitPoint(w.orbitB, t));
+  }
+}
+
 /** The solid outlines the ball is kept out of this step: the static ones, and every moving body's where it is now. */
 export function solidPolysNow(g) {
   const moving = g.movers.filter((m) => m.polygon);
@@ -578,7 +592,10 @@ export function createGameState(def, { pvp = false, coop = false, volley = false
   // a hole could carry several; `wells` is the list the physics reads.
   const well = def.well ? wells[0] : null;
   // Wormholes: paired mouths that hand the charge on at the heading it arrived with.
-  const wormholes = (def.wormholes || []).map((w, i) => ({ ax: w.ax, ay: w.ay, bx: w.bx, by: w.by, r: w.r || 36, color: w.color || null, oneWay: !!w.oneWay, i }));
+  // A mouth with an orbit circles a centre on the level's clock (placeMouths).
+  const orbit = (o) => (o ? { cx: o.cx, cy: o.cy, R: o.R, period: o.period, phase: o.phase || 0 } : null);
+  const wormholes = (def.wormholes || []).map((w, i) => ({ ax: w.ax, ay: w.ay, bx: w.bx, by: w.by, r: w.r || 36, color: w.color || null, oneWay: !!w.oneWay, orbitA: orbit(w.orbitA), orbitB: orbit(w.orbitB), i }));
+  placeMouths(wormholes, 0);
   const ice = def.ice ? new IceTrail(def.ice) : null;
   // Coolant vents: each drops a patch of ice every `period` seconds, the first after `delay`.
   const vents = (def.vents || []).map((v, i) => ({ x: v.x, y: v.y, r: v.r || 48, period: v.period || 7, delay: v.delay || 0, i, nextAt: v.delay || 0 }));
@@ -591,7 +608,7 @@ export function createGameState(def, { pvp = false, coop = false, volley = false
   // The frame each human seat wears, so the HUD and the tests can read it back.
   const wornFrames = {};
   for (const f of humans) wornFrames[f.slot] = frameFor(f.slot);
-  const g = { def, staticWalls, staticPolys, panes, doors, walls: [], solidPolys: [], player, ally, allies, boss, drones, nodes, turrets, emitters, shots: [], objective, fighters, humans, movers, ice, vents, well, wells, wormholes, golf: null, frames: wornFrames, ball, volley: !!volley && pvp, portals: portals && volley && pvp ? {} : null, maxSpeed: maxSpeed || def.maxBallSpeed || BALL.maxSpeed, pvp, players: pvpCount, coop: !pvp && allyCount > 0, rules: { ...DEFAULT_RULES, ...rules } };
+  const g = { def, staticWalls, staticPolys, panes, doors, walls: [], solidPolys: [], player, ally, allies, boss, drones, nodes, turrets, emitters, shots: [], objective, fighters, humans, movers, ice, vents, well, wells, wormholes, mouthTime: 0, golf: null, frames: wornFrames, ball, volley: !!volley && pvp, portals: portals && volley && pvp ? {} : null, maxSpeed: maxSpeed || def.maxBallSpeed || BALL.maxSpeed, pvp, players: pvpCount, coop: !pvp && allyCount > 0, rules: { ...DEFAULT_RULES, ...rules } };
   rebuildWalls(g);
   return g;
 }
