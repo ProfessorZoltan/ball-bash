@@ -89,14 +89,16 @@ function oneWay(ax, ay, bx, by, r = 36, color = null) {
 }
 
 /**
- * A pair whose mouths each circle something: `a` and `b` are orbits
- * { cx, cy, R, period, phase } (a negative period turns the other way). They
- * run on the level's clock from the moment the hole opens, like a stone on a
- * rail, so where a mouth will be is a matter of when you launch.
+ * A pair whose mouths circle something: `a` and `b` are each an orbit
+ * { cx, cy, R, period, phase } (a negative period turns the other way) or a
+ * fixed point { x, y }. The orbits run on the level's clock from the moment
+ * the hole opens, like a stone on a rail, so where a mouth will be is a
+ * matter of when you launch. `extra` takes { oneWay } like any pair.
  */
-function orbitingWarp(a, b, r = 36, color = null) {
-  const at = (o) => [o.cx + Math.cos(o.phase || 0) * o.R, o.cy + Math.sin(o.phase || 0) * o.R];
-  return warp(...at(a), ...at(b), r, color, { orbitA: a, orbitB: b });
+function orbitingWarp(a, b, r = 36, color = null, extra = {}) {
+  const orbit = (o) => o.R !== undefined;
+  const at = (o) => (orbit(o) ? [o.cx + Math.cos(o.phase || 0) * o.R, o.cy + Math.sin(o.phase || 0) * o.R] : [o.x, o.y]);
+  return warp(...at(a), ...at(b), r, color, { orbitA: orbit(a) ? a : null, orbitB: orbit(b) ? b : null, ...extra });
 }
 
 /** The second pair's colour on a hole that has two. The first wears the palette's. */
@@ -508,6 +510,127 @@ export const COURSE = [
     cup: cup(1240, 450, { range: 100 }),
     movers: [cage(1240, 450, { radius: 80, count: 2, length: 150, thick: 6, period: 12 })],
     wormholes: [orbitingWarp({ cx: 560, cy: 450, R: 150, period: 8, phase: 0 }, { cx: 1240, cy: 450, R: 175, period: 8, phase: 0 })],
+  }),
+  hole({
+    id: 'g15',
+    hole: 15,
+    par: 4,
+    title: 'Lenses',
+    track: 'lenses',
+    open: true,
+    width: 20000,
+    height: 20000,
+    view: SCREEN,
+    area: { x: 9000, y: 9000, w: 3600, h: 2000 },
+    flightSeconds: 12,
+    intro: 'Open space again, and the void has put up founts. Two of them side by side make a lens: whatever goes between them is bent toward one point, and the lens in front of the tee bends every line through it toward the same point, which leads nowhere. The cup sits behind a second lens, beyond a stone. Find the line the first lens does not take. A maw is not only a hazard: pass close enough to its edge without crossing it and it turns you as hard as any stone. Nothing out here stops a line that misses.',
+    record: 'The founts came after the stones, and nobody asked them to stand in pairs. They did anyway, and the void has been focusing its own light ever since.',
+    sunk: "Under the lens, round the maw's edge, round the stone, and through the second lens. Four bends, and not one wall.",
+    boundary: room(20000, 20000),
+    tee: { x: 9300, y: 10600, angle: -0.27 }, // straight through the first lens: the obvious line, and it goes nowhere
+    wells: [
+      fount(9950, 10280, { range: 190 }),
+      fount(9950, 10560, { range: 190 }),
+      maw(10500, 10800, { r: 44, range: 360, pull: 60000 }),
+      planet(10807, 10448, { r: 60, range: 520, pull: 90500 }),
+      fount(11266, 9426, { range: 190 }),
+      fount(11554, 9426, { range: 190 }),
+      maw(12350, 10050, { r: 40, range: 340, pull: 56000 }),
+    ],
+    cup: cup(11410, 9136),
+  }),
+  hole({
+    id: 'g16',
+    hole: 16,
+    par: 5,
+    title: 'Rendezvous',
+    track: 'rendezvous',
+    width: 3200,
+    height: 1800,
+    view: SCREEN,
+    flightSeconds: 24,
+    noBareLine: true,
+    intro: 'A body big enough to park on, and the way on is a mouth that circles it further out, on a clock of its own. The tee sets you on a low orbit. Burn along your flight and you climb; the top of the climb comes a little over a third of a lap later, and the mouth has to be there when you arrive. A maw rides a rail between the two orbits the other way round, and whatever meets it on the way up is gone. The mouth only lets go at its far end: from there, steer in.',
+    record: 'The mouth was set turning so that nothing could simply aim at it. What wanted to get through learned to wait for it instead.',
+    sunk: 'Parked, climbed, met, and steered. The void keeps a timetable, and you kept to it.',
+    boundary: room(3200, 1800),
+    tee: { x: 620, y: 1100, angle: -Math.PI / 2 },
+    wells: [
+      planet(900, 1100, { r: 90, range: 900, pull: 184900 }),
+      maw(900, 1100, { r: 26, range: 66, pull: 40000, rail: { cx: 900, cy: 1100, R: 385, period: -7, phase: 0 } }),
+    ],
+    cup: cup(2900, 500),
+    // The way in circles the body well outside the parking orbit; the way out only lets go.
+    wormholes: [orbitingWarp({ cx: 900, cy: 1100, R: 490, period: 11, phase: 3 }, { x: 2500, y: 500 }, 36, null, { oneWay: true })],
+  }),
+  hole({
+    id: 'g17',
+    hole: 17,
+    par: 4,
+    title: 'Heavy Water',
+    track: 'heavywater',
+    width: 1600,
+    height: 2700,
+    view: SCREEN,
+    maxBallSpeed: 440,
+    flightSeconds: 12,
+    intro: 'Three screens down, and the charge is heavy again: nothing hurries it, and the slower a thing moves the harder a stone turns it. Two floors with no gaps in them; only the mouths go down. The gold mouth takes you to the middle floor, where a stone swings the slow charge round into the rose mouth, and the rose mouth sits in a turning cage. Its far end is on the bottom floor, and it keeps the heading the stone gave you. Aim the gold, and time the cage.',
+    record: 'The deep end of the course, where charges sink rather than fly. The stone on the middle floor has turned more of them than any other body out here, because every one of them arrives slowly.',
+    sunk: 'Gold, the stone, the cage, rose, and down. Slowly, the whole way.',
+    boundary: room(1600, 2700),
+    tee: { x: 300, y: 250, angle: 0 },
+    obstacles: [
+      rect(800, 900, 1480, 24), // the first floor, sealed
+      rect(800, 1800, 1480, 24), // the second floor, sealed
+    ],
+    movers: [cage(1330, 1640, { radius: 70, count: 2, length: 120, thick: 6, period: 5 })],
+    wells: [
+      maw(1250, 760, { r: 36, range: 200, pull: 50000 }), // takes what rattles round the top floor
+      planet(760, 1560, { r: 50, range: 420, pull: 45000 }),
+      maw(1150, 2560, { r: 40, range: 260, pull: 50000 }),
+    ],
+    cup: cup(900, 2390),
+    wormholes: [warp(1200, 500, 250, 1150, 36, GOLD), warp(1330, 1640, 400, 2000)],
+  }),
+  hole({
+    id: 'g18',
+    hole: 18,
+    par: 6,
+    title: 'Grand Tour',
+    track: 'finale',
+    width: 3200,
+    height: 1800,
+    view: SCREEN,
+    flightSeconds: 30,
+    fuel: 8,
+    noBareLine: true,
+    intro: 'The last hole is all of them. A gate with a bar turning in it between you and the second screen. A stone and a maw to go between, which pull opposite ways and forgive nothing. A mouth up by the ceiling that sets you down on the orbit of a body two screens away, a maw riding a rail outside that orbit, and the cup in a turning cage with a maw above it and below. The orbit is where you catch your breath: ride it until the cage and the maw on the rail both let you through, then burn. Eight pulses, and the map on P.',
+    record: 'Nobody built the last hole. It is what was left when every other hole had been laid out: all the pieces that were too hard to put anywhere else.',
+    sunk: 'Through the gate, between the two, up and through, round, and in. The course is played.',
+    boundary: room(3200, 1800),
+    tee: { x: 250, y: 450, angle: 0 },
+    obstacles: [
+      rect(1600, 225, 24, 330), // the wall between the top two screens, above the gate
+      rect(1600, 705, 24, 390), // and below it: the gate is y 390..510
+      rect(1600, 900, 3080, 24), // the floor between top and bottom, sealed
+    ],
+    movers: [
+      { type: 'spinner', x: 1600, y: 450, length: 110, thick: 8, omega: 1.3, angle: 0 },
+      cage(2400, 1350, { radius: 80, count: 2, length: 150, thick: 6, period: 12 }),
+    ],
+    wells: [
+      maw(800, 790, { r: 36, range: 200, pull: 50000 }), // takes what rattles round the tee's screen
+      planet(2250, 230, { r: 50, range: 330, pull: 50000 }), // the saddle: a stone above the line,
+      maw(2250, 660, { r: 40, range: 280, pull: 56000 }), // and a maw below it
+      planet(800, 1350, { r: 90, range: 560, pull: 184900 }),
+      maw(800, 1350, { r: 26, range: 80, pull: 40000, rail: { cx: 800, cy: 1350, R: 450, period: -9, phase: 0 } }),
+      maw(2400, 1030, { r: 30, range: 130, pull: 40000 }),
+      maw(2400, 1670, { r: 30, range: 130, pull: 40000 }),
+      maw(2980, 1180, { r: 40, range: 260, pull: 56000 }), // overshoots
+      maw(2980, 1560, { r: 40, range: 260, pull: 56000 }),
+    ],
+    cup: cup(2400, 1350, { range: 100 }),
+    wormholes: [warp(2700, 150, 620, 1110, 36, null, { oneWay: true })],
   }),
 ];
 

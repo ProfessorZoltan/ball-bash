@@ -601,6 +601,18 @@ export class Renderer {
     const ctx = this.ctx;
     const color = w.cup ? palette.cup || '#7dffc4' : palette.well || '#b49cff';
     ctx.save();
+    if (w.rail) {
+      // A maw on a rail: where it goes, as a stone's rail is drawn.
+      ctx.setLineDash([2, 10]);
+      ctx.lineWidth = 1.5;
+      ctx.globalAlpha = 0.3;
+      ctx.strokeStyle = color;
+      ctx.beginPath();
+      ctx.arc(w.rail.cx, w.rail.cy, w.rail.R, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+    }
     ctx.translate(w.x, w.y);
     ctx.strokeStyle = color;
     // Its reach: where the pull begins.

@@ -530,7 +530,7 @@ existing `ellipse`) live next to the arenas, and every arena is fired at in
 ## Galactic Golf (the Outer Course)
 
 A solo mode that is not Pong at all. Out past the last room the Architect drew
-there is a course: a tee, a charge, and fourteen holes with nothing in them to
+there is a course: a tee, a charge, and eighteen holes with nothing in them to
 deflect. Tilt the frame to pick a line, thrust once to launch, and from then
 on the only say you have is the **ion gauge** — six pulses that shove the charge
 sideways mid-flight. Reach the cup and the hole is done; the launches it took
@@ -567,7 +567,8 @@ The course as it stands:
 | 9 | Twin Bodies | 5 | 30 s | Two screens each way. Orbit the first body, burn to transfer to the second, orbit that, burn into the cup's corner; a lucky slingshot off the second body gets there in one burn | `COURSE[8]` in `src/golf.js` |
 
 Those nine are the front nine: every mechanic on the course, one or two at a
-time, in the order they are easiest to learn. The back nine begins:
+time, in the order they are easiest to learn. The back nine adds a few more,
+and its last four put everything together:
 
 | Hole | Name | Par | Clock | What it adds | Source |
 |---|---|---|---|---|---|
@@ -576,6 +577,10 @@ time, in the order they are easiest to learn. The back nine begins:
 | 12 | Binary | 3 | 14 s | Two equal stones circling each other on rails; the line to the cup runs between them, and whether it is open is a matter of when you launch | `COURSE[11]` in `src/golf.js` |
 | 13 | Lockstep | 3 | 9 s | Moving mouths behind a sealed wall: one circles a maw, the other circles the cup, in step. Go into the first heading for the maw's heart and you come out of the second heading for the cup's; aim at the maw and launch as the mouth swings into the line, or the maw takes it | `COURSE[12]` in `src/golf.js` |
 | 14 | Syncopation | 4 | 8 s | Lockstep with two more things in the way: a fount on the line to the maw's heart, so every line has to bend round it, and a cage of two bars turning round the cup every 12 s against the mouths' 8, so the way out needs a gap facing it; two small maws above and below the cup take what the cage turns away | `COURSE[13]` in `src/golf.js` |
+| 15 | Lenses | 4 | 12 s | Open space, with founts in pairs as lenses: the lens in front of the tee sends every line through it to one point, which leads nowhere. The way round is under it, along a maw's edge (a few px outside the horizon, where it turns you as hard as a stone), round a stone and through a second lens to the cup. A band of about two degrees | `COURSE[14]` in `src/golf.js` |
+| 16 | Rendezvous | 5 | 24 s | Two screens each way. The tee parks you on a low orbit; a mouth circles the body further out on an 11 s clock, and a maw rides a rail between the two orbits the other way. One burn along the flight climbs to the mouth's orbit a little over a third of a lap later (the field's apsides are 127° apart, not 180), and the mouth has to be there; its far end only lets go, and a pulse steers you in | `COURSE[15]` in `src/golf.js` |
+| 17 | Heavy Water | 4 | 12 s | Three screens down, on the heavy charge. Two sealed floors: the gold mouth takes the straight line to the middle floor, where a stone swings the slow charge round into the rose mouth, which sits in a turning cage; its far end on the bottom floor keeps the stone's heading into the cup. One degree of aim, and the cage's clock | `COURSE[16]` in `src/golf.js` |
+| 18 | Grand Tour | 6 | 30 s | The hardest on the course. A gate with a bar turning in it, a saddle between a stone and a maw that pull opposite ways, a one-way mouth by the ceiling that sets you down on an orbit two screens away, a maw on a rail outside that orbit, and the cup in a turning cage between two maws, two more beyond it. One degree of aim in a gate window, then a burn of three pulses on the lap the cage and the maw on the rail allow; eight pulses in the gauge | `COURSE[17]` in `src/golf.js` |
 
 **Open space** (`open: true`) draws no floor and no walls, only a starfield at
 two depths; the hole's room is twenty thousand pixels square so that no line
@@ -613,7 +618,30 @@ on, and at least 21 miss without the fount. Across a whole 24-second beat of
 both clocks, every sink goes through the mouths, and fewer than 4% of lines
 and moments sink at all.
 
-On the last three the direct line is proved not to work: the tests fly the
+**The last four** are each bigger than a screen, each built from at least
+three pieces the course taught earlier, no two from the same set, and the last
+has the highest par and the most pieces, and cannot be sunk without the
+gauge; one test checks all of that. Two pieces are new to the course here,
+though made of old ones. A **maw on a rail** (a `rail` on a body that is not
+solid) circles on the level's clock like a stone does (`placeRails` in
+`src/gamestate.js`, driven with the mouths by `tickOrbits`), drawn with its
+rail. A pair from `orbitingWarp()` can now have one end on an orbit and the
+other fixed, and be one-way. Each hole's own test flies its route and proves
+the pieces carry weight:
+- **Lenses:** lines through the first pair spread 60 px apart at the founts
+  meet within 12 px just beyond them, then fan out again. The sinking line
+  passes the maw less than 20 px outside its horizon, and misses without it.
+- **Rendezvous:** the tee parks, and the plan (launch 4.2 s in, one burn two
+  laps later, one steering pulse) goes down. Over the rest of the mouth's turn,
+  the same plan almost never goes down, and ten or more of those launches end
+  in the maw on the rail.
+- **Heavy Water:** every sink at any moment goes through both pairs, and the
+  line into the gold mouth goes down with the cage open and not with it shut.
+- **Grand Tour:** the gate opens and shuts on the line, the line parks on the
+  orbit with no burn, the burn goes down, and the same burn a lap later ends in
+  the maw on the rail.
+
+On holes 4 to 6 the direct line is proved not to work: the tests fly the
 straight shot into hole 4's and hole 5's mouths and require it to end in the
 maw, fly two retro pulses on hole 4 and the plate line on hole 5 and require
 the cup, and fly hole 6's opening line for its whole clock and require it to
@@ -731,6 +759,10 @@ nowhere else in the game, and drums that come in late if at all.
 | 12 | Binary (Two Stones Theme) | F lydian | 90 | `TRACKS.binary` |
 | 13 | Lockstep (Two Mouths Theme) | E-flat lydian | 94 | `TRACKS.lockstep` |
 | 14 | Syncopation (Two Clocks Theme) | D dorian | 102 | `TRACKS.syncopation` |
+| 15 | Lenses (Focus Theme) | B-flat lydian | 96 | `TRACKS.lenses` |
+| 16 | Rendezvous (Parking Orbit Theme) | F minor | 88 | `TRACKS.rendezvous` |
+| 17 | Heavy Water (Slow Descent Theme) | C minor | 76 | `TRACKS.heavywater` |
+| 18 | Grand Tour (Last Hole Theme) | E major | 104 | `TRACKS.finale` |
 
 To get there the engine gained a few knobs a track may set, all of which the
 level tracks leave at their old defaults: `fx` sizes the room (the reverb and

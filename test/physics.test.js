@@ -1602,19 +1602,19 @@ test('volley: a shield moves a charge like it moves the ball, and the arena cap 
  * then the ball step, then the horizons and the wormhole mouths. `pulses` are
  * ion pulses as {at, a} — the time they are spent and the heading they push.
  */
-async function golfFly(def, angle, { pulses = [], maxT = null, events = false, watch = null, launchAt = 0 } = {}) {
+async function golfFly(def, angle, { pulses = [], maxT = null, events = false, watch = null, launchAt = 0, path = false } = {}) {
   let warps = 0;
   let inWatch = 0; // seconds spent inside `watch`'s reach, a body to keep an eye on
   let bounces = 0; // walls and movers touched
   void events;
-  const { createGameState, wellsAccel, swallowingWell, solidPolysNow, placeMouths } = await import('../src/gamestate.js');
+  const { createGameState, wellsAccel, swallowingWell, solidPolysNow, tickOrbits } = await import('../src/gamestate.js');
   const { PHYSICS_DT, SURFACE_VELOCITY_FACTOR } = await import('../src/config.js');
   const { GOLF } = await import('../src/golf.js');
   const g = createGameState(def, {});
   // A launch some seconds into the level: whatever moves on it has moved that far.
   for (let k = 0; k < Math.round(launchAt / PHYSICS_DT); k++) {
     for (const m of g.movers) m.update(PHYSICS_DT);
-    placeMouths(g.wormholes, (g.mouthTime += PHYSICS_DT));
+    tickOrbits(g, PHYSICS_DT);
   }
   const f = g.player;
   f.angle = angle;
@@ -1625,9 +1625,10 @@ async function golfFly(def, angle, { pulses = [], maxT = null, events = false, w
   let warp = 0;
   let closest = Infinity;
   const cup = g.wells.find((w) => w.cup);
+  const pts = path ? [] : null; // where the charge was each step, when asked
   for (; t < (maxT || def.flightSeconds); t += PHYSICS_DT) {
     for (const m of g.movers) m.update(PHYSICS_DT);
-    placeMouths(g.wormholes, (g.mouthTime += PHYSICS_DT));
+    tickOrbits(g, PHYSICS_DT);
     for (const p of plan) {
       if (p.done || t < p.at) continue;
       p.done = true;
@@ -1643,10 +1644,11 @@ async function golfFly(def, angle, { pulses = [], maxT = null, events = false, w
     advanceBall(b, g.walls, [], PHYSICS_DT, SURFACE_VELOCITY_FACTOR, { onWall: () => bounces++, onMover: () => bounces++ }, g.movers, solidPolysNow(g));
     b.clampSpeed(BALL.minSpeed, g.maxSpeed);
     closest = Math.min(closest, Math.hypot(b.x - cup.x, b.y - cup.y));
+    if (pts) pts.push([b.x, b.y]);
     if (watch && Math.hypot(b.x - watch.x, b.y - watch.y) < watch.range) inWatch += PHYSICS_DT;
     const took = swallowingWell(g.wells, b.x, b.y);
-    if (took) return { end: took.cup ? 'cup' : took.hazard ? 'maw' : 'horizon', t, closest, warps, inWatch, bounces, x: b.x, y: b.y };
-    if (!pointInPolygon(b.x, b.y, def.boundary)) return { end: 'out', t, closest, warps, inWatch, bounces, x: b.x, y: b.y };
+    if (took) return { end: took.cup ? 'cup' : took.hazard ? 'maw' : 'horizon', t, closest, warps, inWatch, bounces, x: b.x, y: b.y, pts };
+    if (!pointInPolygon(b.x, b.y, def.boundary)) return { end: 'out', t, closest, warps, inWatch, bounces, x: b.x, y: b.y, pts };
     if (warp > 0) warp -= PHYSICS_DT;
     else
       for (const w of g.wormholes) {
@@ -1660,7 +1662,7 @@ async function golfFly(def, angle, { pulses = [], maxT = null, events = false, w
         }
       }
   }
-  return { end: 'spent', t, closest, warps, inWatch, bounces, x: b.x, y: b.y };
+  return { end: 'spent', t, closest, warps, inWatch, bounces, x: b.x, y: b.y, pts };
 }
 
 test('golf: a hole is a level with no opponent - a launcher bolted to the tee, no boss, no drones, and its cup among its bodies', async () => {
@@ -1909,6 +1911,171 @@ test('golf: Syncopation - a fount pushes the line off the maw, the cage round th
     }
   }
   assert.ok(sinks > 0 && sinks / n < 0.04, `${sinks} of ${n} lines and moments sink it: a hard hole, not a closed one`);
+});
+
+test('golf, the last four: every one bigger than a screen, built from pieces the course already taught, no two built alike, and the last the hardest', async () => {
+  const { createGameState } = await import('../src/gamestate.js');
+  const { COURSE } = await import('../src/golf.js');
+  const last = COURSE.slice(14);
+  assert.deepEqual(last.map((h) => h.hole), [15, 16, 17, 18]);
+  // The pieces a hole is built from, named as the course introduced them.
+  const pieces = (def) => {
+    const g = createGameState(def, {});
+    const k = new Set();
+    for (const w of g.wells) {
+      if (w.cup) continue;
+      if (w.fount) k.add('fount');
+      else if (w.solid && w.pull >= 150000) k.add('orbit body');
+      else if (w.solid) k.add('stone');
+      else if (w.rail) k.add('maw on a rail');
+      else k.add('maw');
+    }
+    for (const w of g.wormholes) {
+      k.add(w.orbitA || w.orbitB ? 'moving mouth' : 'mouth');
+      if (w.oneWay) k.add('one-way mouth');
+      if (w.color) k.add('coloured pairs');
+    }
+    for (const m of g.movers) if (m.kind !== 'stone') k.add(m.kind === 'orbiter' ? 'cage' : 'turning bar');
+    if (def.open) k.add('open space');
+    if (g.maxSpeed < 500) k.add('heavy charge');
+    return k;
+  };
+  const sets = last.map(pieces);
+  last.forEach((def, i) => {
+    assert.ok(def.view && (def.width > def.view.w || def.height > def.view.h), `${def.title} is bigger than one screen`);
+    assert.ok(sets[i].size >= 3, `${def.title} mixes pieces: ${[...sets[i]].join(', ')}`);
+  });
+  for (let i = 0; i < 4; i++) for (let j = i + 1; j < 4; j++) {
+    const same = [...sets[i]].filter((x) => sets[j].has(x)).length;
+    assert.ok(same < Math.min(sets[i].size, sets[j].size), `${last[i].title} and ${last[j].title} are built from the same pieces`);
+  }
+  const final = last[3];
+  assert.ok(COURSE.every((h) => h === final || h.par < final.par), 'the last hole has the highest par on the course');
+  assert.ok(sets[3].size >= Math.max(...sets.slice(0, 3).map((x) => x.size)), 'and more pieces than any of the other three');
+  assert.ok(final.noBareLine, 'and nothing sinks it without the gauge');
+});
+
+test('golf: Lenses - two founts make a lens that sends every line to one point, and the way round it is along a maw\'s edge', async () => {
+  const { COURSE } = await import('../src/golf.js');
+  const def = COURSE.find((h) => h.id === 'g15');
+  const rad = (d) => (d * Math.PI) / 180;
+  assert.ok(def.open && def.obstacles.length === 0, 'open space: nothing to bank off');
+  // A lens: lines through the first pair spread 60 px apart at the founts meet within a few px just beyond them, then fan out again.
+  const yAt = (pts, x) => pts.find((p) => p[0] >= x)[1];
+  const through = [];
+  for (const d of [-20, -18, -16, -14, -12]) through.push((await golfFly(def, rad(d), { maxT: 4, path: true })).pts);
+  const spread = (x) => Math.max(...through.map((p) => yAt(p, x))) - Math.min(...through.map((p) => yAt(p, x)));
+  assert.ok(spread(9950) > 50, `spread at the lens: ${spread(9950).toFixed(0)}`);
+  assert.ok(spread(10100) < 12, `and at its focus: ${spread(10100).toFixed(0)}`);
+  assert.ok(spread(10300) > spread(10100) * 5, 'then apart again');
+  // The tee points through the lens, and that line touches nothing and goes nowhere.
+  const opener = await golfFly(def, def.tee.angle);
+  assert.equal(opener.end, 'spent');
+  assert.equal(opener.bounces, 0);
+  // The way in: under the lens and along the maw's edge, a few px outside its horizon, then round the stone and through the second lens.
+  const maw = def.wells.find((w) => w.hazard && w.x < 11000);
+  const line = await golfFly(def, rad(13), { path: true });
+  assert.equal(line.end, 'cup', `13 degrees goes down (${line.end})`);
+  const edge = Math.min(...line.pts.map((p) => Math.hypot(p[0] - maw.x, p[1] - maw.y)));
+  assert.ok(edge > maw.r && edge < maw.r + 20, `past the maw ${Math.round(edge - maw.r)} px outside its horizon`);
+  const noMaw = { ...def, wells: def.wells.filter((w) => w !== maw) };
+  assert.notEqual((await golfFly(noMaw, rad(13))).end, 'cup', 'without the maw to turn it, the same line misses');
+  // A narrow band: a few degrees at most of the whole circle.
+  let band = 0;
+  for (let d = 0; d < 40; d += 0.5) if ((await golfFly(def, rad(d))).end === 'cup') band++;
+  assert.ok(band >= 2 && band <= 8, `${band / 2} degrees sink it`);
+});
+
+test('golf: Rendezvous - park, climb to meet a mouth on a wider orbit, past a maw that rides a rail the other way', async () => {
+  const { createGameState, placeRails } = await import('../src/gamestate.js');
+  const { COURSE } = await import('../src/golf.js');
+  const def = COURSE.find((h) => h.id === 'g16');
+  const rad = (d) => (d * Math.PI) / 180;
+  const g = createGameState(def, {});
+  const body = g.wells.find((w) => w.solid);
+  const moon = g.wells.find((w) => w.rail);
+  const [w] = g.wormholes;
+  const park = Math.hypot(def.tee.x - body.x, def.tee.y - body.y);
+  assert.ok(park < moon.rail.R - moon.range && moon.rail.R + moon.range < w.orbitA.R - w.r, 'the maw\'s rail lies between the parking orbit and the mouth\'s, touching neither');
+  assert.ok(Math.sign(moon.rail.period) !== Math.sign(w.orbitA.period), 'and turns the other way');
+  assert.ok(w.oneWay, 'the mouth only lets go at its far end');
+  // A maw on a rail moves on the level's clock: half a period on, it is on the far side.
+  const at0 = [moon.x, moon.y];
+  placeRails(g.wells, Math.abs(moon.rail.period) / 2);
+  assert.ok(Math.hypot(moon.x - (2 * moon.rail.cx - at0[0]), moon.y - (2 * moon.rail.cy - at0[1])) < 1e-6, 'half a period on, it is opposite');
+  // The tee's line parks: round the body for the whole clock, touching nothing.
+  const parked = await golfFly(def, def.tee.angle);
+  assert.equal(parked.end, 'spent');
+  assert.equal(parked.warps + parked.bounces, 0);
+  // The plan: launched 4.2 s into the hole, one burn along the flight two laps in, through the mouth at the top of the climb, and one pulse to steer in.
+  const plan = [{ at: 7.76, a: rad(233) }, { at: 9.34, a: rad(0) }];
+  const met = await golfFly(def, def.tee.angle, { launchAt: 4.2, pulses: plan });
+  assert.equal(met.end, 'cup', `the rendezvous goes down (${met.end})`);
+  assert.equal(met.warps, 1);
+  // The same plan at the other moments of a whole turn of the mouth: it is almost never there, and the maw on the rail often is.
+  let also = 0;
+  let intoMaw = 0;
+  let n = 0;
+  for (let T = 4.7; T < 4.2 + Math.abs(w.orbitA.period); T += 0.1) {
+    const r = await golfFly(def, def.tee.angle, { launchAt: T, pulses: plan });
+    n++;
+    if (r.end === 'cup') also++;
+    if (r.end === 'maw') intoMaw++;
+  }
+  assert.ok(also <= 3, `the same plan also goes down at ${also} of ${n} other moments`);
+  assert.ok(intoMaw >= 10, `and goes into the maw on the rail at ${intoMaw} of them`);
+});
+
+test('golf: Heavy Water - three screens down on a heavy charge, two pairs in order, a stone to turn and a cage round the second mouth', async () => {
+  const { createGameState } = await import('../src/gamestate.js');
+  const { COURSE } = await import('../src/golf.js');
+  const def = COURSE.find((h) => h.id === 'g17');
+  const rad = (d) => (d * Math.PI) / 180;
+  const g = createGameState(def, {});
+  assert.ok(def.height > 2 * def.view.h && def.height > def.width, 'a hole that goes down, not across');
+  assert.equal(g.maxSpeed, 440, 'the heavy charge');
+  const [gold, rose] = g.wormholes;
+  const cage = g.movers.find((m) => m.kind === 'orbiter');
+  assert.ok(cage && Math.hypot(cage.x - rose.ax, cage.y - rose.ay) < 1, 'the second mouth sits in a turning cage');
+  // The floors are sealed: every sink, at any moment, goes through both pairs.
+  let sinks = 0;
+  for (let T = 0; T < 5; T += 1.25) for (let d = -180; d < 180; d += 2) {
+    const r = await golfFly(def, rad(d), { launchAt: T });
+    if (r.end !== 'cup') continue;
+    sinks++;
+    assert.equal(r.warps, 2, `${d} degrees at ${T} s went down through ${r.warps} mouths`);
+  }
+  assert.ok(sinks > 0);
+  // The line into the gold mouth goes down when the cage is open and not when it is shut.
+  const open = await golfFly(def, rad(14), { launchAt: 2.0 });
+  assert.equal(open.end, 'cup', `14 degrees at 2.0 s goes down (${open.end})`);
+  assert.equal(open.warps, 2);
+  assert.notEqual((await golfFly(def, rad(14), { launchAt: 0.75 })).end, 'cup', 'the same line when the cage is shut');
+  assert.notEqual((await golfFly(def, def.tee.angle)).end, 'cup');
+});
+
+test('golf: Grand Tour - the gate, the saddle, the mouth onto an orbit, and one burn past a maw on a rail into a caged cup', async () => {
+  const { COURSE } = await import('../src/golf.js');
+  const def = COURSE.find((h) => h.id === 'g18');
+  const rad = (d) => (d * Math.PI) / 180;
+  // The gate: the same line reaches the mouth only in the moments the bar in the gate lets it through.
+  const through = [];
+  for (let T = 0; T < 4.9; T += 0.3) through.push((await golfFly(def, rad(-1.75), { launchAt: T, maxT: 7 })).warps > 0);
+  assert.ok(through.some(Boolean) && !through.every(Boolean), 'the gate opens and shuts');
+  // Through the gate, the saddle and the mouth, the charge is set down on an orbit, and with no burn it stays there.
+  const parked = await golfFly(def, rad(-1.75), { launchAt: 1.5 });
+  assert.equal(parked.end, 'spent');
+  assert.equal(parked.warps, 1);
+  // One burn of three pulses, a lap after being set down, across into the cage and the cup.
+  const burn = [9.725, 9.975, 10.225].map((at) => ({ at, a: rad(-3.77) }));
+  const tour = await golfFly(def, rad(-1.75), { launchAt: 1.5, pulses: burn });
+  assert.equal(tour.end, 'cup', `the tour goes down (${tour.end})`);
+  assert.equal(tour.warps, 1);
+  assert.ok(tour.t < def.flightSeconds);
+  // The burn a lap later meets the maw on the rail, and two pulses are not enough.
+  const lap = (2 * Math.PI * 300) / 430;
+  assert.equal((await golfFly(def, rad(-1.75), { launchAt: 1.5, pulses: burn.map((p) => ({ ...p, at: p.at + lap })) })).end, 'maw', 'a lap late, the maw on the rail is there');
+  assert.notEqual((await golfFly(def, rad(-1.75), { launchAt: 1.5, pulses: burn.slice(0, 2) })).end, 'cup', 'two pulses do not carry it across');
 });
 
 test('golf: the charge is held to the arena cap, so nothing a field does to it can tunnel a wall', async () => {

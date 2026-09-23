@@ -279,6 +279,18 @@ export function placeMouths(wormholes, t) {
   }
 }
 
+/** Put every body on a rail that is not solid (a maw on a rail) where it is at level time t. A solid one is a StoneMover, and moves itself. */
+export function placeRails(wells, t) {
+  for (const w of wells) if (w.rail && !w.solid) ({ x: w.x, y: w.y } = orbitPoint(w.rail, t));
+}
+
+/** One step of the level's clock for whatever circles on it: mouths on orbits and maws on rails. */
+export function tickOrbits(g, dt) {
+  g.mouthTime += dt;
+  if (g.wormholes.length) placeMouths(g.wormholes, g.mouthTime);
+  placeRails(g.wells, g.mouthTime);
+}
+
 /** The solid outlines the ball is kept out of this step: the static ones, and every moving body's where it is now. */
 export function solidPolysNow(g) {
   const moving = g.movers.filter((m) => m.polygon);
@@ -528,6 +540,7 @@ export function createGameState(def, { pvp = false, coop = false, volley = false
   // Gravity bodies. A solid one (a golf hole's planet) is a wall as well as a
   // field: its surface bounces the ball while its pull bends everything near.
   const wells = levelWells(def);
+  placeRails(wells, 0); // a maw on a rail starts where its rail says, whatever x and y the level wrote
   const wellPolys = [];
   for (const w of wells) {
     if (!w.solid || w.rail) continue;

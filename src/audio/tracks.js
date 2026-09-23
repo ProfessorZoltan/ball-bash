@@ -1120,4 +1120,165 @@ export const TRACKS = {
     ],
     loopFrom: 1,
   },
+  lenses: {
+    key: 'B-flat lydian',
+    title: 'Lenses (Focus Theme)',
+    bpm: 96,
+    fx: { reverb: 0.8, delay: 0.64, feedback: 0.6, tone: 3400, delayBeats: 0.5 },
+    pad: { attack: 2.2, release: 3, lfoRate: 0.1, lfoDepth: 520, cutoff: 540, detune: 14 },
+    progression: [
+      { chord: [58, 62, 65, 69], pad: [46, 53, 58, 62, 64], bass: 34, bars: 2 }, // Bbmaj7 with the lydian E
+      { chord: [60, 64, 67, 69], pad: [48, 55, 60, 64], bass: 36, bars: 2 }, // C6: the lydian lift
+      { chord: [55, 58, 62, 65], pad: [43, 50, 55, 58], bass: 31, bars: 2 }, // Gm7
+      { chord: [53, 57, 60, 65], pad: [41, 48, 53, 57], bass: 29, bars: 2 }, // F
+    ],
+    // Lines that converge: the pattern closes in on one note from both sides, then opens again.
+    arp: { octave: 12, gate: 0.5, wave: 'triangle', delay: 0.6, reverb: 0.35, pattern: [0, 4, 1, 3, 2, 2, 3, 1, 0, 4, 1, 3, 2, 2, 5, 2] },
+    bell: { octave: 24, ring: 10, pattern: [0, null, null, null, null, null, null, null, 2, null, null, null, 4, null, null, null] },
+    bass: { pattern: [[0, 4], 0, 0, 0, 0, 0, [7, 2], 0, [0, 4], 0, 0, 0, [12, 2], 0, [7, 2], 0] },
+    drums: {
+      kick: [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0],
+      snare: [0, 0, 0, 0, 0.35, 0, 0, 0, 0, 0, 0, 0, 0.35, 0, 0, 0],
+      hat: [0.3, 0, 0.4, 0, 0.3, 0, 0.4, 0, 0.3, 0, 0.4, 0, 0.3, 0, 0.4, 0.2],
+      hatOpen: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+    },
+    lead: {
+      length: 128,
+      notes: [
+        [0, 77, 8], [8, 81, 8], [16, 82, 12], [28, 81, 4],
+        [32, 79, 8], [40, 76, 8], [48, 77, 16],
+        [64, 74, 8], [72, 77, 8], [80, 81, 12], [92, 84, 4],
+        [96, 82, 8], [104, 81, 8], [112, 77, 16],
+      ],
+    },
+    sections: [
+      { name: 'the void', bars: 8, layers: ['pad', 'bell'] },
+      { name: 'first lens', bars: 8, layers: ['pad', 'bell', 'arp'], arpDensity: 8 },
+      { name: 'the edge', bars: 16, layers: ['pad', 'bell', 'arp', 'kick', 'bass', 'hat'], arpDensity: 16, padBright: 0.35 },
+      { name: 'second lens', bars: 8, layers: ['pad', 'bell', 'lead', 'arp'], arpDensity: 8, arpOctave: 12 },
+      { name: 'focus', bars: 16, layers: ['pad', 'bell', 'arp', 'kick', 'bass', 'hat', 'snare', 'lead'], padBright: 0.5 },
+    ],
+    loopFrom: 1,
+  },
+  rendezvous: {
+    key: 'F minor',
+    title: 'Rendezvous (Parking Orbit Theme)',
+    bpm: 88,
+    fx: { reverb: 0.78, delay: 0.62, feedback: 0.58, tone: 2900, delayBeats: 1 },
+    pad: { attack: 2.4, release: 3.2, lfoRate: 1 / 11, lfoDepth: 500, cutoff: 500, detune: 16 }, // the wobble turns once every 11 s: the mouth's own period,
+    progression: [
+      { chord: [53, 56, 60, 63], pad: [41, 48, 53, 56, 60], bass: 29, bars: 2 }, // Fm7
+      { chord: [49, 53, 56, 60], pad: [37, 44, 49, 53], bass: 25, bars: 2 }, // Dbmaj7
+      { chord: [58, 61, 65, 68], pad: [46, 53, 58, 61], bass: 34, bars: 2 }, // Bbm7
+      { chord: [60, 64, 67, 70], pad: [48, 55, 60, 64], bass: 36, bars: 2 }, // C7: the climb
+    ],
+    // Round and round: a pattern that comes back to where it started every half bar, like a parking orbit.
+    arp: { octave: 12, gate: 0.55, wave: 'triangle', delay: 0.5, reverb: 0.3, pattern: [0, 1, 2, 3, 2, 1, 0, 1, 0, 1, 2, 3, 2, 1, 0, 4] },
+    bell: { octave: 24, ring: 10, pattern: [0, null, null, null, null, null, null, null, null, null, null, null, 3, null, null, null] },
+    bass: { pattern: [[0, 3], 0, 0, [0, 1], [0, 2], 0, 0, 0, [0, 3], 0, 0, [0, 1], [7, 2], 0, [5, 2], 0] },
+    drums: {
+      kick: [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0],
+      snare: [0, 0, 0, 0, 0.4, 0, 0, 0, 0, 0, 0, 0, 0.4, 0, 0, 0],
+      hat: [0.3, 0.2, 0.4, 0.2, 0.3, 0.2, 0.4, 0.2, 0.3, 0.2, 0.4, 0.2, 0.3, 0.2, 0.4, 0.3],
+      hatOpen: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+    },
+    lead: {
+      length: 128,
+      notes: [
+        [0, 72, 12], [12, 75, 4], [16, 77, 8], [24, 75, 8],
+        [32, 72, 16], [48, 68, 8], [56, 70, 8],
+        [64, 72, 12], [76, 77, 4], [80, 79, 8], [88, 80, 8],
+        [96, 79, 8], [104, 75, 8], [112, 72, 16],
+      ],
+    },
+    sections: [
+      { name: 'parked', bars: 8, layers: ['pad', 'bell'] },
+      { name: 'waiting', bars: 8, layers: ['pad', 'bell', 'arp'], arpDensity: 8 },
+      { name: 'the climb', bars: 16, layers: ['pad', 'bell', 'arp', 'kick', 'bass', 'hat'], arpDensity: 16, padBright: 0.3 },
+      { name: 'the meeting', bars: 8, layers: ['pad', 'bell', 'lead', 'arp'], arpDensity: 8, arpOctave: 12 },
+      { name: 'let go', bars: 16, layers: ['pad', 'bell', 'arp', 'kick', 'bass', 'hat', 'snare', 'lead'], padBright: 0.45 },
+    ],
+    loopFrom: 1,
+  },
+  heavywater: {
+    key: 'C minor',
+    title: 'Heavy Water (Slow Descent Theme)',
+    bpm: 76,
+    fx: { reverb: 0.84, delay: 0.58, feedback: 0.55, tone: 2200, delayBeats: 1.5 },
+    pad: { attack: 3, release: 4, lfoRate: 0.05, lfoDepth: 420, cutoff: 420, detune: 18 },
+    progression: [
+      { chord: [60, 63, 67, 74], pad: [36, 43, 48, 51, 55], bass: 24, bars: 2 }, // Cm(add9)
+      { chord: [56, 60, 63, 67], pad: [32, 39, 44, 48], bass: 32, bars: 2 }, // Abmaj7
+      { chord: [53, 56, 60, 63], pad: [41, 48, 53, 56], bass: 29, bars: 2 }, // Fm7
+      { chord: [55, 59, 62, 65], pad: [43, 50, 55, 59], bass: 31, bars: 2 }, // G7
+    ],
+    // Falling: every group of four steps down a chord tone, floor by floor.
+    arp: { octave: 0, gate: 0.7, wave: 'triangle', delay: 0.6, reverb: 0.4, pattern: [3, 2, 1, 0, 3, 2, 1, 0, 2, 1, 0, 3, 2, 1, 0, 0] },
+    bell: { octave: 12, ring: 12, pattern: [0, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null] },
+    bass: { pattern: [[0, 8], 0, 0, 0, 0, 0, 0, 0, [0, 4], 0, 0, 0, [-5, 4], 0, 0, 0] },
+    drums: {
+      kick: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      snare: [0, 0, 0, 0, 0, 0, 0, 0, 0.4, 0, 0, 0, 0, 0, 0, 0],
+      hat: [0.25, 0, 0, 0, 0.3, 0, 0, 0, 0.25, 0, 0, 0, 0.3, 0, 0, 0.2],
+      hatOpen: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+    },
+    lead: {
+      length: 128,
+      notes: [
+        [0, 67, 16], [16, 65, 8], [24, 63, 8],
+        [32, 62, 16], [48, 60, 16],
+        [64, 67, 12], [76, 68, 4], [80, 67, 8], [88, 65, 8],
+        [96, 63, 16], [112, 62, 16],
+      ],
+    },
+    sections: [
+      { name: 'surface', bars: 8, layers: ['pad', 'bell'] },
+      { name: 'first floor', bars: 8, layers: ['pad', 'bell', 'bass'] },
+      { name: 'the stone', bars: 16, layers: ['pad', 'bell', 'arp', 'kick', 'bass', 'hat'], arpDensity: 8, padBright: 0.2 },
+      { name: 'the cage', bars: 8, layers: ['pad', 'bell', 'lead', 'arp'], arpDensity: 8 },
+      { name: 'the floor', bars: 16, layers: ['pad', 'bell', 'arp', 'kick', 'bass', 'hat', 'snare', 'lead'], padBright: 0.35 },
+    ],
+    loopFrom: 1,
+  },
+  finale: {
+    key: 'E major',
+    title: 'Grand Tour (Last Hole Theme)',
+    bpm: 104,
+    fx: { reverb: 0.76, delay: 0.62, feedback: 0.58, tone: 3600, delayBeats: 0.75 },
+    pad: { attack: 1.8, release: 3, lfoRate: 0.125, lfoDepth: 560, cutoff: 600, detune: 14 },
+    progression: [
+      { chord: [64, 68, 71, 75], pad: [40, 47, 52, 56, 59], bass: 28, bars: 2 }, // Emaj7
+      { chord: [61, 64, 68, 71], pad: [37, 44, 49, 52], bass: 25, bars: 2 }, // C#m7
+      { chord: [57, 61, 64, 68], pad: [45, 52, 57, 61], bass: 33, bars: 2 }, // Amaj7
+      { chord: [59, 63, 66, 69], pad: [47, 54, 59, 63], bass: 35, bars: 2 }, // B7: home is next
+    ],
+    // Every hole's figure in turn: a climb, a turn, a fall and a return, a quarter bar each.
+    arp: { octave: 12, gate: 0.5, wave: 'triangle', delay: 0.5, reverb: 0.3, pattern: [0, 1, 2, 3, 3, 2, 1, 0, 0, 2, 1, 3, 4, 3, 2, 1] },
+    bell: { octave: 24, ring: 10, pattern: [0, null, null, null, 2, null, null, null, 1, null, null, null, 3, null, null, null] },
+    bass: { pattern: [[0, 2], 0, [0, 1], [0, 1], [0, 2], 0, [7, 2], 0, [0, 2], 0, [0, 1], [0, 1], [5, 2], 0, [7, 2], 0] },
+    drums: {
+      kick: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0],
+      snare: [0, 0, 0, 0, 0.45, 0, 0, 0, 0, 0, 0, 0, 0.45, 0, 0, 0.2],
+      hat: [0.35, 0.2, 0.45, 0.2, 0.35, 0.2, 0.45, 0.2, 0.35, 0.2, 0.45, 0.2, 0.35, 0.2, 0.45, 0.3],
+      hatOpen: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+    },
+    lead: {
+      length: 128,
+      notes: [
+        [0, 76, 8], [8, 80, 8], [16, 83, 12], [28, 80, 4],
+        [32, 81, 8], [40, 80, 8], [48, 78, 16],
+        [64, 76, 8], [72, 80, 8], [80, 83, 8], [88, 85, 8],
+        [96, 87, 8], [104, 85, 8], [112, 88, 16],
+      ],
+    },
+    sections: [
+      { name: 'the tee', bars: 8, layers: ['pad', 'bell'] },
+      { name: 'the gate', bars: 8, layers: ['pad', 'bell', 'arp'], arpDensity: 8 },
+      { name: 'the saddle', bars: 8, layers: ['pad', 'bell', 'arp', 'bass', 'hat'], arpDensity: 16, padBright: 0.25 },
+      { name: 'the orbit', bars: 16, layers: ['pad', 'bell', 'arp', 'kick', 'bass', 'hat'], arpDensity: 16, padBright: 0.35 },
+      { name: 'the burn', bars: 8, layers: ['pad', 'bell', 'lead', 'arp', 'kick', 'bass'], arpDensity: 8, arpOctave: 12 },
+      { name: 'the course is played', bars: 16, layers: ['pad', 'bell', 'arp', 'kick', 'bass', 'hat', 'snare', 'lead'], padBright: 0.55 },
+    ],
+    loopFrom: 1,
+  },
 };
