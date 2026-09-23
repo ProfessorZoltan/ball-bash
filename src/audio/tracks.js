@@ -1080,4 +1080,44 @@ export const TRACKS = {
     ],
     loopFrom: 1,
   },
+  syncopation: {
+    key: 'D dorian',
+    title: 'Syncopation (Two Clocks Theme)',
+    bpm: 102,
+    fx: { reverb: 0.72, delay: 0.6, feedback: 0.58, tone: 3200, delayBeats: 0.75 },
+    pad: { attack: 1.8, release: 2.6, lfoRate: 1 / 12, lfoDepth: 480, cutoff: 560, detune: 14 }, // the wobble turns once every 12 s: the cage's own period
+    progression: [
+      { chord: [62, 65, 69, 72], pad: [38, 45, 50, 53, 57], bass: 26, bars: 2 }, // Dm7
+      { chord: [55, 59, 62, 65], pad: [43, 50, 55, 59], bass: 31, bars: 2 }, // G7: the dorian's bright sixth
+      { chord: [53, 57, 60, 64], pad: [41, 48, 53, 57], bass: 29, bars: 2 }, // Fmaj7
+      { chord: [57, 60, 64, 67], pad: [45, 52, 57, 60], bass: 33, bars: 2 }, // Am7
+    ],
+    // Threes across fours: the arp groups in threes over a bar of sixteen, the way the cage's turn sits across the mouths'.
+    arp: { octave: 12, gate: 0.5, wave: 'triangle', delay: 0.5, reverb: 0.3, pattern: [0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 3, 2, 1, 0] },
+    bell: { octave: 24, ring: 8, pattern: [0, null, null, null, null, null, 2, null, null, null, null, null, 1, null, null, null] },
+    bass: { pattern: [[0, 3], 0, 0, [0, 3], 0, 0, [7, 2], 0, [0, 3], 0, 0, [0, 3], 0, 0, [12, 2], 0] },
+    drums: {
+      kick: [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0], // dotted quarters: the three against the bar's two
+      snare: [0, 0, 0, 0, 0.4, 0, 0, 0, 0, 0, 0, 0, 0.4, 0, 0, 0],
+      hat: [0.35, 0, 0.45, 0.2, 0.35, 0, 0.45, 0.2, 0.35, 0, 0.45, 0.2, 0.35, 0, 0.45, 0.3],
+      hatOpen: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+    },
+    lead: {
+      length: 128,
+      notes: [
+        [0, 74, 6], [6, 77, 6], [12, 81, 4], [16, 79, 6], [22, 77, 6], [28, 76, 4],
+        [32, 74, 12], [48, 81, 6], [54, 83, 6], [60, 84, 4],
+        [64, 81, 6], [70, 79, 6], [76, 77, 4], [80, 76, 12],
+        [96, 74, 6], [102, 77, 6], [108, 79, 4], [112, 81, 16],
+      ],
+    },
+    sections: [
+      { name: 'two clocks', bars: 8, layers: ['pad', 'bell'] },
+      { name: 'counting', bars: 8, layers: ['pad', 'bell', 'arp'], arpDensity: 8 },
+      { name: 'off the beat', bars: 16, layers: ['pad', 'bell', 'arp', 'kick', 'bass', 'hat'], arpDensity: 16, padBright: 0.35 },
+      { name: 'round the fount', bars: 8, layers: ['pad', 'bell', 'lead', 'arp'], arpDensity: 8, arpOctave: 12 },
+      { name: 'on both', bars: 16, layers: ['pad', 'bell', 'arp', 'kick', 'bass', 'hat', 'snare', 'lead'], padBright: 0.5 },
+    ],
+    loopFrom: 1,
+  },
 };

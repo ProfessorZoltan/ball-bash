@@ -162,7 +162,8 @@ export class Renderer {
     ctx.setTransform(v.dpr * v.scale, 0, 0, v.dpr * v.scale, (v.ox + shx) * v.dpr, (v.oy + shy) * v.dpr);
 
     for (const w of game.wells || []) {
-      if (w.solid) this.drawPlanet(w, level.palette, time);
+      if (w.fount) this.drawFount(w, level.palette, time);
+      else if (w.solid) this.drawPlanet(w, level.palette, time);
       else this.drawWell(w, level.palette, time);
     }
     for (const w of game.wormholes || []) this.drawWormhole(w, level.palette, time);
@@ -728,6 +729,58 @@ export class Renderer {
     ctx.restore();
   }
 
+  /**
+   * A fount, a white hole: the opposite of a maw. A small solid core, bright
+   * rather than black, and rings that run outward from it instead of in, so
+   * the push reads as a push before anything has been sent near it.
+   */
+  drawFount(w, palette, time) {
+    const ctx = this.ctx;
+    const color = palette.fount || '#fff1b8';
+    ctx.save();
+    ctx.translate(w.x, w.y);
+    // Its reach, dotted like every body's.
+    ctx.strokeStyle = color;
+    ctx.setLineDash([3, 11]);
+    ctx.lineDashOffset = time * 10;
+    ctx.lineWidth = 1.5;
+    ctx.globalAlpha = 0.35;
+    ctx.beginPath();
+    ctx.arc(0, 0, w.range, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // Rings born at the core and fading as they spread to the edge of its reach.
+    for (let i = 0; i < 4; i++) {
+      const f = (time * 0.5 + i / 4) % 1;
+      const rr = w.r + f * (w.range - w.r);
+      ctx.globalAlpha = 0.45 * (1 - f);
+      ctx.lineWidth = 2.5 - 1.5 * f;
+      ctx.beginPath();
+      ctx.arc(0, 0, rr, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    // The glow and the core.
+    ctx.globalAlpha = 1;
+    const halo = ctx.createRadialGradient(0, 0, w.r * 0.5, 0, 0, w.r * 3);
+    halo.addColorStop(0, withAlpha(color, 0.55));
+    halo.addColorStop(1, withAlpha(color, 0));
+    ctx.fillStyle = halo;
+    ctx.beginPath();
+    ctx.arc(0, 0, w.r * 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowColor = color;
+    ctx.shadowBlur = this.blur(24);
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(0, 0, w.r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = color;
+    ctx.stroke();
+    ctx.restore();
+  }
+
   /** A wormhole pair: two turning mouths and the faint thread between them. */
   drawWormhole(w, palette, time) {
     const ctx = this.ctx;
@@ -917,6 +970,7 @@ export class Renderer {
     };
     for (const w of game.wells) {
       if (w.cup) label(w.x, w.y, 'THE CUP', p.cup || '#7dffc4', w.r + 26);
+      else if (w.fount) label(w.x, w.y, 'FOUNT', p.fount || '#fff1b8', w.r + 22);
       else if (w.solid) label(w.x, w.y, 'STONE', p.planet || '#ffb347', w.r + 16);
       else label(w.x, w.y, 'MAW', p.well || '#b49cff', w.r + 16);
     }
@@ -993,7 +1047,7 @@ export class Renderer {
       }
     }
     for (const w of game.wells) {
-      const color = w.cup ? p.cup || '#7dffc4' : w.solid ? p.planet || '#ffb347' : p.well || '#b49cff';
+      const color = w.cup ? p.cup || '#7dffc4' : w.fount ? p.fount || '#fff1b8' : w.solid ? p.planet || '#ffb347' : p.well || '#b49cff';
       if (w.rail) {
         ctx.setLineDash([3 / s, 8 / s]);
         ctx.lineWidth = 1.5 / s;

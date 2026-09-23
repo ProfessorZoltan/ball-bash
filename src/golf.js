@@ -46,6 +46,20 @@ function maw(x, y, extra = {}) {
   return { x, y, r: 40, range: 340, pull: 62000, drag: 0, hazard: true, ...extra };
 }
 
+/**
+ * A fount, a white hole: a small solid core whose field pushes instead of
+ * pulls. A line that passes it bends outward, and one sent straight at it is
+ * turned back before it gets there.
+ */
+function fount(x, y, extra = {}) {
+  return { x, y, r: 22, range: 170, pull: -40000, drag: 0, solid: true, fount: true, ...extra };
+}
+
+/** A turning cage: `count` solid bars on a ring of `radius` round (x, y), a gap between each, turning once every `period` seconds. */
+function cage(x, y, { radius = 80, count = 2, length = 150, thick = 6, period = 12, angle = 0 } = {}) {
+  return { type: 'orbiter', x, y, radius, count, length, thick, omega: (Math.PI * 2) / period, angle };
+}
+
 /** The goal: a small horizon with a short, hard pull, so a near miss is still a sink. */
 function cup(x, y, extra = {}) {
   return { x, y, r: 26, range: 125, pull: 48000, drag: 0, ...extra };
@@ -99,6 +113,7 @@ const VOID_PALETTE = {
   planet: '#ffb347', // a solid body's surface
   cup: '#7dffc4', // the goal
   warp: '#ff8df0', // wormhole mouths
+  fount: '#fff1b8', // a white hole
 };
 
 /**
@@ -466,6 +481,33 @@ export const COURSE = [
     cup: cup(1240, 450),
     // In step: the same period and phase, so each mouth sits at the same angle on its own body.
     wormholes: [orbitingWarp({ cx: 540, cy: 450, R: 150, period: 7, phase: 0 }, { cx: 1240, cy: 450, R: 175, period: 7, phase: 0 })],
+  }),
+  hole({
+    id: 'g14',
+    hole: 14,
+    par: 4,
+    title: 'Syncopation',
+    track: 'syncopation',
+    flightSeconds: 8,
+    intro: 'Lockstep again, with two things in the way. A fount stands between you and the maw: a white hole, which pushes where a maw pulls, so the straight line comes back at you and every other line bends out round it. And the cup turns in a cage of two bars with a gap between each, on a clock of its own: the mouths go round every eight seconds, the cage every twelve. The mouth still carries your heading from the maw across to the cup, but it is only a sink if the fount bent you into that heading and a gap is facing you when you come out. Watch both clocks, and the ghost of your last flight.',
+    record: 'The mouths keep time with each other and the cage keeps time with nothing. Three turns of the mouths to two of the cage, and the void has never once let both land on the same beat for long.',
+    sunk: 'Round the fount, through the mouth, and in through the gap. Two clocks, and the launch was on both of them.',
+    boundary: ROOM,
+    tee: { x: 190, y: 450, angle: 0 }, // straight at the fount: the one line that is certain to come back
+    obstacles: [
+      rect(840, 450, 24, 780), // the wall, sealed: only the mouths cross it
+    ],
+    wells: [
+      maw(560, 450, { r: 40, range: 300, pull: 52000 }),
+      fount(350, 450), // on the line from the tee to the maw's heart
+      // Two small maws above and below the cup take what the cage turns away.
+      maw(1240, 120, { r: 30, range: 130, pull: 40000 }),
+      maw(1240, 780, { r: 30, range: 130, pull: 40000 }),
+    ],
+    // The cup's reach stops short of where the mouth sets you down, so the heading has to be right on its own.
+    cup: cup(1240, 450, { range: 100 }),
+    movers: [cage(1240, 450, { radius: 80, count: 2, length: 150, thick: 6, period: 12 })],
+    wormholes: [orbitingWarp({ cx: 560, cy: 450, R: 150, period: 8, phase: 0 }, { cx: 1240, cy: 450, R: 175, period: 8, phase: 0 })],
   }),
 ];
 

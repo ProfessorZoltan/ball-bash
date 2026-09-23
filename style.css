@@ -345,6 +345,8 @@ button[disabled] { opacity: 0.45; cursor: default; }
 .golf-key .maw { color: #b49cff; background: #000; }
 .golf-key .planet { color: #ffb347; background: rgba(255, 179, 71, 0.25); }
 .golf-key .warp { color: #ff8df0; border-style: dashed; }
+.golf-key .fount { color: #fff1b8; background: #ffffff; box-shadow: 0 0 8px #fff1b8; }
+.golf-key .turnbar { color: #c9a3ff; border-radius: 2px; height: 4px; background: currentColor; border: none; }
 .golf-key .tee { color: #8fd4ff; border-radius: 2px; }
 
 /* The course: the holes as a roster, the round beside them. */

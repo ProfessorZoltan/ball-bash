@@ -5075,7 +5075,9 @@ function golfMap(brief) {
     <ul class="golf-key">
       <li><span class="k cup"></span>The cup — get the charge past its horizon</li>
       ${g.wells.some((w) => w.hazard) ? '<li><span class="k maw"></span>A maw — its horizon ends the shot</li>' : ''}
-      ${g.wells.some((w) => w.solid) ? '<li><span class="k planet"></span>A stone — solid, and its field bends what passes</li>' : ''}
+      ${g.wells.some((w) => w.solid && !w.fount) ? '<li><span class="k planet"></span>A stone — solid, and its field bends what passes</li>' : ''}
+      ${g.wells.some((w) => w.fount) ? '<li><span class="k fount"></span>A fount — a white hole: it pushes everything away</li>' : ''}
+      ${g.movers.some((m) => m.kind !== 'stone') ? '<li><span class="k turnbar"></span>Turning bars — solid, and on a clock of their own</li>' : ''}
       ${g.wormholes.length > 1 ? '<li><span class="k warp"></span>Wormhole mouths — a mouth leads to the one in its own colour, and keeps your heading</li>' : g.wormholes.length ? '<li><span class="k warp"></span>Wormhole mouths — paired, and they keep your heading</li>' : ''}
       <li><span class="k tee"></span>The tee</li>
     </ul>

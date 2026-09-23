@@ -203,6 +203,7 @@ export function levelWells(def) {
     drag: w.drag === undefined ? 45000 : w.drag,
     solid: !!w.solid,
     hazard: !!w.hazard,
+    fount: !!w.fount, // a white hole: its pull is negative, so it pushes away
     cup: def.cup ? w === def.cup : false,
     // A body on a rail: it circles (cx, cy) at R, once every `period` seconds, from `phase`.
     rail: w.rail ? { cx: w.rail.cx, cy: w.rail.cy, R: w.rail.R, period: w.rail.period, phase: w.rail.phase || 0 } : null,

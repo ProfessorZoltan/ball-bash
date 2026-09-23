@@ -1857,6 +1857,60 @@ test('golf: Lockstep\'s mouths circle a maw and the cup in step, the maw\'s hear
   assert.ok(sinks > 0);
 });
 
+test('golf: Syncopation - a fount pushes the line off the maw, the cage round the cup keeps its own clock, and a sink needs both and the mouths', async () => {
+  const { createGameState, wellsAccel, swallowingWell } = await import('../src/gamestate.js');
+  const { COURSE } = await import('../src/golf.js');
+  const def = COURSE.find((h) => h.id === 'g14');
+  const g = createGameState(def, {});
+  const fount = g.wells.find((w) => w.fount);
+  const maw = g.wells.find((w) => w.hazard && Math.hypot(w.x - def.tee.x, w.y - def.tee.y) < 500);
+  assert.ok(fount && fount.solid && fount.pull < 0, 'a fount is solid and pushes');
+  const push = wellsAccel([fount], fount.x + 60, fount.y + 10);
+  assert.ok(push.ax > 0 && push.ay > 0, 'away from it, not toward it');
+  assert.equal(swallowingWell(g.wells, fount.x, fount.y), null, 'nothing falls into it');
+  // It stands on the line from the tee to the maw's heart, which is where the tee points: that line comes back.
+  const off = Math.abs((fount.y - def.tee.y) * (maw.x - def.tee.x) - (fount.x - def.tee.x) * (maw.y - def.tee.y)) / Math.hypot(maw.x - def.tee.x, maw.y - def.tee.y);
+  assert.ok(off < 1, 'the fount is on the line to the heart');
+  assert.notEqual((await golfFly(def, def.tee.angle)).end, 'cup');
+  // Two clocks that are not one: the mouths in step with each other, the cage on a period of its own.
+  const [w] = g.wormholes;
+  const cage = g.movers.find((m) => m.kind === 'orbiter');
+  assert.equal(w.orbitA.period, w.orbitB.period, 'the mouths turn in step');
+  assert.notEqual(Math.round((Math.PI * 2) / cage.omega), w.orbitA.period, 'the cage keeps its own time');
+  // The quick, clean sinks: through the mouths once and down within three and a half seconds.
+  const turned = { ...def, movers: [{ ...def.movers[0], angle: def.movers[0].angle + Math.PI / 2 }] };
+  const noFount = { ...def, wells: def.wells.filter((x) => !x.fount) };
+  let found = 0;
+  let cageMatters = 0;
+  let fountMatters = 0;
+  for (let T = 0; T < 24 && found < 30; T += 0.1) {
+    for (let deg = -180; deg < 180 && found < 30; deg++) {
+      const a = (deg * Math.PI) / 180;
+      const r = await golfFly(def, a, { launchAt: T });
+      if (!(r.end === 'cup' && r.warps === 1 && r.t < 3.5)) continue;
+      found++;
+      if ((await golfFly(turned, a, { launchAt: T })).end !== 'cup') cageMatters++;
+      if ((await golfFly(noFount, a, { launchAt: T })).end !== 'cup') fountMatters++;
+    }
+  }
+  assert.equal(found, 30, 'there are clean lines to find');
+  assert.ok(cageMatters >= 24, `the cage a quarter-turn on closes ${cageMatters} of 30 clean lines`);
+  assert.ok(fountMatters >= 21, `without the fount, ${fountMatters} of 30 clean lines miss`);
+  // Over a whole beat of both clocks (24 s), nothing reaches the cup except through the mouths, and very little reaches it at all.
+  let n = 0;
+  let sinks = 0;
+  for (let T = 0; T < 24; T += 0.5) {
+    for (let deg = -180; deg < 180; deg += 4) {
+      const r = await golfFly(def, (deg * Math.PI) / 180, { launchAt: T });
+      n++;
+      if (r.end !== 'cup') continue;
+      sinks++;
+      assert.ok(r.warps > 0, `${deg} degrees at ${T} s reached the cup without the mouths`);
+    }
+  }
+  assert.ok(sinks > 0 && sinks / n < 0.04, `${sinks} of ${n} lines and moments sink it: a hard hole, not a closed one`);
+});
+
 test('golf: the charge is held to the arena cap, so nothing a field does to it can tunnel a wall', async () => {
   const { createGameState } = await import('../src/gamestate.js');
   const { PHYSICS_DT } = await import('../src/config.js');
