@@ -1519,4 +1519,239 @@ export const TRACKS = {
     ],
     loopFrom: 1,
   },
+  periscope: {
+    key: 'E minor',
+    title: 'Periscope (Folded Line Theme)',
+    bpm: 80,
+    fx: { reverb: 0.8, delay: 0.56, feedback: 0.5, tone: 3400, delayBeats: 1 },
+    pad: { attack: 2.2, release: 3.4, lfoRate: 0.09, lfoDepth: 420, cutoff: 500, detune: 12 },
+    progression: [
+      { chord: [64, 67, 71, 78], pad: [40, 47, 52, 55, 59], bass: 28, bars: 2 }, // Em9
+      { chord: [60, 64, 67, 71], pad: [36, 43, 48, 52], bass: 24, bars: 2 }, // Cmaj7
+      { chord: [57, 60, 64, 67], pad: [45, 52, 57, 60], bass: 33, bars: 2 }, // Am7
+      { chord: [59, 64, 66, 69], pad: [47, 54, 59, 64], bass: 35, bars: 2 }, // B7sus4
+    ],
+    // A line that turns a right angle every four steps and carries on.
+    arp: { octave: 12, gate: 0.4, wave: 'triangle', delay: 0.55, reverb: 0.4, pattern: [0, 1, 2, 3, 3, null, 5, 4, 4, null, 2, 1, 1, null, 3, null] },
+    bell: { octave: 24, ring: 12, pattern: [0, null, null, null, 3, null, null, null, 1, null, null, null, 4, null, null, null] },
+    bass: { pattern: [[0, 4], 0, 0, 0, [7, 4], 0, 0, 0, [0, 4], 0, 0, 0, [5, 2], 0, [7, 2], 0] },
+    drums: {
+      kick: [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0],
+      snare: [0, 0, 0, 0, 0.4, 0, 0, 0, 0, 0, 0, 0, 0.4, 0, 0, 0],
+      hat: [0.2, 0, 0.25, 0, 0.2, 0, 0.25, 0, 0.2, 0, 0.25, 0, 0.2, 0, 0.3, 0.15],
+      hatOpen: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+    },
+    lead: {
+      length: 128,
+      notes: [
+        [0, 76, 8], [8, 79, 8], [16, 83, 16],
+        [32, 81, 8], [40, 79, 8], [48, 76, 16],
+        [64, 72, 8], [72, 76, 8], [80, 79, 16],
+        [96, 78, 8], [104, 76, 8], [112, 75, 16],
+      ],
+    },
+    sections: [
+      { name: 'the first room', bars: 8, layers: ['pad', 'bell'] },
+      { name: 'the first slot', bars: 8, layers: ['pad', 'bell', 'arp', 'bass'], arpDensity: 8 },
+      { name: 'the second', bars: 16, layers: ['pad', 'bell', 'arp', 'bass', 'kick', 'hat'], arpDensity: 16, padBright: 0.25 },
+      { name: 'the third', bars: 16, layers: ['pad', 'bell', 'arp', 'bass', 'kick', 'hat', 'snare', 'lead'], padBright: 0.4 },
+    ],
+    loopFrom: 1,
+  },
+  tide: {
+    key: 'C# minor',
+    title: 'Tide (Swell Theme)',
+    bpm: 66,
+    fx: { reverb: 0.9, delay: 0.6, feedback: 0.58, tone: 2100, delayBeats: 2 },
+    // The pad breathes on the body's own eight seconds.
+    pad: { attack: 3.4, release: 5, lfoRate: 0.125, lfoDepth: 700, cutoff: 420, detune: 16 },
+    progression: [
+      { chord: [61, 64, 68, 75], pad: [37, 44, 49, 52, 56], bass: 25, bars: 2 }, // C#m(add9)
+      { chord: [57, 61, 64, 68], pad: [45, 52, 57, 61], bass: 33, bars: 2 }, // Amaj7
+      { chord: [54, 57, 61, 68], pad: [42, 49, 54, 57], bass: 30, bars: 2 }, // F#m9
+      { chord: [56, 60, 63, 66], pad: [44, 51, 56, 60], bass: 32, bars: 2 }, // G#7
+    ],
+    // Up the chord and back, slowly, like water on a beach.
+    arp: { octave: 0, gate: 0.7, wave: 'sine', delay: 0.65, reverb: 0.5, pattern: [0, null, 1, null, 2, null, 3, null, 4, null, 3, null, 2, null, 1, null] },
+    bell: { octave: 24, ring: 16, pattern: [null, null, null, null, null, null, null, null, 0, null, null, null, null, null, null, null] },
+    bass: { pattern: [[0, 16], 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+    drums: {
+      kick: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      snare: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      hat: [0, 0, 0, 0, 0, 0, 0.2, 0, 0, 0, 0, 0, 0, 0, 0.2, 0],
+      hatOpen: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    },
+    lead: {
+      length: 128,
+      notes: [
+        [0, 73, 16], [16, 75, 16],
+        [32, 76, 24], [56, 75, 8],
+        [64, 73, 16], [80, 71, 16],
+        [96, 68, 24], [120, 71, 8],
+      ],
+    },
+    sections: [
+      { name: 'low water', bars: 8, layers: ['pad', 'bell'] },
+      { name: 'the orbit', bars: 8, layers: ['pad', 'bell', 'arp', 'bass'], arpDensity: 4 },
+      { name: 'the swell', bars: 16, layers: ['pad', 'bell', 'arp', 'bass', 'kick', 'hat'], arpDensity: 4, padBright: 0.2 },
+      { name: 'high water', bars: 16, layers: ['pad', 'bell', 'arp', 'bass', 'kick', 'hat', 'lead'], padBright: 0.35 },
+    ],
+    loopFrom: 1,
+  },
+  glassrelay: {
+    key: 'F minor',
+    title: 'Glass Relay (Handover Theme)',
+    bpm: 96,
+    fx: { reverb: 0.74, delay: 0.5, feedback: 0.48, tone: 4000, delayBeats: 0.75 },
+    pad: { attack: 1.6, release: 2.8, lfoRate: 0.18, lfoDepth: 520, cutoff: 560, detune: 12 },
+    progression: [
+      { chord: [65, 68, 72, 79], pad: [41, 48, 53, 56, 60], bass: 29, bars: 2 }, // Fm9
+      { chord: [61, 65, 68, 72], pad: [37, 44, 49, 53], bass: 25, bars: 2 }, // Dbmaj7
+      { chord: [58, 61, 65, 68], pad: [46, 53, 58, 61], bass: 34, bars: 2 }, // Bbm7
+      { chord: [60, 64, 67, 70], pad: [48, 55, 60, 64], bass: 36, bars: 2 }, // C7
+    ],
+    // A baton passed hand to hand: short phrases that start where the last one stopped.
+    arp: { octave: 12, gate: 0.35, wave: 'square', delay: 0.4, reverb: 0.3, pattern: [0, 1, 2, null, 2, 3, 4, null, 4, 5, 3, null, 3, 2, 1, null] },
+    bell: { octave: 24, ring: 10, pattern: [5, null, null, null, null, null, null, null, 4, null, null, null, null, null, 5, null] },
+    bass: { pattern: [[0, 2], 0, [0, 1], [12, 1], [0, 2], 0, [7, 2], 0, [0, 2], 0, [0, 1], [12, 1], [10, 2], 0, [7, 2], 0] },
+    drums: {
+      kick: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0],
+      snare: [0, 0, 0, 0, 0.45, 0, 0, 0, 0, 0, 0, 0, 0.45, 0, 0, 0.25],
+      hat: [0.3, 0.15, 0.35, 0.15, 0.3, 0.15, 0.35, 0.15, 0.3, 0.15, 0.35, 0.15, 0.3, 0.15, 0.35, 0.2],
+      hatOpen: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
+    },
+    lead: {
+      length: 128,
+      notes: [
+        [0, 77, 8], [8, 80, 8], [16, 84, 8], [24, 82, 8],
+        [32, 80, 16], [48, 77, 16],
+        [64, 79, 8], [72, 80, 8], [80, 84, 8], [88, 87, 8],
+        [96, 84, 16], [112, 79, 16],
+      ],
+    },
+    sections: [
+      { name: 'the first room', bars: 8, layers: ['pad', 'bell', 'hat'] },
+      { name: 'the first mouth', bars: 8, layers: ['pad', 'bell', 'arp', 'bass', 'hat'], arpDensity: 16 },
+      { name: 'the edge', bars: 16, layers: ['pad', 'bell', 'arp', 'bass', 'kick', 'hat', 'snare'], arpDensity: 16, padBright: 0.3 },
+      { name: 'the glass', bars: 16, layers: ['pad', 'bell', 'arp', 'bass', 'kick', 'hat', 'snare', 'lead'], padBright: 0.45 },
+    ],
+    loopFrom: 1,
+  },
+  eye: {
+    key: 'G# minor',
+    title: 'The Eye (Three Bodies Theme)',
+    bpm: 70,
+    fx: { reverb: 0.9, delay: 0.62, feedback: 0.6, tone: 2400, delayBeats: 1.5 },
+    pad: { attack: 3, release: 4.6, lfoRate: 0.1, lfoDepth: 380, cutoff: 400, detune: 20 },
+    progression: [
+      { chord: [68, 71, 75, 82], pad: [44, 51, 56, 59, 63], bass: 32, bars: 2 }, // G#m(add9)
+      { chord: [64, 68, 71, 75], pad: [40, 47, 52, 56], bass: 28, bars: 2 }, // Emaj7
+      { chord: [61, 64, 68, 71], pad: [37, 44, 49, 52], bass: 25, bars: 2 }, // C#m7
+      { chord: [63, 67, 70, 73], pad: [39, 46, 51, 55], bass: 27, bars: 2 }, // D#7
+    ],
+    // Three notes round and round against the bar, as the three maws turn against the orbit.
+    arp: { octave: 0, gate: 0.55, wave: 'triangle', delay: 0.6, reverb: 0.45, pattern: [0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, null] },
+    bell: { octave: 24, ring: 14, pattern: [0, null, null, null, null, 1, null, null, null, null, 2, null, null, null, null, null] },
+    bass: { pattern: [[0, 12], 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, [-5, 4], 0, 0, 0] },
+    drums: {
+      kick: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      snare: [0, 0, 0, 0, 0, 0, 0, 0, 0.35, 0, 0, 0, 0, 0, 0, 0],
+      hat: [0.2, 0, 0, 0, 0.2, 0, 0, 0, 0.2, 0, 0, 0, 0.2, 0, 0, 0],
+      hatOpen: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    },
+    lead: {
+      length: 128,
+      notes: [
+        [0, 80, 12], [12, 78, 4], [16, 75, 16],
+        [32, 80, 12], [44, 82, 4], [48, 83, 16],
+        [64, 80, 12], [76, 78, 4], [80, 76, 16],
+        [96, 75, 16], [112, 71, 16],
+      ],
+    },
+    sections: [
+      { name: 'the iris', bars: 8, layers: ['pad', 'bell'] },
+      { name: 'the orbit', bars: 8, layers: ['pad', 'bell', 'arp', 'bass'], arpDensity: 8 },
+      { name: 'the turning gaps', bars: 16, layers: ['pad', 'bell', 'arp', 'bass', 'kick', 'hat'], arpDensity: 16, padBright: 0.2 },
+      { name: 'the pupil', bars: 16, layers: ['pad', 'bell', 'arp', 'bass', 'kick', 'hat', 'snare', 'lead'], padBright: 0.35 },
+    ],
+    loopFrom: 1,
+  },
+  clockwork: {
+    key: 'C minor',
+    title: 'Clockwork (Escapement Theme)',
+    bpm: 90,
+    fx: { reverb: 0.7, delay: 0.46, feedback: 0.44, tone: 3600, delayBeats: 0.5 },
+    pad: { attack: 1.4, release: 2.6, lfoRate: 0.15, lfoDepth: 360, cutoff: 540, detune: 8 },
+    progression: [
+      { chord: [60, 63, 67, 74], pad: [36, 43, 48, 51, 55], bass: 24, bars: 2 }, // Cm(add9)
+      { chord: [58, 62, 65, 70], pad: [46, 53, 58, 62], bass: 34, bars: 2 }, // Bb
+      { chord: [56, 60, 63, 67], pad: [44, 51, 56, 60], bass: 32, bars: 2 }, // Abmaj7
+      { chord: [55, 60, 62, 67], pad: [43, 50, 55, 60], bass: 31, bars: 2 }, // Gsus4
+    ],
+    // Gears: a figure of six, one of four and the bar's sixteen, meeting only now and then.
+    arp: { octave: 12, gate: 0.3, wave: 'square', delay: 0.3, reverb: 0.25, pattern: [0, 2, 1, 3, 2, 4, 0, 2, 1, 3, 2, 4, 0, 2, 1, 3] },
+    bell: { octave: 24, ring: 8, pattern: [0, null, null, null, null, null, 3, null, null, null, null, null, 5, null, null, null] },
+    bass: { pattern: [[0, 1], 0, [0, 1], 0, [7, 1], 0, [0, 1], 0, [0, 1], 0, [0, 1], 0, [7, 1], 0, [10, 1], 0] },
+    drums: {
+      kick: [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0],
+      snare: [0, 0, 0, 0, 0, 0, 0, 0, 0.35, 0, 0, 0, 0, 0, 0, 0],
+      hat: [0.35, 0.2, 0.35, 0.2, 0.35, 0.2, 0.35, 0.2, 0.35, 0.2, 0.35, 0.2, 0.35, 0.2, 0.35, 0.2],
+      hatOpen: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    },
+    lead: {
+      length: 128,
+      notes: [
+        [0, 72, 6], [6, 75, 6], [12, 79, 4], [16, 77, 8], [24, 75, 8],
+        [32, 74, 6], [38, 72, 6], [44, 70, 4], [48, 72, 16],
+        [64, 75, 6], [70, 79, 6], [76, 82, 4], [80, 80, 8], [88, 79, 8],
+        [96, 77, 8], [104, 75, 8], [112, 74, 16],
+      ],
+    },
+    sections: [
+      { name: 'winding', bars: 8, layers: ['pad', 'bell', 'hat'] },
+      { name: 'the first cage', bars: 8, layers: ['pad', 'bell', 'arp', 'bass', 'hat'], arpDensity: 16 },
+      { name: 'the second', bars: 16, layers: ['pad', 'bell', 'arp', 'bass', 'kick', 'hat'], arpDensity: 16, padBright: 0.25 },
+      { name: 'the third', bars: 16, layers: ['pad', 'bell', 'arp', 'bass', 'kick', 'hat', 'snare', 'lead'], padBright: 0.4 },
+    ],
+    loopFrom: 1,
+  },
+  twodoors: {
+    key: 'B-flat minor',
+    title: 'Two Doors (Locksmith Theme)',
+    bpm: 100,
+    fx: { reverb: 0.72, delay: 0.5, feedback: 0.46, tone: 3200, delayBeats: 0.75 },
+    pad: { attack: 1.5, release: 2.8, lfoRate: 0.2, lfoDepth: 480, cutoff: 560, detune: 14 },
+    progression: [
+      { chord: [58, 61, 65, 72], pad: [46, 53, 58, 61, 65], bass: 34, bars: 2 }, // Bbm9
+      { chord: [54, 58, 61, 65], pad: [42, 49, 54, 58], bass: 30, bars: 2 }, // Gbmaj7
+      { chord: [51, 54, 58, 61], pad: [39, 46, 51, 54], bass: 27, bars: 2 }, // Ebm7
+      { chord: [53, 57, 60, 63], pad: [41, 48, 53, 57], bass: 29, bars: 2 }, // F7
+    ],
+    // Two figures, the second answering the first a bar late, like two timers running at once.
+    arp: { octave: 12, gate: 0.4, wave: 'triangle', delay: 0.45, reverb: 0.3, pattern: [0, 2, 4, 2, 0, 2, 4, 2, 1, 3, 5, 3, 1, 3, 5, null] },
+    bell: { octave: 24, ring: 9, pattern: [0, null, null, null, null, null, null, null, 2, null, null, null, 2, null, null, null] },
+    bass: { pattern: [[0, 2], 0, [12, 1], 0, [0, 2], 0, [7, 1], 0, [0, 2], 0, [12, 1], 0, [5, 2], 0, [7, 2], 0] },
+    drums: {
+      kick: [1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0],
+      snare: [0, 0, 0, 0, 0.5, 0, 0, 0, 0, 0, 0, 0, 0.5, 0, 0, 0],
+      hat: [0.3, 0.2, 0.3, 0.2, 0.3, 0.2, 0.3, 0.2, 0.3, 0.2, 0.3, 0.2, 0.3, 0.2, 0.3, 0.25],
+      hatOpen: [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1],
+    },
+    lead: {
+      length: 128,
+      notes: [
+        [0, 70, 8], [8, 73, 8], [16, 77, 16],
+        [32, 75, 8], [40, 73, 8], [48, 72, 16],
+        [64, 70, 8], [72, 73, 8], [80, 78, 12], [92, 77, 4],
+        [96, 75, 8], [104, 73, 8], [112, 72, 16],
+      ],
+    },
+    sections: [
+      { name: 'the first room', bars: 8, layers: ['pad', 'bell', 'hat'] },
+      { name: 'the first door', bars: 8, layers: ['pad', 'bell', 'arp', 'bass', 'hat'], arpDensity: 16 },
+      { name: 'the second switch', bars: 16, layers: ['pad', 'bell', 'arp', 'bass', 'kick', 'hat', 'snare'], arpDensity: 16, padBright: 0.3 },
+      { name: 'the second door', bars: 16, layers: ['pad', 'bell', 'arp', 'bass', 'kick', 'hat', 'snare', 'lead'], padBright: 0.45 },
+    ],
+    loopFrom: 1,
+  },
 };

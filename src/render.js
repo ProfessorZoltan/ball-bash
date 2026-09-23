@@ -167,6 +167,7 @@ export class Renderer {
       else if (w.solid) this.drawPlanet(w, level.palette, time);
       else this.drawWell(w, level.palette, time);
       if (w.phasing) this.drawPhaseClock(w, level.palette, game.mouthTime || 0);
+      if (w.breath) this.drawBreath(w, level.palette);
     }
     for (const w of game.wormholes || []) this.drawWormhole(w, level.palette, time);
     if (game.golf) this.drawGolfTraces(game, level.palette);
@@ -713,6 +714,37 @@ export class Renderer {
   }
 
   /**
+   * A body that breathes: a ring that swells out from its surface as its pull
+   * rises and falls back as it fades, and a dotted one where it reaches at the
+   * top of its breath.
+   */
+  drawBreath(w, palette) {
+    const b = w.breath;
+    const f = Math.max(0, Math.min(1, (w.pull / w.basePull - (1 - b.amp)) / (2 * b.amp))); // 0 at the bottom of its breath, 1 at the top
+    const color = w.solid ? palette.planet || '#ffb347' : palette.well || '#b49cff';
+    const lo = w.r + 14;
+    const hi = Math.max(lo + 20, w.range * 0.45);
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.setLineDash([2, 8]);
+    ctx.lineWidth = 1.5;
+    ctx.globalAlpha = 0.3;
+    ctx.beginPath();
+    ctx.arc(w.x, w.y, hi, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.lineWidth = 2 + 2 * f;
+    ctx.globalAlpha = 0.25 + 0.45 * f;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = this.blur(6 + 10 * f);
+    ctx.beginPath();
+    ctx.arc(w.x, w.y, lo + (hi - lo) * f, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /**
    * A phasing body's clock: an arc just outside its surface. While it stands,
    * the arc is the time it has left and turns hot as it runs out; while it is
    * gone, the arc fills in toward its return.
@@ -847,6 +879,7 @@ export class Renderer {
 
   /** A wormhole pair: two turning mouths and the faint thread between them. */
   drawWormhole(w, palette, time) {
+    if (w.flat) return this.drawSlots(w, palette, time);
     const ctx = this.ctx;
     const color = w.color || palette.warp || '#ff8df0';
     ctx.save();
@@ -895,6 +928,59 @@ export class Renderer {
         ctx.arc(0, 0, rr, 0, Math.PI * 2);
         ctx.stroke();
       }
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  /**
+   * A flat pair: each mouth a bright slot along its wall face, a glow thrown
+   * out into the room the way the face looks, and a chevron in it pointing
+   * out. The far end of a one-way pair only has the chevron.
+   */
+  drawSlots(w, palette, time) {
+    const ctx = this.ctx;
+    const color = w.color || palette.warp || '#ff8df0';
+    ctx.save();
+    ctx.setLineDash([2, 16]);
+    ctx.lineDashOffset = -time * 24;
+    ctx.lineWidth = 1.5;
+    ctx.globalAlpha = 0.16;
+    ctx.strokeStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(w.ax, w.ay);
+    ctx.lineTo(w.bx, w.by);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    for (const [x, y, face, exit] of [[w.ax, w.ay, w.aAngle, false], [w.bx, w.by, w.bAngle, w.oneWay]]) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(face); // +x now points out of the face, into the room
+      const glow = ctx.createLinearGradient(0, 0, w.half * 0.9, 0);
+      glow.addColorStop(0, withAlpha(color, 0.38));
+      glow.addColorStop(1, withAlpha(color, 0));
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = glow;
+      ctx.fillRect(0, -w.half, w.half * 0.9, w.half * 2);
+      ctx.strokeStyle = color;
+      ctx.lineCap = 'round';
+      ctx.lineWidth = exit ? 3 : 5;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = this.blur(14);
+      ctx.beginPath();
+      ctx.moveTo(2, -w.half);
+      ctx.lineTo(2, w.half);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      // The chevron: out of this face is the way the charge leaves it.
+      const pulse = (time * 1.2 + (exit ? 0.5 : 0)) % 1;
+      ctx.globalAlpha = 0.35 + 0.45 * (1 - pulse);
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(10 + pulse * 10, -10);
+      ctx.lineTo(20 + pulse * 10, 0);
+      ctx.lineTo(10 + pulse * 10, 10);
+      ctx.stroke();
       ctx.restore();
     }
     ctx.restore();
@@ -1042,7 +1128,8 @@ export class Renderer {
     // works both ways, and leads only to the one that matches it.
     game.wormholes.forEach((w, i) => {
       const color = w.color || p.warp || '#ff8df0';
-      const name = game.wormholes.length > 1 ? `MOUTH ${String.fromCharCode(65 + i)}` : 'MOUTH';
+      const kind = w.flat ? 'SLOT' : 'MOUTH';
+      const name = game.wormholes.length > 1 ? `${kind} ${String.fromCharCode(65 + i)}` : kind;
       // A one-way pair is the one case where IN and OUT are true.
       const nameA = w.oneWay ? `${name} · IN` : name;
       const nameB = w.oneWay ? `${name} · OUT` : name;
@@ -1216,6 +1303,18 @@ export class Renderer {
         ctx.globalAlpha = 1;
       }
       ctx.lineWidth = 2 / s;
+      if (w.flat) {
+        ctx.lineWidth = 6 / s;
+        for (const [x, y, face] of [[w.ax, w.ay, w.aAngle], [w.bx, w.by, w.bAngle]]) {
+          const ux = -Math.sin(face) * w.half;
+          const uy = Math.cos(face) * w.half;
+          ctx.beginPath();
+          ctx.moveTo(x - ux, y - uy);
+          ctx.lineTo(x + ux, y + uy);
+          ctx.stroke();
+        }
+        continue;
+      }
       for (const [x, y] of [[w.ax, w.ay], [w.bx, w.by]]) {
         ctx.setLineDash([w.r * 0.5, w.r * 0.35]);
         ctx.beginPath();

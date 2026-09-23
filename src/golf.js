@@ -101,6 +101,17 @@ function orbitingWarp(a, b, r = 36, color = null, extra = {}) {
   return warp(...at(a), ...at(b), r, color, { orbitA: orbit(a) ? a : null, orbitB: orbit(b) ? b : null, ...extra });
 }
 
+/**
+ * A flat pair: two slots set in wall faces. `a` and `b` are { x, y, face }:
+ * the slot's centre on its wall, and the way the face looks out into the
+ * room, in degrees. The charge goes into one face and out of the other,
+ * turned by the angle between them (warpCharge), at the same place across the
+ * slot and the same speed. `half` is half a slot's width.
+ */
+function slots(a, b, { half = 48, color = null, oneWay = false } = {}) {
+  return { ax: a.x, ay: a.y, bx: b.x, by: b.y, r: half, color, oneWay, flat: true, half, aAngle: (a.face * Math.PI) / 180, bAngle: (b.face * Math.PI) / 180 };
+}
+
 /** The second pair's colour on a hole that has two. The first wears the palette's. */
 const GOLD = '#ffd23f';
 
@@ -830,6 +841,182 @@ export const FAR_COURSE = [
     cup: cup(12400, 9900),
     emitters: [
       { x: 9750, y: 10000, period: 3, speed: 900, maxRadius: 380, thick: 8, warn: 0.8, delay: 1.5 },
+    ],
+  }),
+  farHole({
+    id: 'f7',
+    hole: 7,
+    par: 4,
+    title: 'Periscope',
+    track: 'periscope',
+    intro: 'Four rooms sealed from each other, and three pairs of slots set in their walls. A slot hands the charge out of its partner\'s face turned by the angle between the two, a right angle every time here, so the line through all three is one line, folded. The stone by the tee bends it into the first. A degree off there is a wall by the third.',
+    record: 'The slots were not cut to suit the rooms. They were cut where a line already ran, and the walls went up round them afterwards.',
+    sunk: 'One line, folded three times, and it never touched a wall.',
+    width: 1600,
+    height: 1800,
+    view: SCREEN,
+    boundary: room(1600, 1800),
+    flightSeconds: 12,
+    tee: { x: 220, y: 1640, angle: -0.6 },
+    wells: [
+      planet(450, 1590, { r: 56, range: 420, pull: 60000 }),
+      // The corner behind the tee: a bank off it would come round to the same slot.
+      maw(135, 1655, { r: 28, range: 110, pull: 30000 }),
+    ],
+    cup: cup(505, 680, { range: 110 }),
+    obstacles: [
+      // Four chambers, sealed from each other: the only ways through are the slots.
+      rect(800, 900, 1480, 24, 0),
+      rect(800, 480, 24, 840, 0),
+      rect(800, 1320, 24, 840, 0),
+    ],
+    wormholes: [
+      slots({ x: 788, y: 1350, face: 180 }, { x: 1200, y: 1728, face: -90 }, { half: 32 }),
+      slots({ x: 1056, y: 912, face: 90 }, { x: 1528, y: 450, face: 180 }, { half: 32, color: GOLD }),
+      slots({ x: 812, y: 578, face: 0 }, { x: 400, y: 72, face: 90 }, { half: 32, color: '#7fe9ff' }),
+    ],
+  }),
+  farHole({
+    id: 'f8',
+    hole: 8,
+    par: 5,
+    title: 'Tide',
+    track: 'tide',
+    intro: 'One body, and its pull breathes: it swells and fades on an eight-second clock, and the ring round it rises and falls with it. Park on its orbit and the orbit breathes too. The cup sits just past where the orbit reaches at the top of the tide. Ride the swell for a lap, then burn forward as it lifts you.',
+    record: 'The Tide was the first body found out here that would not hold still. The hole was laid round the one thing it does reliably.',
+    sunk: 'Carried out on the swell, and set down at the top of it.',
+    open: true,
+    width: 20000,
+    height: 20000,
+    view: SCREEN,
+    area: { x: 8800, y: 9100, w: 2400, h: 1800 },
+    boundary: room(20000, 20000),
+    flightSeconds: 12,
+    tee: { x: 9550, y: 10000, angle: -Math.PI / 2 },
+    wells: [
+      planet(10000, 10000, { r: 60, range: 1100, pull: 184900, breath: { period: 8, amp: 0.2 } }),
+    ],
+    cup: cup(10820, 10000, { range: 110 }),
+  }),
+  farHole({
+    id: 'f9',
+    hole: 9,
+    par: 5,
+    title: 'Glass Relay',
+    track: 'glassrelay',
+    intro: 'Three rooms in a row, and the only ways on are mouths that go one way. The second sits at a deep maw\'s edge, where a falling charge passes a thousand a second, and hands it on at that speed into the last room, into a wall of glass with the cup behind it. It comes through far too fast to stop on its own: one pulse the moment it breaks turns it down to the cup.',
+    record: 'The relay was built to carry speed from one room to the next. Nobody has found it another use.',
+    sunk: 'Taken at full speed off the maw\'s edge, and set down through the glass.',
+    width: 4800,
+    height: 900,
+    view: SCREEN,
+    boundary: room(4800, 900),
+    flightSeconds: 6,
+    tee: { x: 250, y: 450, angle: 0.2 },
+    wells: [
+      maw(2500, 560, { r: 40, range: 750, pull: 380000 }),
+      // Past the cup, for a charge that comes through the glass too fast to stop.
+      maw(4045, 765, { r: 40, range: 230, pull: 60000 }),
+    ],
+    cup: cup(3814, 605, { range: 110 }),
+    obstacles: [
+      // Three rooms in a row, sealed: the mouths are the only way on.
+      rect(1600, 450, 24, 780, 0),
+      rect(3200, 450, 24, 780, 0),
+      // The last room is cut across by glass, the cup on the far side of it.
+      { poly: rect(3778, 140, 217, 16, 139.0), color: '#7fe9d6', glass: true },
+      { poly: rect(3617, 280, 217, 16, 139.0), color: '#b8fff0', glass: true },
+      { poly: rect(3456, 420, 217, 16, 139.0), color: '#7fe9d6', glass: true },
+      { poly: rect(3295, 560, 217, 16, 139.0), color: '#b8fff0', glass: true },
+    ],
+    wormholes: [
+      oneWay(1300, 250, 1850, 250),
+      oneWay(2625, 447, 3450, 160, 30, GOLD),
+    ],
+  }),
+  farHole({
+    id: 'f10',
+    hole: 10,
+    par: 5,
+    title: 'The Eye',
+    track: 'eye',
+    intro: 'Three maws turn round the cup as a triangle, and from outside they pull like one body: park on an orbit round the whole eye. Inside is the calm centre, and three gaps that turn with the maws. A stone by the tee keeps you from flying straight in. Burn back from the orbit to fall through a gap as it comes round to face you.',
+    record: 'Lagrange showed that three bodies can turn as a triangle for ever. The course took him at his word and put a cup in the middle.',
+    sunk: 'In through the iris, and down the pupil.',
+    open: true,
+    width: 20000,
+    height: 20000,
+    view: SCREEN,
+    area: { x: 8700, y: 9100, w: 2600, h: 1800 },
+    boundary: room(20000, 20000),
+    flightSeconds: 30,
+    tee: { x: 9250, y: 10000, angle: -1.4 },
+    // Three maws turning as a triangle round the cup. Each pulls a third as
+    // hard as a body that holds an orbit, so from outside they hold one
+    // together; inside, the gaps between them turn.
+    wells: [
+      // The lid: a small stone between the tee and the eye, so there is no straight way in.
+      planet(9600, 10000, { r: 60, range: 170, pull: 8000 }),
+      ...[0, 1, 2].map((k) => maw(10000 + 220, 10000, { r: 40, range: 1400, pull: 61633, rail: { cx: 10000, cy: 10000, R: 220, period: 10, phase: (k * 2 * Math.PI) / 3 } })),
+    ],
+    cup: cup(10000, 10000, { range: 110 }),
+  }),
+  farHole({
+    id: 'f11',
+    hole: 11,
+    par: 5,
+    title: 'Clockwork',
+    track: 'clockwork',
+    intro: 'Three cages in a row, the cup in the last, turning on clocks of six, nine and twelve seconds. The charge is heavy: nothing out here speeds it past what it left the tee at, so the gauge can only slow it. Launch early, and brake into each gap as it comes round.',
+    record: 'The three clocks agree once every thirty-six seconds. The hole was laid so that you never have to wait that long, if you know how to wait.',
+    sunk: 'Through all three gaps, and never hurried.',
+    open: true,
+    width: 20000,
+    height: 20000,
+    view: SCREEN,
+    area: { x: 9000, y: 9400, w: 3000, h: 1200 },
+    boundary: room(20000, 20000),
+    flightSeconds: 20,
+    // The heavy charge: nothing pushes it past the speed it leaves the tee at, so a pulse can only slow it.
+    maxBallSpeed: 440,
+    tee: { x: 9220, y: 10000, angle: 0.25 },
+    wells: [],
+    cup: cup(11700, 10000, { range: 80 }),
+    movers: [
+      cage(9900, 10000, { radius: 90, count: 2, length: 140, period: 6 }),
+      cage(10800, 10000, { radius: 90, count: 2, length: 140, period: 9, angle: 1 }),
+      cage(11700, 10000, { radius: 90, count: 2, length: 140, period: 12, angle: 2 }),
+    ],
+  }),
+  farHole({
+    id: 'f12',
+    hole: 12,
+    par: 5,
+    title: 'Two Doors',
+    track: 'twodoors',
+    intro: 'The first switch opens the door out of this room for six seconds. Beyond it, the second switch opens the cup\'s door for five. Bank off the first and steer through, bank off the second and steer through again: one launch, two timers, and a gauge of eight to do the steering.',
+    record: 'Two doors, each opened by the switch in the room before it. The course\'s locksmith never believed one charge could manage both.',
+    sunk: 'Both doors on one launch, and neither swung shut on it.',
+    width: 3200,
+    height: 1800,
+    view: SCREEN,
+    boundary: room(3200, 1800),
+    flightSeconds: 18,
+    fuel: 8,
+    tee: { x: 420, y: 1400, angle: -0.6 },
+    wells: [],
+    cup: cup(2310, 1370, { range: 110 }),
+    obstacles: [
+      // The tee's room on the left; the second switch's room top right; the cup's room below it.
+      rect(1600, 180, 24, 240, 0),
+      rect(1600, 1120, 24, 1240, 0),
+      rect(1985, 900, 770, 24, 0),
+      rect(2870, 900, 540, 24, 0),
+    ],
+    doors: [rect(1600, 400, 24, 204, 0), rect(2485, 900, 234, 24, 0)],
+    nodes: [
+      { x: 900, y: 620, r: 56, kind: 'switch', toggles: [0], holdOpen: 6 },
+      { x: 2650, y: 380, r: 56, kind: 'switch', toggles: [1], holdOpen: 5 },
     ],
   }),
 ];

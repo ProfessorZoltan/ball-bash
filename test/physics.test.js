@@ -1609,7 +1609,7 @@ async function golfFly(def, angle, { pulses = [], maxT = null, events = false, w
   let inWatch = 0; // seconds spent inside `watch`'s reach, a body to keep an eye on
   let bounces = 0; // walls and movers touched
   void events;
-  const { createGameState, wellsAccel, swallowingWell, solidPolysNow, tickOrbits, tickEmitters, paneBreaks, breakPane, golfSwitch } = await import('../src/gamestate.js');
+  const { createGameState, wellsAccel, swallowingWell, solidPolysNow, tickOrbits, tickEmitters, paneBreaks, breakPane, golfSwitch, warpCharge } = await import('../src/gamestate.js');
   const { PHYSICS_DT, SURFACE_VELOCITY_FACTOR } = await import('../src/config.js');
   const { GOLF } = await import('../src/golf.js');
   const g = createGameState(def, {});
@@ -1660,23 +1660,16 @@ async function golfFly(def, angle, { pulses = [], maxT = null, events = false, w
     if (pts) pts.push([b.x, b.y]);
     if (watch && Math.hypot(b.x - watch.x, b.y - watch.y) < watch.range) inWatch += PHYSICS_DT;
     const took = swallowingWell(g.wells, b.x, b.y);
-    if (took) return { end: took.cup ? 'cup' : took.hazard ? 'maw' : 'horizon', t, closest, warps, inWatch, bounces, x: b.x, y: b.y, pts };
-    if (!pointInPolygon(b.x, b.y, def.boundary)) return { end: 'out', t, closest, warps, inWatch, bounces, x: b.x, y: b.y, pts };
+    if (took) return { end: took.cup ? 'cup' : took.hazard ? 'maw' : 'horizon', t, closest, warps, inWatch, bounces, x: b.x, y: b.y, vx: b.vx, vy: b.vy, pts };
+    if (!pointInPolygon(b.x, b.y, def.boundary)) return { end: 'out', t, closest, warps, inWatch, bounces, x: b.x, y: b.y, vx: b.vx, vy: b.vy, pts };
     if (warp > 0) warp -= PHYSICS_DT;
-    else
-      for (const w of g.wormholes) {
-        for (const [ex, ey, tx, ty] of w.oneWay ? [[w.ax, w.ay, w.bx, w.by]] : [[w.ax, w.ay, w.bx, w.by], [w.bx, w.by, w.ax, w.ay]]) {
-          if (Math.hypot(b.x - ex, b.y - ey) > w.r) continue;
-          const s = b.speed || 1;
-          b.x = tx + (b.vx / s) * (w.r + b.r + 6);
-          b.y = ty + (b.vy / s) * (w.r + b.r + 6);
-          warp = GOLF.warpHold;
-          warps++;
-        }
-      }
+    else if (warpCharge(g)) {
+      warp = GOLF.warpHold;
+      warps++;
+    }
     tickEmitters(g, PHYSICS_DT);
   }
-  return { end: 'spent', t, closest, warps, inWatch, bounces, x: b.x, y: b.y, pts };
+  return { end: 'spent', t, closest, warps, inWatch, bounces, x: b.x, y: b.y, vx: b.vx, vy: b.vy, pts };
 }
 
 test('golf: a hole is a level with no opponent - a launcher bolted to the tee, no boss, no drones, and its cup among its bodies', async () => {
@@ -2578,4 +2571,142 @@ test('golf, the Far Course - Breakers: a ring that catches the charge from behin
   assert.equal(ride.end, 'cup', 'caught from behind, carried over');
   assert.notEqual((await golfFly(def, rad(5.9), { launchAt: 1.1 })).end, 'cup', 'a second late, the ring meets it head on');
   assert.notEqual((await golfFly({ ...def, emitters: [] }, rad(5.9), { launchAt: 0.1 })).end, 'cup', 'and with no ring at all the maw has it');
+});
+
+test('golf, the Far Course\'s slots and breathing bodies: a slot turns the charge by the angle between its faces, and a body\'s pull rises and falls on its clock', async () => {
+  const { createGameState, warpCharge, tickOrbits, breathPull, SLOT_REACH } = await import('../src/gamestate.js');
+  const { FAR_COURSE } = await import('../src/golf.js');
+  const { PHYSICS_DT } = await import('../src/config.js');
+  const byId = (id) => FAR_COURSE.find((h) => h.id === id);
+  // A slot: in through a face looking left, out of one looking up, so a charge heading right leaves heading up.
+  const g = createGameState(byId('f7'), {});
+  const w = g.wormholes[0];
+  assert.ok(w.flat, 'a flat pair');
+  const b = g.ball;
+  Object.assign(b, { x: w.ax - SLOT_REACH + 4, y: w.ay + 10, vx: 400, vy: -30, held: false });
+  const speed = Math.hypot(b.vx, b.vy);
+  const hop = warpCharge(g);
+  assert.ok(hop && hop.w === w, 'it went through');
+  assert.ok(Math.abs(Math.hypot(b.vx, b.vy) - speed) < 1e-9, 'at the speed it came');
+  const turned = Math.atan2(b.vy, b.vx) - Math.atan2(-30, 400);
+  assert.ok(Math.abs(Math.sin(turned) + 1) < 1e-9, 'turned a right angle, to the left: out of an upward face');
+  assert.ok(Math.abs(b.x - (w.bx + 10)) < 1e-9 && b.y < w.by, 'out at the same place across the far slot, turned with it, and in front of its face');
+  assert.equal(warpCharge(g), null, 'and leaving a face, it is not taken back in');
+  // Leaving the near face, or beside the slot, nothing happens.
+  Object.assign(b, { x: w.ax - SLOT_REACH + 4, y: w.ay, vx: -400, vy: 0 });
+  assert.equal(warpCharge(g), null, 'a charge leaving the face is not taken');
+  Object.assign(b, { x: w.ax - SLOT_REACH + 4, y: w.ay + w.half + 5, vx: 400, vy: 0 });
+  assert.equal(warpCharge(g), null, 'nor one beside the slot');
+  // A breathing body.
+  const tide = createGameState(byId('f8'), {});
+  const body = tide.wells.find((x) => x.breath);
+  const quarter = body.breath.period / 4;
+  for (let k = 0; k < Math.round(quarter / PHYSICS_DT); k++) tickOrbits(tide, PHYSICS_DT);
+  assert.ok(Math.abs(body.pull - body.basePull * (1 + body.breath.amp)) < body.basePull * 1e-3, 'a quarter breath in, it pulls hardest');
+  assert.ok(Math.abs(breathPull(body, quarter * 3) - body.basePull * (1 - body.breath.amp)) < 1e-6, 'three quarters in, least');
+});
+
+test('golf, the Far Course - Periscope: three pairs of slots a right angle each, and one folded line a degree and a half wide', async () => {
+  const { FAR_COURSE } = await import('../src/golf.js');
+  const def = FAR_COURSE.find((h) => h.id === 'f7');
+  const rad = (d) => (d * Math.PI) / 180;
+  assert.equal(def.wormholes.length, 3);
+  for (const w of def.wormholes) assert.ok(w.flat && Math.abs(Math.cos(w.bAngle - w.aAngle)) < 1e-9, 'each pair of faces a right angle apart');
+  for (const d of [-51.95, -51.7, -51.45]) {
+    const r = await golfFly(def, rad(d));
+    assert.equal(r.end, 'cup', `${d}° goes down`);
+    assert.equal(r.warps, 3, 'through all three');
+    assert.equal(r.bounces, 0, 'and never touches a wall');
+  }
+  for (const d of [-53.4, -50]) {
+    const r = await golfFly(def, rad(d));
+    assert.notEqual(r.end, 'cup', `${d}° does not`);
+    assert.ok(r.warps >= 1 && r.warps < 3, `${d}°: through the first slot, and a wall before the third`);
+  }
+});
+
+test('golf, the Far Course - Tide: an orbit that breathes with its body, and a burn at the top of the swell', async () => {
+  const { FAR_COURSE } = await import('../src/golf.js');
+  const def = FAR_COURSE.find((h) => h.id === 'f8');
+  const rad = (d) => (d * Math.PI) / 180;
+  const parked = await golfFly(def, rad(-90), { launchAt: 2 });
+  assert.equal(parked.end, 'spent', 'the tee\'s line parks, and the tide alone never carries it to the cup');
+  const burn = [{ at: 8.5, a: rad(-0.1) }];
+  for (const [d, T] of [[-90, 2], [-90.25, 2], [-89.75, 2], [-90, 2 - 1 / 240], [-90, 2 + 1 / 240]]) assert.equal((await golfFly(def, rad(d), { launchAt: T, pulses: burn })).end, 'cup', `one pulse forward a lap on (${d}°, ${T} s)`);
+  const wells = def.wells.map((w) => ({ ...w, breath: undefined }));
+  const still = { ...def, wells, cup: wells[wells.length - 1] };
+  assert.notEqual((await golfFly(still, rad(-90), { launchAt: 2, pulses: burn })).end, 'cup', 'with the body holding its breath, the same burn falls short');
+});
+
+test('golf, the Far Course - Glass Relay: the second mouth hands on the speed of a maw\'s edge, and it breaks the glass', async () => {
+  const { FAR_COURSE } = await import('../src/golf.js');
+  const def = FAR_COURSE.find((h) => h.id === 'f9');
+  const rad = (d) => (d * Math.PI) / 180;
+  assert.ok(def.wormholes.length === 2 && def.wormholes.every((w) => w.oneWay), 'two mouths, one way each');
+  const before = await golfFly(def, rad(-10.75), { maxT: 2.3 });
+  assert.ok(Math.abs(Math.hypot(before.vx, before.vy) - def.ball.speed) < 1, 'the first room is flown at launch speed');
+  const handed = await golfFly(def, rad(-10.75), { maxT: 3.56 });
+  assert.equal(handed.warps, 2);
+  assert.ok(Math.hypot(handed.vx, handed.vy) > def.glass.breakSpeed, `out of the second mouth at ${Math.round(Math.hypot(handed.vx, handed.vy))} px/s, fast enough to break the glass`);
+  assert.notEqual((await golfFly(def, rad(-10.75))).end, 'cup', 'bare, it comes through the glass and on past the cup');
+  const turn = [{ at: 3.73, a: rad(135.2) }];
+  for (const d of [-11, -10.75, -10.5]) assert.equal((await golfFly(def, rad(d), { pulses: turn })).end, 'cup', `${d}°, and one pulse as the glass goes`);
+});
+
+test('golf, the Far Course - The Eye: three maws turning as a triangle, an orbit round them all, and a dive through a gap', async () => {
+  const { FAR_COURSE } = await import('../src/golf.js');
+  const def = FAR_COURSE.find((h) => h.id === 'f10');
+  const rad = (d) => (d * Math.PI) / 180;
+  const trio = def.wells.filter((w) => w.hazard && w.rail);
+  assert.equal(trio.length, 3, 'three maws on one rail');
+  assert.ok(trio.every((w) => w.rail.R === trio[0].rail.R && w.rail.period === trio[0].rail.period), 'turning together');
+  const phases = trio.map((w) => w.rail.phase).sort((a, b) => a - b);
+  assert.ok(Math.abs(phases[1] - phases[0] - (2 * Math.PI) / 3) < 1e-9 && Math.abs(phases[2] - phases[1] - (2 * Math.PI) / 3) < 1e-9, 'a third of a turn apart');
+  assert.ok(Math.abs(trio.reduce((n, w) => n + w.pull, 0) - 184900) < 10, 'together they pull like one body that holds an orbit at launch speed');
+  const parked = await golfFly(def, rad(-80));
+  assert.equal(parked.end, 'spent', 'the tee\'s line parks round the whole eye for the whole clock');
+  const dive = [{ at: 11.5, a: rad(79.5) }, { at: 11.7, a: rad(98.7) }, { at: 11.9, a: rad(124.6) }];
+  for (const [d, T] of [[-80, 0], [-80.25, 0], [-79.75, 0], [-80, 1 / 240]]) assert.equal((await golfFly(def, rad(d), { launchAt: T, pulses: dive })).end, 'cup', `a lap, then three pulses back (${d}°, ${T} s)`);
+  assert.notEqual((await golfFly(def, rad(-80), { launchAt: 5, pulses: dive })).end, 'cup', 'the same dive half a turn of the triangle later meets a maw');
+  // The lid: straight at the eye from the tee never goes down; without it, many of those lines would.
+  const wells = def.wells.filter((w) => !w.solid);
+  const open = { ...def, wells, cup: wells[wells.length - 1] };
+  let withLid = 0;
+  let without = 0;
+  for (const T of [0, 2.5, 5, 7.5]) for (let d = -6; d <= 6; d++) {
+    if ((await golfFly(def, rad(d), { launchAt: T })).end === 'cup') withLid++;
+    if ((await golfFly(open, rad(d), { launchAt: T })).end === 'cup') without++;
+  }
+  assert.equal(withLid, 0, 'no straight way in');
+  assert.ok(without > 10, `without the stone, ${without} of 52 straight lines would sink it`);
+});
+
+test('golf, the Far Course - Clockwork: a heavy charge through three cages on three clocks, and the gauge only brakes', async () => {
+  const { createGameState } = await import('../src/gamestate.js');
+  const { FAR_COURSE, GOLF } = await import('../src/golf.js');
+  const def = FAR_COURSE.find((h) => h.id === 'f11');
+  const rad = (d) => (d * Math.PI) / 180;
+  const periods = def.movers.map((m) => Math.round((2 * Math.PI) / m.omega)).sort((a, b) => a - b);
+  assert.deepEqual(periods, [6, 9, 12], 'three cages on clocks of six, nine and twelve seconds');
+  const g = createGameState(def, {});
+  g.ball.launch(def.tee.x, def.tee.y, 0, def.ball.speed);
+  g.ball.vx += GOLF.pulse;
+  g.ball.clampSpeed(BALL.minSpeed, g.maxSpeed);
+  assert.ok(g.ball.speed <= def.ball.speed + 10, 'a pulse forward does not speed the heavy charge');
+  assert.equal((await golfFly(def, 0, { launchAt: 6 })).end, 'cup', 'launched on the beat, straight through all three');
+  assert.notEqual((await golfFly(def, 0, { launchAt: 0 })).end, 'cup', 'launched off it, a cage is shut');
+  const wait = [{ at: 1, a: rad(180) }, { at: 3.4, a: rad(180) }];
+  assert.equal((await golfFly(def, 0, { launchAt: 0, pulses: wait })).end, 'cup', 'launched early, and braked into the gaps');
+});
+
+test('golf, the Far Course - Two Doors: one switch opens the way to the other, the other opens the cup, and one launch does both', async () => {
+  const { FAR_COURSE } = await import('../src/golf.js');
+  const def = FAR_COURSE.find((h) => h.id === 'f12');
+  const rad = (d) => (d * Math.PI) / 180;
+  assert.deepEqual(def.nodes.map((n) => n.toggles), [[0], [1]], 'each switch has its own door');
+  assert.ok(def.nodes[0].holdOpen > def.nodes[1].holdOpen, 'the first door waits longer than the second');
+  const route = [[2.12, -107.9], [3.58, 77], [3.78, 86], [6.75, 12.2], [6.95, -175.1]].map(([at, a]) => ({ at, a: rad(a) }));
+  for (const d of [-54.75, -54.5]) assert.equal((await golfFly(def, rad(d), { pulses: route })).end, 'cup', `${d}°: both switches, both doors`);
+  assert.notEqual((await golfFly({ ...def, nodes: [{ ...def.nodes[1] }] }, rad(-54.5), { pulses: route })).end, 'cup', 'with no first switch, the first door stays shut');
+  assert.notEqual((await golfFly({ ...def, nodes: [def.nodes[0], { ...def.nodes[1], toggles: [] }] }, rad(-54.5), { pulses: route })).end, 'cup', 'with the second wired to nothing, the cup stays shut');
 });

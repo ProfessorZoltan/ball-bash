@@ -211,7 +211,15 @@ export function levelWells(def) {
     // A phasing body is there for `on` seconds and gone for `off`, on the level's clock from `offset`: gone, it neither pulls nor stops anything.
     phasing: w.phasing ? { on: w.phasing.on, off: w.phasing.off, offset: w.phasing.offset || 0 } : null,
     absent: false,
+    // A body that breathes: its pull swells and fades by `amp` of itself, once every `period` seconds, on the level's clock (breathe).
+    breath: w.breath ? { period: w.breath.period, amp: w.breath.amp, phase: w.breath.phase || 0 } : null,
+    basePull: w.pull || 60000,
   }));
+}
+
+/** A breathing body's pull at level time t: its own, swollen or faded by up to `amp` of itself. */
+export function breathPull(w, t) {
+  return w.basePull * (1 + w.breath.amp * Math.sin(((Math.PI * 2) / w.breath.period) * t + w.breath.phase));
 }
 
 /**
@@ -293,8 +301,58 @@ export function tickOrbits(g, dt) {
   g.mouthTime += dt;
   if (g.wormholes.length) placeMouths(g.wormholes, g.mouthTime);
   placeRails(g.wells, g.mouthTime);
-  for (const w of g.wells) if (w.phasing) w.absent = dronePhased(w.phasing, g.mouthTime);
+  for (const w of g.wells) {
+    if (w.phasing) w.absent = dronePhased(w.phasing, g.mouthTime);
+    if (w.breath) w.pull = breathPull(w, g.mouthTime);
+  }
   if (g.doors.length) golfDoors(g, g.mouthTime);
+}
+
+/** How close to a flat mouth's face the charge's centre is taken: nearer than it can touch the wall behind, and wider than a step at the cap. */
+export const SLOT_REACH = BALL.radius + 8;
+
+/**
+ * The charge through a wormhole, if it has reached a mouth: the game and the
+ * tests both fly this. A round mouth takes it anywhere inside its radius and
+ * hands it on at the heading it came with, set down clear of the far mouth. A
+ * flat mouth (a slot in a wall face) takes it as it comes at the face and is
+ * about to touch, and hands it out of the far face turned by the angle
+ * between the two faces, at the same place across the slot (turned with it)
+ * and the same speed. Returns what happened, or null.
+ */
+export function warpCharge(g) {
+  const b = g.ball;
+  for (const w of g.wormholes) {
+    const ends = w.oneWay ? [[w.ax, w.ay, w.aAngle, w.bx, w.by, w.bAngle]] : [[w.ax, w.ay, w.aAngle, w.bx, w.by, w.bAngle], [w.bx, w.by, w.bAngle, w.ax, w.ay, w.aAngle]];
+    for (const [ex, ey, ea, tx, ty, ta] of ends) {
+      if (w.flat) {
+        const nx = Math.cos(ea);
+        const ny = Math.sin(ea);
+        const dx = b.x - ex;
+        const dy = b.y - ey;
+        const s = dx * nx + dy * ny; // how far in front of the face
+        const along = dx * -ny + dy * nx; // how far across the slot
+        const vn = b.vx * nx + b.vy * ny;
+        if (vn >= 0 || s >= SLOT_REACH || s < 0 || Math.abs(along) > w.half) continue;
+        const vu = b.vx * -ny + b.vy * nx;
+        const mx = Math.cos(ta);
+        const my = Math.sin(ta);
+        // Out of the far face: what went in across the slot comes out across it the other way, and what went in comes out.
+        b.vx = -vu * -my - vn * mx;
+        b.vy = -vu * mx - vn * my;
+        b.x = tx - along * -my + mx * (SLOT_REACH + 2);
+        b.y = ty - along * mx + my * (SLOT_REACH + 2);
+        return { w, ex, ey, tx, ty };
+      }
+      if (Math.hypot(b.x - ex, b.y - ey) > w.r) continue;
+      const sp = b.speed || 1;
+      // Set down clear of the far mouth, so it cannot fall straight back in.
+      b.x = tx + (b.vx / sp) * (w.r + b.r + 6);
+      b.y = ty + (b.vy / sp) * (w.r + b.r + 6);
+      return { w, ex, ey, tx, ty };
+    }
+  }
+  return null;
 }
 
 /**
@@ -732,7 +790,9 @@ export function createGameState(def, { pvp = false, coop = false, volley = false
   // Wormholes: paired mouths that hand the charge on at the heading it arrived with.
   // A mouth with an orbit circles a centre on the level's clock (placeMouths).
   const orbit = (o) => (o ? { cx: o.cx, cy: o.cy, R: o.R, period: o.period, phase: o.phase || 0 } : null);
-  const wormholes = (def.wormholes || []).map((w, i) => ({ ax: w.ax, ay: w.ay, bx: w.bx, by: w.by, r: w.r || 36, color: w.color || null, oneWay: !!w.oneWay, orbitA: orbit(w.orbitA), orbitB: orbit(w.orbitB), i }));
+  // A flat pair's mouths are slots in wall faces: `aAngle` and `bAngle` are the
+  // way each face looks out into the room, and `half` is half a slot's width.
+  const wormholes = (def.wormholes || []).map((w, i) => ({ ax: w.ax, ay: w.ay, bx: w.bx, by: w.by, r: w.r || 36, color: w.color || null, oneWay: !!w.oneWay, orbitA: orbit(w.orbitA), orbitB: orbit(w.orbitB), flat: !!w.flat, aAngle: w.aAngle || 0, bAngle: w.bAngle || 0, half: w.half || 48, i }));
   placeMouths(wormholes, 0);
   const ice = def.ice ? new IceTrail(def.ice) : null;
   // Coolant vents: each drops a patch of ice every `period` seconds, the first after `delay`.

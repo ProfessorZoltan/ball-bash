@@ -797,7 +797,7 @@ as the share of launch lines and launch moments that sink with no fuel spent:
 | Ring | Holes | Bare sinks allowed | Source |
 |---|---|---|---|
 | Outer | 1 to 6 | About one line in a hundred | `FAR_COURSE` in `src/golf.js` |
-| Middle | 7 to 12 | About one in two hundred | (to come) |
+| Middle | 7 to 12 | About one in two hundred | `FAR_COURSE` in `src/golf.js` |
 | Inner | 13 to 18 | None worth the name: the gauge is needed | (to come) |
 
 The Far Course brings the arcade's pieces out to the void, with rules of
@@ -810,11 +810,14 @@ their own on the course:
 | A stone that phases | A solid body with a `phasing` clock: there for `on` seconds, gone for `off`, and while gone it neither pulls nor stops anything. A ring round it is its clock, counting down while it stands and filling in while it is away | `PhasingStone`, `tickOrbits` |
 | Emitter | A floor emitter whose rings shove the charge. A ring that catches a charge from behind throws it on, faster; one met head on throws it back. On the course the rings keep the hole's own clock, so a launch at the same moment always meets the same rings | `tickEmitters` |
 | Moving cup | The cup itself on a rail, like a maw on a rail | `placeRails` |
+| Slots | A flat pair of mouths set in wall faces (`slots()`): the charge goes into one face as it comes at it, and out of the other at the same speed and the same place across the slot, turned by the angle between the two faces. A slot takes only what comes at its face; one leaving a face is never taken back in | `warpCharge` |
+| A body that breathes | A body with a `breath` clock: its pull swells and fades by `amp` of itself, once every `period` seconds, so an orbit round it breathes too. A ring round it rises and falls with the pull | `breathPull`, `tickOrbits` |
 
 A new launch puts every piece back as the hole opened: panes whole, doors
 shut, switches dark (`golfRestore`). The test harness flies all of them
-through the same helpers the game does, so a route that sinks in the tests
-sinks in the browser.
+through the same helpers the game does, the jump through any wormhole
+included (`warpCharge`, which round mouths and slots share), so a route that
+sinks in the tests sinks in the browser.
 
 The outer six:
 
@@ -827,11 +830,22 @@ The outer six:
 | 5 | Eclipse | 5 | 10 s | Open space. Two stones that phase, on clocks of eight and seven seconds. A line that bends round one needs it standing; a line through where one stood needs it gone; the same line two seconds early misses | `FAR_COURSE[4]` |
 | 6 | Breakers | 4 | 9 s | Open space. A great maw across the way, and just off the tee an emitter throwing a ring every three seconds, faster than the charge. Launch so a ring catches you from behind and it throws you past the maw at over 800 px/s; a second late, the ring meets you head on | `FAR_COURSE[5]` |
 
+The middle six:
+
+| Hole | Name | Par | Clock | What it asks | Source |
+|---|---|---|---|---|---|
+| 7 | Periscope | 4 | 12 s | Two screens tall. Four sealed rooms and three pairs of slots, each turning the charge a right angle: one line, folded three times. A stone by the tee bends it into the first slot, the rest is straight, and the line that makes all three is a degree and a half wide. A maw in the corner behind the tee eats the bank shots | `FAR_COURSE[6]` |
+| 8 | Tide | 5 | 12 s | Open space. One body whose pull breathes by a fifth on an eight-second clock. The tee's line parks, and the orbit rises and falls with the breath but never reaches the cup; a pulse forward a lap on, as the swell lifts the charge, does | `FAR_COURSE[7]` |
+| 9 | Glass Relay | 5 | 6 s | Three screens wide. Three sealed rooms and two one-way mouths. The second sits at a deep maw's edge, where the falling charge is past 1,000 px/s, and hands that speed on into the last room, through a wall of glass; one pulse as the glass breaks turns it down to the cup, and a maw beyond takes what overshoots | `FAR_COURSE[8]` |
+| 10 | The Eye | 5 | 30 s | Open space. Three maws on one rail, a third of a turn apart and a third of an orbit's pull each, turning as a triangle round the cup: from outside they hold an orbit like one body, inside is the calm centre. Park round the whole eye, then burn back to fall through a gap as it comes round. A small stone by the tee means there is no straight way in | `FAR_COURSE[9]` |
+| 11 | Clockwork | 5 | 20 s | Open space. A heavy charge (nothing speeds it past its launch) through three cages in a row on clocks of six, nine and twelve seconds, the cup in the last. The gauge can only brake, so launch early and brake into each gap; about half of all launch moments can be sunk that way | `FAR_COURSE[10]` |
+| 12 | Two Doors | 5 | 18 s | Two screens each way. The first switch opens the door out of the tee's room for six seconds; beyond it, the second opens the cup's door for five. Two banks off round switches, and a gauge of eight to steer through each door. No line sinks it bare | `FAR_COURSE[11]` |
+
 The course-wide tests check the Far Course every other degree rather than
 every degree (18 long holes at every degree would double the suite's time).
 Each hole must not sink on the line it opens on, and at most two of its 180
-bare lines may sink. Each hole's own test then flies its route exactly and
-shows what carries it:
+bare lines may sink on the outer six, one on the rest. Each hole's own test
+then flies its route exactly and shows what carries it:
 - **Needle:** the gauge is dry, the channel is wider than the charge and
   narrower than three, and the line sinks a quarter degree either side while
   a degree off does not.
@@ -848,6 +862,32 @@ shows what carries it:
   moment, not two seconds earlier, and not at all if both stones stand for good.
 - **Breakers:** a ring runs faster than the charge; the line sinks when a ring
   catches it from behind, not a second later, and not with no ring at all.
+- **Periscope:** every pair of faces is a right angle apart; the line sinks a
+  quarter degree either side through all three slots without touching a wall,
+  and a degree and a half off it gets through the first slot and never makes
+  the third.
+- **Tide:** the tee's line parks and never sinks; one pulse forward a lap on
+  sinks it a quarter degree or a frame either side; with the breath held, the
+  same pulse falls short.
+- **Glass Relay:** the first room is flown at launch speed; out of the second
+  mouth the charge is past the glass's break speed; bare, it overshoots, and
+  one pulse as the glass goes sinks it a quarter degree either side.
+- **The Eye:** the three maws share a rail a third of a turn apart and add up
+  to an orbit's pull; the tee's line parks for the whole clock; the dive sinks
+  a quarter degree either side or a frame late, and meets a maw half a turn
+  later;
+  and no straight line from the tee sinks it, while without the stone more than
+  ten of 52 would.
+- **Clockwork:** clocks of six, nine and twelve seconds; a forward pulse does
+  not speed the heavy charge; the straight line sinks on the beat, not off it,
+  and off it two brakes make it.
+- **Two Doors:** each switch has its own door, the first held longer; the route
+  goes down, and not with the first switch gone or the second wired to nothing.
+
+An engine test checks the new pieces on their own: a slot keeps the speed,
+turns the heading a right angle, sets the charge down at the same place across
+the far slot, and takes nothing leaving its face or beside it; and a breathing
+body pulls hardest a quarter of its clock in and least three quarters in.
 
 The Far Course's music:
 
@@ -859,6 +899,12 @@ The Far Course's music:
 | 4 | Switchback (Signal Box Theme) | G minor | 92 | `TRACKS.switchback` |
 | 5 | Eclipse (Two Clocks Theme) | E-flat minor | 64 | `TRACKS.eclipse` |
 | 6 | Breakers (Shoreline Theme) | A minor | 88 | `TRACKS.breakers` |
+| 7 | Periscope (Folded Line Theme) | E minor | 80 | `TRACKS.periscope` |
+| 8 | Tide (Swell Theme) | C# minor | 66 | `TRACKS.tide` |
+| 9 | Glass Relay (Handover Theme) | F minor | 96 | `TRACKS.glassrelay` |
+| 10 | The Eye (Three Bodies Theme) | G# minor | 70 | `TRACKS.eye` |
+| 11 | Clockwork (Escapement Theme) | C minor | 90 | `TRACKS.clockwork` |
+| 12 | Two Doors (Locksmith Theme) | B-flat minor | 100 | `TRACKS.twodoors` |
 
 They are slower and wetter than the first course's, and sparser: an arpeggio
 may now rest on a step (`null` in its pattern), so a figure can leave room

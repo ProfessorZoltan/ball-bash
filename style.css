@@ -349,6 +349,8 @@ button[disabled] { opacity: 0.45; cursor: default; }
 .golf-key .turnbar { color: #c9a3ff; border-radius: 2px; height: 4px; background: currentColor; border: none; }
 .golf-key .tee { color: #8fd4ff; border-radius: 2px; }
 .golf-key .phase { color: #ffb347; border-style: dashed; }
+.golf-key .breath { color: #ffb347; box-shadow: 0 0 0 3px rgba(255, 179, 71, 0.3), 0 0 0 6px rgba(255, 179, 71, 0.12); }
+.golf-key .slot { color: #ff8df0; border-radius: 1px; width: 4px; margin: 0 5px; background: currentColor; box-shadow: 4px 0 6px rgba(255, 141, 240, 0.5); border: none; }
 .golf-key .glass { color: #7fe9d6; border-radius: 2px; background: rgba(127, 233, 214, 0.3); }
 .golf-key .switch { color: #7dffc4; background: linear-gradient(currentColor, currentColor) center / 70% 3px no-repeat, #0a0e1e; }
 .golf-key .emitter { color: #c9a3ff; box-shadow: 0 0 0 3px rgba(201, 163, 255, 0.25); }

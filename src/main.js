@@ -8,7 +8,7 @@ import { SEQUENCE, VERSUS_CONDUITS, levelLabel, shortId, campaignNextIndex } fro
 import { COURSE, FAR_COURSE, COURSES, GOLF, holeLabel, toPar } from './golf.js';
 import { LORE } from './lore.js';
 import { SYSTEMS, TIERS, FRAME_CELLS, STANDARD, DEFAULT_FRAME, CUSTOM_ID, allFrames, frameById, withinBudget, cellsSpent, systemValue } from './frames.js';
-import { createGameState, rebuildWalls as rebuildWallsState, bodyHitCounts, tickCamp, versusSpawns, rotateSpawns, versusColors, VERSUS_IDS, nodeAccepts, objectiveDone, constrainToRail, wellsDrag, wellsAccel, swallowingWell, dronePhased, seatLauncher, solidPolysNow, wellReturnSpot, tickOrbits, tickEmitters, paneBreaks, breakPane, golfSwitch, golfRestore } from './gamestate.js';
+import { createGameState, rebuildWalls as rebuildWallsState, bodyHitCounts, tickCamp, versusSpawns, rotateSpawns, versusColors, VERSUS_IDS, nodeAccepts, objectiveDone, constrainToRail, wellsDrag, wellsAccel, swallowingWell, dronePhased, seatLauncher, solidPolysNow, wellReturnSpot, tickOrbits, tickEmitters, paneBreaks, breakPane, golfSwitch, golfRestore, warpCharge } from './gamestate.js';
 import { NetClient, relayConfig, saveRelay } from './net.js';
 import { buildSnapshot, applySnapshot, bracket, lerpView, noteArrival, bufferFor, advanceRenderClock, insertSnapshot, INTERP_MIN, EXTRAPOLATE_MAX } from './netstate.js';
 import { rewoundContact, viewLag, MAX_LAG } from './lagcomp.js';
@@ -5032,27 +5032,20 @@ function golfWarp() {
   const g = game;
   const gf = g.golf;
   const b = g.ball;
-  for (const w of g.wormholes) {
-    // A one-way pair's far mouth only lets go.
-    const ends = w.oneWay ? [[w.ax, w.ay, w.bx, w.by]] : [[w.ax, w.ay, w.bx, w.by], [w.bx, w.by, w.ax, w.ay]];
-    for (const [ex, ey, tx, ty] of ends) {
-      if (Math.hypot(b.x - ex, b.y - ey) > w.r) continue;
-      const s = b.speed || 1;
-      // Set down clear of the far mouth, so it cannot fall straight back in.
-      b.x = tx + (b.vx / s) * (w.r + b.r + 6);
-      b.y = ty + (b.vy / s) * (w.r + b.r + 6);
-      b.trail.length = 0;
-      b.markRender();
-      gf.warpHold = GOLF.warpHold;
-      gf.trace.push({ x: ex, y: ey }, { warp: true }, { x: b.x, y: b.y });
-      const color = w.color || g.def.palette.warp || '#ff8df0';
-      g.fx.ring(ex, ey, color, 90, 0.35);
-      g.fx.ring(tx, ty, color, 110, 0.45);
-      g.fx.burst(b.x, b.y, b.vx / s, b.vy / s, 14, color, 260, 0.7, 0.4);
-      audio.sfxPulse();
-      return;
-    }
-  }
+  // The jump itself is shared with the tests (warpCharge); what is left here is how it looks.
+  const hop = warpCharge(g);
+  if (!hop) return;
+  const { w, ex, ey, tx, ty } = hop;
+  const s = b.speed || 1;
+  b.trail.length = 0;
+  b.markRender();
+  gf.warpHold = GOLF.warpHold;
+  gf.trace.push({ x: ex, y: ey }, { warp: true }, { x: b.x, y: b.y });
+  const color = w.color || g.def.palette.warp || '#ff8df0';
+  g.fx.ring(ex, ey, color, 90, 0.35);
+  g.fx.ring(tx, ty, color, 110, 0.45);
+  g.fx.burst(b.x, b.y, b.vx / s, b.vy / s, 14, color, 260, 0.7, 0.4);
+  audio.sfxPulse();
 }
 
 /** While the gauge is empty the outcome is fixed, so holding the pull-in key runs the rest of the flight out. */
@@ -5208,6 +5201,15 @@ function showCourse(course = courseShown) {
   for (const b of document.querySelectorAll('.course-tabs [data-course]')) b.onclick = () => showCourse(b.dataset.course);
 }
 
+/** The map key's line for a hole's switches: how long each holds its door, first to last. */
+function switchKey(g) {
+  const holds = g.nodes.filter((n) => n.kind === 'switch').map((n) => n.holdOpen || 4);
+  if (!holds.length) return '';
+  if (holds.length === 1) return `<li><span class="k switch"></span>A switch — strike it and its door opens for ${holds[0]} seconds</li>`;
+  const order = ['the first', 'the second', 'the third', 'the fourth'];
+  return `<li><span class="k switch"></span>Switches — strike one and its door opens: ${holds.map((h, i) => `${order[i] || 'the next'} for ${h} seconds`).join(', ')}</li>`;
+}
+
 /**
  * The hole as a map: the world dims and everything on it is named. `mode`
  * says what else is shown with it:
@@ -5250,14 +5252,16 @@ function golfMap(mode) {
     <ul class="golf-key">
       <li><span class="k cup"></span>${g.wells.some((w) => w.cup && w.rail) ? 'The cup — it rides a rail, so send the charge where it will be' : 'The cup — get the charge past its horizon'}</li>
       ${g.wells.some((w) => w.hazard) ? '<li><span class="k maw"></span>A maw — its horizon ends the shot</li>' : ''}
+      ${g.wells.some((w) => w.breath) ? '<li><span class="k breath"></span>A body that breathes — its pull swells and fades on a clock, and the ring round it rises and falls with it</li>' : ''}
       ${g.wells.some((w) => w.phasing) ? '<li><span class="k phase"></span>A body that comes and goes — the ring round it is its clock, and while it is gone it neither pulls nor stops anything</li>' : ''}
-      ${g.wells.some((w) => w.solid && !w.fount && !w.phasing) ? '<li><span class="k planet"></span>A stone — solid, and its field bends what passes</li>' : ''}
+      ${g.wells.some((w) => w.solid && !w.fount && !w.phasing && !w.breath) ? '<li><span class="k planet"></span>A stone — solid, and its field bends what passes</li>' : ''}
       ${g.wells.some((w) => w.fount) ? '<li><span class="k fount"></span>A fount — a white hole: it pushes everything away</li>' : ''}
       ${g.movers.some((m) => m.kind !== 'stone') ? '<li><span class="k turnbar"></span>Turning bars — solid, and on a clock of their own</li>' : ''}
       ${g.panes.length ? '<li><span class="k glass"></span>Glass — it glows white when the charge is fast enough to break it, and stays broken until you re-tee</li>' : ''}
-      ${g.nodes.some((n) => n.kind === 'switch') ? `<li><span class="k switch"></span>A switch — strike it and its door opens for ${g.nodes.find((n) => n.kind === 'switch').holdOpen || 4} seconds</li>` : ''}
+      ${switchKey(g)}
       ${g.emitters.length ? '<li><span class="k emitter"></span>An emitter — every ring it sends out shoves the charge away from it, on a beat</li>' : ''}
-      ${g.wormholes.length > 1 ? '<li><span class="k warp"></span>Wormhole mouths — a mouth leads to the one in its own colour, and keeps your heading</li>' : g.wormholes.length ? '<li><span class="k warp"></span>Wormhole mouths — paired, and they keep your heading</li>' : ''}
+      ${g.wormholes.some((w) => w.flat) ? '<li><span class="k slot"></span>Slots — mouths set flat in the walls: in through one face, out of the other, turned by the angle between them</li>' : ''}
+      ${g.wormholes.filter((w) => !w.flat).length > 1 ? '<li><span class="k warp"></span>Wormhole mouths — a mouth leads to the one in its own colour, and keeps your heading</li>' : g.wormholes.some((w) => !w.flat) ? '<li><span class="k warp"></span>Wormhole mouths — paired, and they keep your heading</li>' : ''}
       <li><span class="k tee"></span>The tee</li>
     </ul>
     <p class="small muted"><b>Mouse</b> aims, and steers the ion pulses in flight · hold <b>right click</b> for fine aim · <b>left click</b> or <b>Space</b> launches, then one pulse per click · <b>right click</b> runs a spent flight out · <b>R</b> re-tees · <b>P</b> the map · <b>Esc</b> the menu</p>
