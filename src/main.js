@@ -5,10 +5,10 @@ import { GAME_MARK, GAME_NAME, GAME_TAGLINE, GAME_VERSION, MARK_READINGS, PHYSIC
 import { BallHistory, bossIntent, moverSegmentsAt } from './ai.js';
 import { LEVELS, VERSUS_LEVELS, ROSTER, TUTORIAL_LEVEL } from './levels.js';
 import { SEQUENCE, VERSUS_CONDUITS, levelLabel, shortId, campaignNextIndex } from './conduits.js';
-import { COURSE, COURSE_PAR, GOLF, holeLabel, toPar } from './golf.js';
+import { COURSE, FAR_COURSE, COURSES, GOLF, holeLabel, toPar } from './golf.js';
 import { LORE } from './lore.js';
 import { SYSTEMS, TIERS, FRAME_CELLS, STANDARD, DEFAULT_FRAME, CUSTOM_ID, allFrames, frameById, withinBudget, cellsSpent, systemValue } from './frames.js';
-import { createGameState, rebuildWalls as rebuildWallsState, bodyHitCounts, tickCamp, versusSpawns, rotateSpawns, versusColors, VERSUS_IDS, nodeAccepts, objectiveDone, constrainToRail, wellsDrag, wellsAccel, swallowingWell, dronePhased, seatLauncher, solidPolysNow, wellReturnSpot, tickOrbits } from './gamestate.js';
+import { createGameState, rebuildWalls as rebuildWallsState, bodyHitCounts, tickCamp, versusSpawns, rotateSpawns, versusColors, VERSUS_IDS, nodeAccepts, objectiveDone, constrainToRail, wellsDrag, wellsAccel, swallowingWell, dronePhased, seatLauncher, solidPolysNow, wellReturnSpot, tickOrbits, tickEmitters, paneBreaks, breakPane, golfSwitch, golfRestore } from './gamestate.js';
 import { NetClient, relayConfig, saveRelay } from './net.js';
 import { buildSnapshot, applySnapshot, bracket, lerpView, noteArrival, bufferFor, advanceRenderClock, insertSnapshot, INTERP_MIN, EXTRAPOLATE_MAX } from './netstate.js';
 import { rewoundContact, viewLag, MAX_LAG } from './lagcomp.js';
@@ -292,10 +292,8 @@ function step(dt) {
   if (g.golf && state === 'playing') golfTick(dt);
 
   if (g.emitters.length && state === 'playing') {
-    for (const e of g.emitters) {
-      e.pulser.update(dt, e.x, e.y);
-      if (e.pulser.emitted) pulseFx(e.x, e.y);
-    }
+    tickEmitters(g, dt);
+    for (const e of g.emitters) if (e.pulser.emitted) pulseFx(e.x, e.y);
   }
   if (g.turrets.length && state === 'playing') stepShots(dt);
   if (g.volley && state === 'playing') {
@@ -1004,16 +1002,10 @@ function rebuildWalls() {
 
 function shatter(pane, h, before) {
   const g = game;
-  const glass = g.def.glass;
-  pane.broken = true;
-  pane.regrowAt = simTime + glass.regrow;
-  for (const sg of pane.segs) sg.broken = true;
-  // The ball keeps going through the gap, a little slower.
-  g.ball.vx = before.vx * glass.speedKeep;
-  g.ball.vy = before.vy * glass.speedKeep;
+  // The ball keeps going through the gap, a little slower (breakPane, shared with the tests).
+  breakPane(g, pane, before, simTime);
   shatterFx(pane, h.cx, h.cy, h.nx, h.ny);
   netEvent({ e: 'shatter', i: g.panes.indexOf(pane), x: h.cx, y: h.cy, nx: h.nx, ny: h.ny });
-  rebuildWalls();
   guideFrame = 0;
 }
 
@@ -1230,12 +1222,9 @@ function onWallBounce(h, seg, before) {
   const g = game;
   if (seg.kind === 'node') return onNodeHit(seg.node, h, before);
   g.ball.banked = true;
-  if (seg.kind === 'glass' && before && !seg.pane.broken && !seg.pane.unbreakable) {
-    const speed = Math.hypot(before.vx, before.vy);
-    if (speed >= (seg.pane.breakSpeed || g.def.glass.breakSpeed)) {
-      shatter(seg.pane, h, before);
-      return;
-    }
+  if (paneBreaks(g, seg, before)) {
+    shatter(seg.pane, h, before);
+    return;
   }
   const n = speedNorm(g.ball.speed);
   const color = seg.kind === 'glass' ? seg.pane.color : seg.kind === 'planet' ? g.def.palette.planet || g.def.palette.obstacle : seg.kind === 'obstacle' ? g.def.palette.obstacle : g.def.palette.wall;
@@ -1257,6 +1246,13 @@ function onNodeHit(node, h, before) {
   const n = speedNorm(g.ball.speed);
   g.ball.lastHitBy = 'wall';
   guideFrame = 0;
+  if (node.kind === 'switch' && g.golf) {
+    // On the course (where there is no serve) a switch opens its doors for a few seconds, and they shut again on their own.
+    wallFx(h.cx, h.cy, h.nx, h.ny, n, color);
+    golfSwitch(g, node, g.mouthTime);
+    golfSwitchFx(node);
+    return;
+  }
   if (!g.ball.played) {
     // The bare serve: an ordinary bounce, and a word about why.
     wallFx(h.cx, h.cy, h.nx, h.ny, n, color);
@@ -1314,6 +1310,19 @@ function flipSwitch(node) {
     const cx = d.poly.reduce((s, p) => s + p[0], 0) / d.poly.length;
     const cy = d.poly.reduce((s, p) => s + p[1], 0) / d.poly.length;
     g.fx.ring(cx, cy, g.def.palette.door || g.def.palette.obstacle, 70, 0.35);
+  }
+  audio.sfxCount(true);
+}
+
+function golfSwitchFx(node) {
+  const g = game;
+  g.fx.ring(node.x, node.y, g.def.palette.nodeLit || '#7dffc4', 110, 0.45);
+  for (const i of node.toggles || []) {
+    const d = g.doors[i];
+    if (!d) continue;
+    const cx = d.poly.reduce((a, p) => a + p[0], 0) / d.poly.length;
+    const cy = d.poly.reduce((a, p) => a + p[1], 0) / d.poly.length;
+    g.fx.ring(cx, cy, g.def.palette.door || g.def.palette.obstacle, 80, 0.4);
   }
   audio.sfxCount(true);
 }
@@ -1794,7 +1803,7 @@ const jukebox = {
 };
 
 function trackLevel(key) {
-  return LEVELS.find((l) => l.track === key) || COURSE.find((h) => h.track === key) || null;
+  return LEVELS.find((l) => l.track === key) || COURSE.find((h) => h.track === key) || FAR_COURSE.find((h) => h.track === key) || null;
 }
 
 async function openJukebox() {
@@ -1993,8 +2002,8 @@ function handleGlobalKeys() {
   if (input.consumePress('Enter') && !net.mode) {
     if (state === 'title') begin();
     else if (golfRound && state === 'cleared') {
-      if (golfRound.single) startGolf(golfRound.holeIndex);
-      else if (golfRound.holeIndex < COURSE.length - 1) startGolfHole(golfRound.holeIndex + 1);
+      if (golfRound.single) startGolf(golfRound.holeIndex, golfRound.course);
+      else if (golfRound.holeIndex < roundCourse().holes.length - 1) startGolfHole(golfRound.holeIndex + 1);
     } else if (state === 'cleared') {
       const nextIdx = nextAfter(levelIndex);
       startLevel(nextIdx >= 0 ? nextIdx : levelIndex);
@@ -2145,7 +2154,7 @@ function updateHud() {
   const frameTag = mine ? frameName(g.frames && g.frames[mine.slot]).toUpperCase() : '';
   // In versus the host sets the pace, so the HUD names it whenever it is not the campaign's own.
   const pace = g.pvp && net.speed !== DEFAULT_VERSUS_SPEED ? (VERSUS_SPEEDS.find((sp) => sp.id === net.speed) || {}).name : '';
-  const tags = [frameTag, g.golf ? (golfRound && golfRound.single ? 'ONE HOLE' : 'THE OUTER COURSE') : '', pace ? `${pace.toUpperCase()} · ${Math.round(g.maxSpeed)} PX/S` : '', g.coop ? `CO-OP · ${[net.names.host, ...net.roster.map((r) => r.name)].join(' & ').toUpperCase()}` : '', mode ? `${mode.toUpperCase()} CAMPAIGN` : '', g.difficulty ? g.difficulty.name.toUpperCase() : '', g.rules.ownBallLoss ? '' : 'SAFE OWN BALL', g.def.conduit && !g.pvp ? 'HALF SPEED' : '', g.def.noGuide ? 'NO GUIDE' : ''].filter(Boolean);
+  const tags = [frameTag, g.golf ? (golfRound && golfRound.single ? `ONE HOLE · ${roundCourse().name.toUpperCase()}` : roundCourse().name.toUpperCase()) : '', pace ? `${pace.toUpperCase()} · ${Math.round(g.maxSpeed)} PX/S` : '', g.coop ? `CO-OP · ${[net.names.host, ...net.roster.map((r) => r.name)].join(' & ').toUpperCase()}` : '', mode ? `${mode.toUpperCase()} CAMPAIGN` : '', g.difficulty ? g.difficulty.name.toUpperCase() : '', g.rules.ownBallLoss ? '' : 'SAFE OWN BALL', g.def.conduit && !g.pvp ? 'HALF SPEED' : '', g.def.noGuide ? 'NO GUIDE' : ''].filter(Boolean);
   setText('hud-rule', tags.map((t) => `· ${t}`).join(' '));
   if (g.golf) {
     // The charge: at rest on the tee it reads the speed every launch leaves at.
@@ -4573,7 +4582,7 @@ function showTitle() {
     showRecord();
   };
   bindOwnBallToggle();
-  $('btn-golf').onclick = showCourse;
+  $('btn-golf').onclick = () => showCourse();
   $('btn-tutorial').onclick = async () => {
     await audio.init();
     startTutorial(true);
@@ -4690,16 +4699,37 @@ async function begin() {
 // to pick a line, thrust to send the charge, and steer what is left of it with
 // the ion gauge. Every launch is counted, and par says what the hole is worth.
 const GOLF_KEY = 'deflector.golf';
-let golfRound = null; // { holeIndex, card: [{ id, hole, par, launches }] } while a round is being played
+let golfRound = null; // { course, holeIndex, card: [{ id, hole, par, launches }], single } while a round is being played
+let courseShown = 'outer'; // the course the course page last showed, and goes back to
 
-/** Best launches per hole, and the best total round, kept in the browser. */
+/** The course the round is on: COURSES.outer or COURSES.far. */
+function roundCourse() {
+  return COURSES[(golfRound && golfRound.course) || 'outer'];
+}
+
+/**
+ * Best launches per hole (the holes' ids are unique across both courses) and
+ * the best total round on each course, kept in the browser. The Outer
+ * Course's round stays in `total`, where it always was; the others are in
+ * `totals`, by course.
+ */
 function golfBest() {
   try {
     const raw = JSON.parse(localStorage.getItem(GOLF_KEY) || '{}');
-    return { holes: raw.holes && typeof raw.holes === 'object' ? raw.holes : {}, total: Number(raw.total) || 0 };
+    return { holes: raw.holes && typeof raw.holes === 'object' ? raw.holes : {}, total: Number(raw.total) || 0, totals: raw.totals && typeof raw.totals === 'object' ? raw.totals : {} };
   } catch (_) {
-    return { holes: {}, total: 0 };
+    return { holes: {}, total: 0, totals: {} };
   }
+}
+
+/** The best round on a course, 0 for none yet. */
+function bestRound(best, course) {
+  return course === 'outer' ? best.total : Number(best.totals[course]) || 0;
+}
+
+function setBestRound(best, course, total) {
+  if (course === 'outer') best.total = total;
+  else best.totals[course] = total;
 }
 
 function saveGolfBest(best) {
@@ -4729,7 +4759,7 @@ function freshGolf(def) {
 }
 
 function startGolfHole(index) {
-  const def = COURSE[index];
+  const def = roundCourse().holes[index];
   golfRound.holeIndex = index;
   $('tutor').hidden = true;
   resetFrameWatch();
@@ -4779,6 +4809,7 @@ function golfTee() {
   g.ball.trail.length = 0;
   g.ball.markRender();
   f.resetCamp();
+  golfRestore(g); // panes whole, doors shut, switches dark: every shot finds the hole as it was
 }
 
 /**
@@ -5051,10 +5082,11 @@ function showHoleCard() {
   }
   golfRound.card.push({ id: def.id, hole: def.hole, title: def.title, par: def.par, launches });
   const diff = launches - def.par;
-  const last = golfRound.holeIndex >= COURSE.length - 1;
+  const course = roundCourse();
+  const last = golfRound.holeIndex >= course.holes.length - 1;
   const word = diff < 0 ? 'Under par' : diff === 0 ? 'Par' : diff === 1 ? 'One over' : `${diff} over`;
   if (last && !golfRound.single) return showCourseCard();
-  const next = last ? null : COURSE[golfRound.holeIndex + 1];
+  const next = last ? null : course.holes[golfRound.holeIndex + 1];
   // A hole on its own offers itself again, the next hole on its own, and the course; a round goes on.
   const buttons = golfRound.single
     ? `<button id="btn-again" class="primary">Play it again</button>${next ? `<button id="btn-next">${holeLabel(next)} · ${next.title}</button>` : ''}<button id="btn-course">The course</button><button id="btn-menu">Main menu</button>`
@@ -5070,37 +5102,38 @@ function showHoleCard() {
     <div class="row">${buttons}</div>
   `);
   if (golfRound.single) {
-    $('btn-again').onclick = () => startGolf(golfRound.holeIndex);
-    if (next) $('btn-next').onclick = () => startGolf(golfRound.holeIndex + 1);
-    $('btn-course').onclick = showCourse;
+    $('btn-again').onclick = () => startGolf(golfRound.holeIndex, golfRound.course);
+    if (next) $('btn-next').onclick = () => startGolf(golfRound.holeIndex + 1, golfRound.course);
+    $('btn-course').onclick = () => showCourse(golfRound.course);
   } else $('btn-next').onclick = () => startGolfHole(golfRound.holeIndex + 1);
   $('btn-menu').onclick = goToMenu;
 }
 
 /** The round is over: the whole card, against par and against your best. */
 function showCourseCard() {
+  const course = roundCourse();
   const total = golfRound.card.reduce((n, r) => n + r.launches, 0);
-  const diff = total - COURSE_PAR;
+  const diff = total - course.par;
   const best = golfBest();
-  const record = !best.total || total < best.total;
-  const wasTotal = best.total;
+  const wasTotal = bestRound(best, course.id);
+  const record = !wasTotal || total < wasTotal;
   if (record) {
-    best.total = total;
+    setBestRound(best, course.id, total);
     saveGolfBest(best);
   }
   showOverlay(`
-    <div class="eyebrow">THE OUTER COURSE · ${toPar(diff).toUpperCase()}${record ? ' · BEST ROUND' : ''}</div>
-    <h1>${diff <= 0 ? 'The void keeps the card' : 'Round complete'}</h1>
-    <p class="muted">${total} launch${total === 1 ? '' : 'es'} over ${COURSE.length} holes, against a par of ${COURSE_PAR}.${wasTotal ? ` Your best round is ${record ? total : wasTotal}.` : ''}</p>
+    <div class="eyebrow">${course.name.toUpperCase()} · ${toPar(diff).toUpperCase()}${record ? ' · BEST ROUND' : ''}</div>
+    <h1>${diff <= 0 ? (course.id === 'far' ? 'The far dark keeps the card' : 'The void keeps the card') : 'Round complete'}</h1>
+    <p class="muted">${total} launch${total === 1 ? '' : 'es'} over ${course.holes.length} holes, against a par of ${course.par}.${wasTotal ? ` Your best round is ${record ? total : wasTotal}.` : ''}</p>
     <table class="stats golf-card">
       <tr><th>Hole</th><th>Par</th><th>Launches</th><th>Against par</th><th>Your best</th></tr>
       ${golfCardRows()}
-      <tr class="total"><td>Total</td><td>${COURSE_PAR}</td><td>${total}</td><td>${toPar(diff)}</td><td>${record ? total : best.total || '—'}</td></tr>
+      <tr class="total"><td>Total</td><td>${course.par}</td><td>${total}</td><td>${toPar(diff)}</td><td>${record ? total : wasTotal || '—'}</td></tr>
     </table>
     <div class="row"><button id="btn-again" class="primary">Play the course again</button><button id="btn-course">The course</button><button id="btn-menu">Main menu</button></div>
   `);
-  $('btn-again').onclick = () => startGolf();
-  $('btn-course').onclick = showCourse;
+  $('btn-again').onclick = () => startGolf(null, course.id);
+  $('btn-course').onclick = () => showCourse(course.id);
   $('btn-menu').onclick = goToMenu;
 }
 
@@ -5109,17 +5142,24 @@ function showCourseCard() {
  * Tee off: the whole course from the first hole, or with `only` set, that one
  * hole on its own, scored against its own par and its own best.
  */
-async function startGolf(only = null) {
+async function startGolf(only = null, course = 'outer') {
   await audio.init();
   campaign = null;
   netReset();
   const single = Number.isInteger(only);
-  golfRound = { holeIndex: single ? only : 0, card: [], single };
+  golfRound = { course: COURSES[course] ? course : 'outer', holeIndex: single ? only : 0, card: [], single };
   startGolfHole(golfRound.holeIndex);
 }
 
-/** The course: every hole with its par and your best on it, the round as one button and each hole as its own. */
-function showCourse() {
+/**
+ * A course: every hole with its par and your best on it, the round as one
+ * button and each hole as its own. A tab at the top picks the course; the
+ * page comes back to the one it last showed.
+ */
+function showCourse(course = courseShown) {
+  if (!COURSES[course] || !COURSES[course].holes.length) course = 'outer';
+  courseShown = course;
+  const c = COURSES[course];
   state = 'title';
   setInGame(false);
   game = null;
@@ -5127,11 +5167,17 @@ function showCourse() {
   $('hud').hidden = true;
   $('countdown').hidden = true;
   const best = golfBest();
-  const rows = COURSE.map((h, i) => `<li class="ready" data-hole="${i}" title="${h.title}: par ${h.par}. Play this hole on its own."><span>${String(h.hole).padStart(2, '0')}</span> ${h.title}<small>par ${h.par}${best.holes[h.id] ? ` · best ${best.holes[h.id]}` : ''}</small></li>`).join('');
+  const round = bestRound(best, course);
+  const rows = c.holes.map((h, i) => `<li class="ready" data-hole="${i}" title="${h.title}: par ${h.par}. Play this hole on its own."><span>${String(h.hole).padStart(2, '0')}</span> ${h.title}<small>par ${h.par}${best.holes[h.id] ? ` · best ${best.holes[h.id]}` : ''}</small></li>`).join('');
+  const tabs = Object.values(COURSES)
+    .filter((k) => k.holes.length)
+    .map((k) => `<button role="tab" data-course="${k.id}" aria-selected="${k.id === course}" class="${k.id === course ? 'on' : ''}">${k.name}</button>`)
+    .join('');
   showOverlay(`
     <div class="eyebrow">GALACTIC GOLF</div>
-    <h1>The Outer Course</h1>
-    <p class="muted">Out past the last room the Architect drew. Tilt the frame to pick a line, thrust once to launch, and steer what is left with the ion gauge. Play the round, or pick a hole.</p>
+    <div class="course-tabs" role="tablist">${tabs}</div>
+    <h1>${c.name}</h1>
+    <p class="muted">${c.blurb}</p>
     <div class="top course">
       <div>
         <h3>Holes</h3>
@@ -5139,15 +5185,16 @@ function showCourse() {
       </div>
       <div>
         <h3>The round</h3>
-        <p class="small">${COURSE.length} holes, par ${COURSE_PAR}. Every launch counts, and the card at the end reads each hole against its par.${best.total ? ` Your best round is <b>${best.total}</b> (${toPar(best.total - COURSE_PAR)}).` : ''}</p>
+        <p class="small">${c.holes.length} holes, par ${c.par}. Every launch counts, and the card at the end reads each hole against its par.${round ? ` Your best round is <b>${round}</b> (${toPar(round - c.par)}).` : ''}</p>
         <p class="small muted"><b>Mouse</b> aims, <b>right click</b> held for fine aim · <b>left click</b> or <b>Space</b> launches, then one ion pulse per click · <b>right click</b> runs a spent flight out · <b>R</b> re-tees · <b>P</b> the hole map</p>
       </div>
     </div>
-    <div class="row"><button id="btn-course" class="primary">Play the course</button><button id="btn-menu">Main menu</button></div>
+    <div class="row"><button id="btn-course" class="primary">Play ${c.name.replace(/^The /, 'the ')}</button><button id="btn-menu">Main menu</button></div>
   `);
-  $('btn-course').onclick = () => startGolf();
+  $('btn-course').onclick = () => startGolf(null, course);
   $('btn-menu').onclick = showTitle;
-  for (const li of document.querySelectorAll('.roster.course li[data-hole]')) li.onclick = () => startGolf(Number(li.dataset.hole));
+  for (const li of document.querySelectorAll('.roster.course li[data-hole]')) li.onclick = () => startGolf(Number(li.dataset.hole), course);
+  for (const b of document.querySelectorAll('.course-tabs [data-course]')) b.onclick = () => showCourse(b.dataset.course);
 }
 
 function golfPause() {
@@ -5171,11 +5218,15 @@ function golfMap(brief) {
     <h1>${def.title}</h1>
     ${brief ? `<p class="intro">${def.intro}</p>` : ''}
     <ul class="golf-key">
-      <li><span class="k cup"></span>The cup — get the charge past its horizon</li>
+      <li><span class="k cup"></span>${g.wells.some((w) => w.cup && w.rail) ? 'The cup — it rides a rail, so send the charge where it will be' : 'The cup — get the charge past its horizon'}</li>
       ${g.wells.some((w) => w.hazard) ? '<li><span class="k maw"></span>A maw — its horizon ends the shot</li>' : ''}
-      ${g.wells.some((w) => w.solid && !w.fount) ? '<li><span class="k planet"></span>A stone — solid, and its field bends what passes</li>' : ''}
+      ${g.wells.some((w) => w.phasing) ? '<li><span class="k phase"></span>A body that comes and goes — the ring round it is its clock, and while it is gone it neither pulls nor stops anything</li>' : ''}
+      ${g.wells.some((w) => w.solid && !w.fount && !w.phasing) ? '<li><span class="k planet"></span>A stone — solid, and its field bends what passes</li>' : ''}
       ${g.wells.some((w) => w.fount) ? '<li><span class="k fount"></span>A fount — a white hole: it pushes everything away</li>' : ''}
       ${g.movers.some((m) => m.kind !== 'stone') ? '<li><span class="k turnbar"></span>Turning bars — solid, and on a clock of their own</li>' : ''}
+      ${g.panes.length ? '<li><span class="k glass"></span>Glass — it glows white when the charge is fast enough to break it, and stays broken until you re-tee</li>' : ''}
+      ${g.nodes.some((n) => n.kind === 'switch') ? `<li><span class="k switch"></span>A switch — strike it and its door opens for ${g.nodes.find((n) => n.kind === 'switch').holdOpen || 4} seconds</li>` : ''}
+      ${g.emitters.length ? '<li><span class="k emitter"></span>An emitter — every ring it sends out shoves the charge away from it, on a beat</li>' : ''}
       ${g.wormholes.length > 1 ? '<li><span class="k warp"></span>Wormhole mouths — a mouth leads to the one in its own colour, and keeps your heading</li>' : g.wormholes.length ? '<li><span class="k warp"></span>Wormhole mouths — paired, and they keep your heading</li>' : ''}
       <li><span class="k tee"></span>The tee</li>
     </ul>
@@ -5188,7 +5239,7 @@ function golfMap(brief) {
   $('btn-course').onclick = () => {
     audio.stopTrack(0.6);
     if (audio.ctx && audio.ctx.state === 'suspended') audio.ctx.resume();
-    showCourse();
+    showCourse(golfRound ? golfRound.course : courseShown);
   };
   $('btn-menu').onclick = goToMenu;
 }

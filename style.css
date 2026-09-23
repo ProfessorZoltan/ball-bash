@@ -348,8 +348,15 @@ button[disabled] { opacity: 0.45; cursor: default; }
 .golf-key .fount { color: #fff1b8; background: #ffffff; box-shadow: 0 0 8px #fff1b8; }
 .golf-key .turnbar { color: #c9a3ff; border-radius: 2px; height: 4px; background: currentColor; border: none; }
 .golf-key .tee { color: #8fd4ff; border-radius: 2px; }
+.golf-key .phase { color: #ffb347; border-style: dashed; }
+.golf-key .glass { color: #7fe9d6; border-radius: 2px; background: rgba(127, 233, 214, 0.3); }
+.golf-key .switch { color: #7dffc4; background: linear-gradient(currentColor, currentColor) center / 70% 3px no-repeat, #0a0e1e; }
+.golf-key .emitter { color: #c9a3ff; box-shadow: 0 0 0 3px rgba(201, 163, 255, 0.25); }
 
-/* The course: the holes as a roster, the round beside them. */
+/* The course: a tab for each course, the holes as a roster, the round beside them. */
+.course-tabs { display: flex; justify-content: center; gap: 6px; margin: 4px 0 2px; flex-wrap: wrap; }
+.course-tabs button { padding: 6px 12px; font-size: 13px; letter-spacing: 0.04em; opacity: 0.6; }
+.course-tabs button.on { opacity: 1; border-color: var(--cyan); box-shadow: 0 0 0 1px var(--cyan) inset; }
 .top.course { text-align: left; }
 .roster.course li small { margin-left: 10px; font-size: 11px; color: var(--muted); }
 .roster.course li.ready::after { content: ' · play this hole'; }

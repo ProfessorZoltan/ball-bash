@@ -321,8 +321,11 @@ export class AudioEngine {
       if (density === 16 || s % 2 === 0) {
         const notes = arpNotes(chord.chord, T.arp.octave ?? 12);
         const idx = T.arp.pattern[s % T.arp.pattern.length];
-        const midi = notes[idx % notes.length] + (section.arpOctave || 0);
-        this.arp(t, midi, stepDur * (T.arp.gate ?? 0.55), s);
+        if (idx !== null && idx !== undefined) {
+          // A null step is a rest, for a figure that leaves room between its notes.
+          const midi = notes[idx % notes.length] + (section.arpOctave || 0);
+          this.arp(t, midi, stepDur * (T.arp.gate ?? 0.55), s);
+        }
       }
     }
     if (L.has('bell') && T.bell) {

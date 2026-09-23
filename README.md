@@ -672,7 +672,8 @@ On a controller and a phone the course plays as the arena does: rotate to
 aim, thrust to launch, pull in for fine aim.
 
 The **Galactic Golf** button opens the course: the holes as a roster, each
-with its par and your best on it, and the round as one button. Play the round
+with its par and your best on it, and the round as one button. A tab at the
+top switches between this course and the Far Course (below). Play the round
 and the card at the end reads every hole against its par; pick a hole and it
 plays on its own, scored against its own par and best, with its card offering
 the same hole again, the next one, or the course.
@@ -773,6 +774,90 @@ depth of its wobble, `arp.wave` lets an arpeggio run on triangles rather than
 saws, and the `bell` layer strikes chord tones from a 16-step pattern and
 sends most of each strike into the delay. Every course track is in the
 jukebox alongside the levels'.
+
+## Galactic Golf: the Far Course
+
+A second course, next to the first and open from the start: the course page
+has a tab for each, and each keeps its own round card and its own best round
+(the Outer Course's stays in `total` in the browser's `deflector.golf`, the
+Far Course's goes in `totals.far`; per-hole bests share one table, since
+every hole on both courses has its own id). The Far Course is for a player
+who has finished the first one. No hole on it gives itself away, it is drawn
+in a colder light (`FAR_PALETTE`), and its music is in minor keys.
+
+It is being built in three rings of six. How hard each ring is, is measured
+as the share of launch lines and launch moments that sink with no fuel spent:
+
+| Ring | Holes | Bare sinks allowed | Source |
+|---|---|---|---|
+| Outer | 1 to 6 | About one line in a hundred | `FAR_COURSE` in `src/golf.js` |
+| Middle | 7 to 12 | About one in two hundred | (to come) |
+| Inner | 13 to 18 | None worth the name: the gauge is needed | (to come) |
+
+The Far Course brings the arcade's pieces out to the void, with rules of
+their own on the course:
+
+| Piece | On the course | Source |
+|---|---|---|
+| Glass | An obstacle with `glass: true`. It breaks only for a charge at the hole's break speed (1000 px/s unless the hole says otherwise), which the launch and the whole gauge together cannot reach; the charge goes on through at 85% of its speed, and the pane stays broken until the next launch. Leaded panes never break | `paneBreaks`, `breakPane` in `src/gamestate.js` |
+| Switch and door | A switch node opens the doors it is wired to for its `holdOpen` seconds, then they shut on their own, though never on a charge in the doorway. A second strike starts the count again | `golfSwitch`, `golfDoors` |
+| A stone that phases | A solid body with a `phasing` clock: there for `on` seconds, gone for `off`, and while gone it neither pulls nor stops anything. A ring round it is its clock, counting down while it stands and filling in while it is away | `PhasingStone`, `tickOrbits` |
+| Emitter | A floor emitter whose rings shove the charge. A ring that catches a charge from behind throws it on, faster; one met head on throws it back. On the course the rings keep the hole's own clock, so a launch at the same moment always meets the same rings | `tickEmitters` |
+| Moving cup | The cup itself on a rail, like a maw on a rail | `placeRails` |
+
+A new launch puts every piece back as the hole opened: panes whole, doors
+shut, switches dark (`golfRestore`). The test harness flies all of them
+through the same helpers the game does, so a route that sinks in the tests
+sinks in the browser.
+
+The outer six:
+
+| Hole | Name | Par | Clock | What it asks | Source |
+|---|---|---|---|---|---|
+| 1 | Needle | 3 | 3.6 s | No gauge at all. One channel through a thick wall, 55 px across for a 22 px charge, and a stone that bends every line on the way to it. The line that threads it is about a degree wide | `FAR_COURSE[0]` in `src/golf.js` |
+| 2 | Carousel | 4 | 8 s | Two screens wide. The cup rides a rail round a stone, with a maw on the same rail half a turn behind; a fence with one gate keeps strays out. The line through the gate needs the moment too: the right line sinks at only a few moments in each nine-second turn, and a pulse aimed at the cup brings a near miss home | `FAR_COURSE[1]` |
+| 3 | Glasshouse | 4 | 7 s | Two screens tall. A floor of glass over a deep maw, and the cup above it. Only a charge diving past the maw's edge is fast enough to break the floor, and it comes up through far too fast to stop: two pulses above the glass set it down. The gauge holds four | `FAR_COURSE[2]` |
+| 4 | Switchback | 4 | 8 s | Two screens wide. The cup's house has one door; the switch down the room holds it open for four seconds. Strike the switch, come back past the tee, and use the gauge to make the door in time | `FAR_COURSE[3]` |
+| 5 | Eclipse | 5 | 10 s | Open space. Two stones that phase, on clocks of eight and seven seconds. A line that bends round one needs it standing; a line through where one stood needs it gone; the same line two seconds early misses | `FAR_COURSE[4]` |
+| 6 | Breakers | 4 | 9 s | Open space. A great maw across the way, and just off the tee an emitter throwing a ring every three seconds, faster than the charge. Launch so a ring catches you from behind and it throws you past the maw at over 800 px/s; a second late, the ring meets you head on | `FAR_COURSE[5]` |
+
+The course-wide tests check the Far Course every other degree rather than
+every degree (18 long holes at every degree would double the suite's time).
+Each hole must not sink on the line it opens on, and at most two of its 180
+bare lines may sink. Each hole's own test then flies its route exactly and
+shows what carries it:
+- **Needle:** the gauge is dry, the channel is wider than the charge and
+  narrower than three, and the line sinks a quarter degree either side while
+  a degree off does not.
+- **Carousel:** the maw stays half a turn from the cup, the line through the
+  gate sinks at its moment and not half a turn later, and near misses a
+  quarter and a half degree either side are each steered home with one pulse
+  aimed at the cup.
+- **Glasshouse:** the launch and the whole gauge cannot break the glass, the
+  dive does, and the burn above it sinks the line a quarter degree either
+  side.
+- **Switchback:** the route goes down; with no switch the door never opens,
+  and without the gauge the charge does not make it back in time.
+- **Eclipse:** two phasing stones on different clocks; the line sinks at its
+  moment, not two seconds earlier, and not at all if both stones stand for good.
+- **Breakers:** a ring runs faster than the charge; the line sinks when a ring
+  catches it from behind, not a second later, and not with no ring at all.
+
+The Far Course's music:
+
+| Hole | Track | Key | BPM | Source |
+|---|---|---|---|---|
+| 1 | Needle (Eye of the Needle Theme) | F# minor | 68 | `TRACKS.needle` in `src/audio/tracks.js` |
+| 2 | Carousel (Night Fair Theme) | D minor | 84 | `TRACKS.carousel` |
+| 3 | Glasshouse (Pane Theme) | B minor | 72 | `TRACKS.glasshouse` |
+| 4 | Switchback (Signal Box Theme) | G minor | 92 | `TRACKS.switchback` |
+| 5 | Eclipse (Two Clocks Theme) | E-flat minor | 64 | `TRACKS.eclipse` |
+| 6 | Breakers (Shoreline Theme) | A minor | 88 | `TRACKS.breakers` |
+
+They are slower and wetter than the first course's, and sparser: an arpeggio
+may now rest on a step (`null` in its pattern), so a figure can leave room
+between its notes. The music test holds every Far Course track to a minor key,
+and every track on both courses to being its own.
 
 ## Online multiplayer (different networks)
 

@@ -172,6 +172,7 @@ export function wellsAccel(wells, x, y) {
   let ax = 0;
   let ay = 0;
   for (const w of wells) {
+    if (w.absent) continue; // a phasing body, between its appearances
     const p = wellField(w, x, y);
     if (!p) continue;
     ax += p.ux * w.pull * p.k;
@@ -182,7 +183,7 @@ export function wellsAccel(wells, x, y) {
 
 /** The first body whose horizon has (x, y) inside it, or null. A solid body has no horizon: its surface is a wall. */
 export function swallowingWell(wells, x, y, r = 0) {
-  for (const w of wells) if (!w.solid && wellSwallows(w, x, y, r)) return w;
+  for (const w of wells) if (!w.solid && !w.absent && wellSwallows(w, x, y, r)) return w;
   return null;
 }
 
@@ -207,6 +208,9 @@ export function levelWells(def) {
     cup: def.cup ? w === def.cup : false,
     // A body on a rail: it circles (cx, cy) at R, once every `period` seconds, from `phase`.
     rail: w.rail ? { cx: w.rail.cx, cy: w.rail.cy, R: w.rail.R, period: w.rail.period, phase: w.rail.phase || 0 } : null,
+    // A phasing body is there for `on` seconds and gone for `off`, on the level's clock from `offset`: gone, it neither pulls nor stops anything.
+    phasing: w.phasing ? { on: w.phasing.on, off: w.phasing.off, offset: w.phasing.offset || 0 } : null,
+    absent: false,
   }));
 }
 
@@ -284,17 +288,136 @@ export function placeRails(wells, t) {
   for (const w of wells) if (w.rail && !w.solid) ({ x: w.x, y: w.y } = orbitPoint(w.rail, t));
 }
 
-/** One step of the level's clock for whatever circles on it: mouths on orbits and maws on rails. */
+/** One step of the level's clock for whatever runs on it: mouths on orbits, maws on rails, bodies that phase, and doors a switch opened. */
 export function tickOrbits(g, dt) {
   g.mouthTime += dt;
   if (g.wormholes.length) placeMouths(g.wormholes, g.mouthTime);
   placeRails(g.wells, g.mouthTime);
+  for (const w of g.wells) if (w.phasing) w.absent = dronePhased(w.phasing, g.mouthTime);
+  if (g.doors.length) golfDoors(g, g.mouthTime);
+}
+
+/**
+ * The floor emitters' rings, one step on. On the course they keep the hole's
+ * own clock (the one the mouths and rails run on), so a shot launched at the
+ * same moment always meets the same rings.
+ */
+export function tickEmitters(g, dt) {
+  for (const e of g.emitters) e.pulser.update(g.def.golf ? g.mouthTime - e.pulser.t : dt, e.x, e.y);
+}
+
+// ------------------------------------------------ arcade pieces on the course
+
+/** Does this bounce break the glass? Only a pane still whole, not unbreakable, hit at its break speed or more. */
+export function paneBreaks(g, seg, before) {
+  if (seg.kind !== 'glass' || !before || seg.pane.broken || seg.pane.unbreakable) return false;
+  return Math.hypot(before.vx, before.vy) >= (seg.pane.breakSpeed || g.def.glass.breakSpeed);
+}
+
+/** Break a pane: the ball goes on through the gap on its old heading, a little slower, and the pane stays out until `now + regrow`. */
+export function breakPane(g, pane, before, now) {
+  const glass = g.def.glass;
+  pane.broken = true;
+  pane.regrowAt = now + glass.regrow;
+  for (const sg of pane.segs) sg.broken = true;
+  g.ball.vx = before.vx * glass.speedKeep;
+  g.ball.vy = before.vy * glass.speedKeep;
+  rebuildWalls(g);
+}
+
+/** A switch on the course: every door it is wired to opens, and shuts again `holdOpen` seconds later (golfDoors). */
+export function golfSwitch(g, node, now) {
+  const hold = node.holdOpen || 4;
+  for (const i of node.toggles || []) {
+    const d = g.doors[i];
+    if (!d) continue;
+    d.closed = false;
+    d.closeAt = now + hold;
+  }
+  node.lit = true;
+  node.litUntil = now + hold;
+  rebuildWalls(g);
+}
+
+/** Doors a switch opened shut again when their time is up, unless the ball is in the doorway (then a moment later). */
+export function golfDoors(g, now) {
+  let changed = false;
+  for (const d of g.doors) {
+    if (d.closed || d.closeAt === undefined || now < d.closeAt) continue;
+    const b = g.ball;
+    if (!b.held && (pointInPolygon(b.x, b.y, d.poly) || d.segs.some((sg) => closestPointDist(b.x, b.y, sg) < b.r + 2))) {
+      d.closeAt = now + 0.05;
+      continue;
+    }
+    d.closed = true;
+    d.closeAt = undefined;
+    changed = true;
+  }
+  for (const n of g.nodes) if (n.kind === 'switch' && n.lit && n.litUntil !== undefined && now >= n.litUntil) n.lit = false;
+  if (changed) rebuildWalls(g);
+}
+
+function closestPointDist(x, y, sg) {
+  const c = closestPointOnSegment(x, y, sg.ax, sg.ay, sg.bx, sg.by);
+  return Math.hypot(x - c.x, y - c.y);
+}
+
+/** A hole's arcade pieces back as it opened, for the next launch: panes whole, doors shut, switches dark. */
+export function golfRestore(g) {
+  for (const pane of g.panes) {
+    pane.broken = false;
+    for (const sg of pane.segs) sg.broken = false;
+  }
+  for (const d of g.doors) {
+    d.closed = !d.startsOpen;
+    d.closeAt = undefined;
+  }
+  for (const n of g.nodes) if (n.kind === 'switch') n.lit = false;
+  rebuildWalls(g);
+}
+
+/**
+ * A solid body that phases (Far Course): a stone where it stands for `on`
+ * seconds and nothing at all for `off`. As a mover its wall comes and goes
+ * with it; its field goes with it too, since the well is marked absent.
+ */
+export class PhasingStone {
+  constructor(well) {
+    this.well = well;
+    this.kind = 'stone';
+    this.thick = 0;
+    this.poly = ellipse(well.x, well.y, well.r, well.r, 22);
+    this.segs = polygonEdges(this.poly, 'planet');
+    for (const sg of this.segs) sg.well = well;
+  }
+
+  update() {}
+
+  get x() {
+    return this.well.x;
+  }
+
+  get y() {
+    return this.well.y;
+  }
+
+  polygon() {
+    return this.well.absent ? null : this.poly;
+  }
+
+  segments() {
+    return this.well.absent ? [] : this.segs;
+  }
+
+  surfaceVelocityAt() {
+    return { x: 0, y: 0 };
+  }
 }
 
 /** The solid outlines the ball is kept out of this step: the static ones, and every moving body's where it is now. */
 export function solidPolysNow(g) {
-  const moving = g.movers.filter((m) => m.polygon);
-  return moving.length ? g.solidPolys.concat(moving.map((m) => m.polygon())) : g.solidPolys;
+  const moving = g.movers.filter((m) => m.polygon).map((m) => m.polygon()).filter(Boolean);
+  return moving.length ? g.solidPolys.concat(moving) : g.solidPolys;
 }
 
 /** A phasing drone's clock: solid for `on` seconds, then intangible for `off`, from the start of the level. */
@@ -523,7 +646,7 @@ export function createGameState(def, { pvp = false, coop = false, volley = false
   // Doors: slabs a switch node opens and closes; closed ones are walls (see rebuildWalls).
   const doors = (pvp ? [] : def.doors || []).map((d, i) => {
     const poly = obstaclePoly(d);
-    const door = { poly, closed: d.open !== true, i, segs: polygonEdges(poly, 'door') };
+    const door = { poly, closed: d.open !== true, startsOpen: d.open === true, i, segs: polygonEdges(poly, 'door') };
     for (const sg of door.segs) sg.door = door;
     return door;
   });
@@ -541,9 +664,10 @@ export function createGameState(def, { pvp = false, coop = false, volley = false
   // field: its surface bounces the ball while its pull bends everything near.
   const wells = levelWells(def);
   placeRails(wells, 0); // a maw on a rail starts where its rail says, whatever x and y the level wrote
+  for (const w of wells) if (w.phasing) w.absent = dronePhased(w.phasing, 0);
   const wellPolys = [];
   for (const w of wells) {
-    if (!w.solid || w.rail) continue;
+    if (!w.solid || w.rail || w.phasing) continue; // a moving or phasing body is a mover, not a fixed wall
     const poly = ellipse(w.x, w.y, w.r, w.r, 22);
     const segs = polygonEdges(poly, 'planet');
     for (const sg of segs) sg.well = w;
@@ -551,7 +675,7 @@ export function createGameState(def, { pvp = false, coop = false, volley = false
     wellPolys.push(poly);
   }
   // A solid body on a rail is a mover, not a wall.
-  const movers = (def.movers || []).map(createMover).concat(wells.filter((w) => w.solid && w.rail).map((w) => new StoneMover(w)));
+  const movers = (def.movers || []).map(createMover).concat(wells.filter((w) => w.solid && w.rail).map((w) => new StoneMover(w)), wells.filter((w) => w.solid && w.phasing && !w.rail).map((w) => new PhasingStone(w)));
   let player;
   let boss;
   let fighters;

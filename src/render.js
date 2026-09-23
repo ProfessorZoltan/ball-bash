@@ -162,9 +162,11 @@ export class Renderer {
     ctx.setTransform(v.dpr * v.scale, 0, 0, v.dpr * v.scale, (v.ox + shx) * v.dpr, (v.oy + shy) * v.dpr);
 
     for (const w of game.wells || []) {
-      if (w.fount) this.drawFount(w, level.palette, time);
+      if (w.absent) this.drawGhostBody(w, level.palette, time);
+      else if (w.fount) this.drawFount(w, level.palette, time);
       else if (w.solid) this.drawPlanet(w, level.palette, time);
       else this.drawWell(w, level.palette, time);
+      if (w.phasing) this.drawPhaseClock(w, level.palette, game.mouthTime || 0);
     }
     for (const w of game.wormholes || []) this.drawWormhole(w, level.palette, time);
     if (game.golf) this.drawGolfTraces(game, level.palette);
@@ -181,7 +183,7 @@ export class Renderer {
     }
     if (game.doors && game.doors.length) this.drawDoors(game.doors, level.palette, time);
     for (const d of game.drones || []) if (d.rail) this.drawRail(d.rail, level.palette);
-    if (game.nodes && game.nodes.length) this.drawNodes(game.nodes, level.palette, time);
+    if (game.nodes && game.nodes.length) this.drawNodes(game.nodes, level.palette, time, game.golf ? game.mouthTime : null);
     if (game.turrets && game.turrets.length) this.drawTurrets(game.turrets, level.palette, game.time || 0);
     if (game.shots && game.shots.length) this.drawShots(game.shots, level.palette, game.player ? game.player.color : '#ffffff', game.volley ? (slot) => (game.fighters.find((f) => f.slot === slot) || {}).color : null);
     if (game.volley) this.drawCharges(game.fighters || [], game.time || 0, time);
@@ -527,7 +529,7 @@ export class Renderer {
 
   /** Ice trail: a frosted ribbon that melts from the tail. */
   /** Conduit nodes: dark discs that light up when the ball earns them. */
-  drawNodes(nodes, palette, time) {
+  drawNodes(nodes, palette, time, clock = null) {
     const ctx = this.ctx;
     const dim = palette.node || '#6e7fa8';
     const lit = palette.nodeLit || '#7dffc4';
@@ -573,6 +575,15 @@ export class Renderer {
         ctx.lineTo(n.r * 0.7, 0);
         ctx.stroke();
         ctx.rotate(n.lit ? 0.6 : 0);
+        if (n.lit && clock !== null && n.litUntil !== undefined) {
+          // On the course the doors stay open for a while: the ring is what is left of it.
+          const left = Math.max(0, (n.litUntil - clock) / (n.holdOpen || 4));
+          ctx.beginPath();
+          ctx.arc(0, 0, n.r + 7, -Math.PI / 2, -Math.PI / 2 + left * Math.PI * 2);
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = left < 0.25 ? '#ff6b6b' : lit;
+          ctx.stroke();
+        }
       }
       if (n.kind === 'hooded') {
         // The hood covers everything but the open arc.
@@ -681,6 +692,47 @@ export class Renderer {
    * dotted reach a black hole uses. The ball bounces off the surface, so the
    * surface is drawn as a surface and not as a hole.
    */
+  /** A phasing body between its appearances: only a faint outline where it will stand, and where its reach will be. */
+  drawGhostBody(w, palette, time) {
+    const ctx = this.ctx;
+    const color = w.fount ? palette.fount || '#fff1b8' : w.solid ? palette.planet || '#ffb347' : palette.well || '#b49cff';
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 8]);
+    ctx.lineDashOffset = -time * 6;
+    ctx.globalAlpha = 0.3;
+    ctx.beginPath();
+    ctx.arc(w.x, w.y, w.r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = 0.1;
+    ctx.beginPath();
+    ctx.arc(w.x, w.y, w.range, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /**
+   * A phasing body's clock: an arc just outside its surface. While it stands,
+   * the arc is the time it has left and turns hot as it runs out; while it is
+   * gone, the arc fills in toward its return.
+   */
+  drawPhaseClock(w, palette, t) {
+    const ph = w.phasing;
+    const cycle = ph.on + ph.off;
+    const at = (((t + (ph.offset || 0)) % cycle) + cycle) % cycle;
+    const frac = w.absent ? (at - ph.on) / ph.off : 1 - at / ph.on;
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = w.absent ? 'rgba(255, 255, 255, 0.35)' : frac < 0.25 ? '#ff6b6b' : 'rgba(255, 255, 255, 0.7)';
+    ctx.beginPath();
+    ctx.arc(w.x, w.y, w.r + 9, -Math.PI / 2, -Math.PI / 2 + Math.max(0.001, frac) * Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   drawPlanet(w, palette, time) {
     const ctx = this.ctx;
     const color = palette.planet || palette.obstacle || '#ffb347';
@@ -1007,6 +1059,20 @@ export class Renderer {
       label(w.ax, w.ay, nameA, color, w.r + 12);
       label(w.bx, w.by, nameB, color, w.r + 12);
     });
+    for (const n of game.nodes || []) if (n.kind === 'switch') label(n.x, n.y, 'SWITCH', p.nodeLit || '#7dffc4', n.r + 12);
+    for (const d of game.doors || []) {
+      const c = d.poly.reduce((a, q) => [a[0] + q[0] / d.poly.length, a[1] + q[1] / d.poly.length], [0, 0]);
+      const half = Math.max(...d.poly.map((q) => Math.hypot(q[0] - c[0], q[1] - c[1])));
+      label(c[0], c[1], 'DOOR', p.door || p.obstacle, half + 10);
+    }
+    for (const e of game.emitters || []) label(e.x, e.y, 'EMITTER', p.emitter || p.obstacle, 30);
+    game.panes.forEach((pane, i) => {
+      // One label for each kind of glass: the first pane that breaks, and the first that never does.
+      if (game.panes.findIndex((q) => q.unbreakable === pane.unbreakable) !== i) return;
+      const c = pane.poly.reduce((a, q) => [a[0] + q[0] / pane.poly.length, a[1] + q[1] / pane.poly.length], [0, 0]);
+      ctx.fillStyle = pane.color;
+      ctx.fillText(pane.unbreakable ? 'LEADED GLASS' : 'GLASS', c[0], c[1] - 30 / s);
+    });
     label(level.tee.x, level.tee.y, 'TEE', p.wall || '#8fd4ff', 46);
     ctx.restore();
   }
@@ -1039,12 +1105,62 @@ export class Renderer {
       ctx.stroke();
     }
     for (const o of level.obstacles) {
+      if (o.glass) continue; // drawn with the panes, as they stand now
       ctx.beginPath();
       polyPath(ctx, Array.isArray(o) ? o : o.poly);
       ctx.fillStyle = p.obstacleDark || '#2a1a46';
       ctx.fill();
       ctx.lineWidth = 2 / s;
       ctx.strokeStyle = p.obstacle;
+      ctx.stroke();
+    }
+    for (const pane of game.panes || []) {
+      ctx.beginPath();
+      polyPath(ctx, pane.poly);
+      ctx.strokeStyle = pane.color;
+      ctx.lineWidth = 2 / s;
+      if (pane.broken) ctx.setLineDash([4 / s, 6 / s]);
+      else {
+        ctx.fillStyle = withAlpha(pane.color, 0.3);
+        ctx.fill();
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    for (const d of game.doors || []) {
+      ctx.beginPath();
+      polyPath(ctx, d.poly);
+      ctx.strokeStyle = p.door || p.obstacle;
+      ctx.lineWidth = 2 / s;
+      if (d.closed) {
+        ctx.fillStyle = p.doorDark || p.obstacleDark || '#2a1a46';
+        ctx.fill();
+      } else ctx.setLineDash([6 / s, 8 / s]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    for (const n of game.nodes || []) {
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
+      ctx.fillStyle = n.lit ? 'rgba(125, 255, 196, 0.35)' : 'rgba(10, 14, 30, 0.9)';
+      ctx.fill();
+      ctx.lineWidth = 2 / s;
+      ctx.strokeStyle = n.lit ? p.nodeLit || '#7dffc4' : p.node || '#6e7fa8';
+      ctx.stroke();
+    }
+    for (const e of game.emitters || []) {
+      const color = p.emitter || p.obstacle;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5 / s;
+      ctx.globalAlpha = 0.35;
+      ctx.setLineDash([3 / s, 7 / s]);
+      ctx.beginPath();
+      ctx.arc(e.x, e.y, e.pulser.maxRadius, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+      ctx.beginPath();
+      ctx.arc(e.x, e.y, 18, 0, Math.PI * 2);
       ctx.stroke();
     }
     for (const m of game.movers || []) {

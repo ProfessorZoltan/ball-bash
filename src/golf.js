@@ -162,6 +162,14 @@ function hole(spec) {
     wells: (spec.wells || []).concat([spec.cup]),
     cup: spec.cup,
     wormholes: spec.wormholes || [],
+    // The arcade's pieces, on the Far Course. Glass (an obstacle with
+    // `glass: true`) that only a charge at `breakSpeed` breaks, and that stays
+    // broken until the next launch; doors a switch node holds open for its
+    // `holdOpen` seconds; and floor emitters, whose rings shove the charge.
+    glass: { breakSpeed: 1000, speedKeep: 0.85, regrow: 1e9, ...(spec.glass || {}) },
+    doors: spec.doors || [],
+    nodes: spec.nodes || [],
+    emitters: spec.emitters || [],
     tee: { x: tee.x, y: tee.y, angle },
     // The level shape the rest of the game reads. The state builder seats the
     // launcher behind the tee (its distance depends on the frame it wears).
@@ -634,6 +642,198 @@ export const COURSE = [
   }),
 ];
 
+// ---------------------------------------------------------- the Far Course
+//
+// Eighteen more, for a player who has finished the first course: no hole on
+// it gives itself away. The first six are the outer ring, each built on one
+// idea the first course never asked of you; the middle six put two together;
+// the inner six need the gauge to sink at all.
+
+/** The minor-key void the Far Course is played in: the same bodies, a colder light. */
+const FAR_PALETTE = {
+  floor: '#03040b',
+  grid: 'rgba(150, 120, 255, 0.06)',
+  wall: '#a9b8ff',
+  wallDark: '#12173a',
+  obstacle: '#9fb4ff',
+  obstacleDark: '#161c44',
+  node: '#6e7fa8',
+  nodeLit: '#7dffc4',
+  door: '#ff9d6b',
+  doorDark: '#3a1a12',
+  emitter: '#ff8df0',
+};
+
+/** A Far Course hole: a hole with the Far Course's light, and its id and number. */
+function farHole(spec) {
+  return { ...hole({ ...spec, palette: { ...FAR_PALETTE, ...(spec.palette || {}) } }), course: 'far' };
+}
+
+export const FAR_COURSE = [
+  farHole({
+    id: 'f1',
+    hole: 1,
+    par: 3,
+    title: 'Needle',
+    track: 'needle',
+    intro: 'The gauge is dry here: whatever the launch gives the charge is all it gets. One channel runs through the wall in front of the cup, a charge and a hair wide, and the stone below bends every line on its way there. Somewhere in the circle is the one that threads it, and fine aim finds it a hair at a time.',
+    record: 'The Far Course opens on the narrowest thing in the void, and it was cut that way on purpose. Nothing out here has been made narrower since, though the course has had long enough to try.',
+    sunk: 'Through the eye, and not a hair either side.',
+    boundary: ROOM,
+    fuel: 0,
+    flightSeconds: 3.6,
+    tee: { x: 180, y: 720, angle: -0.5 },
+    wells: [
+      planet(640, 600, { r: 60, range: 460, pull: 70000 }),
+      maw(1040, 150, { r: 36, range: 220, pull: 50000 }),
+    ],
+    cup: cup(1440, 300, { range: 110 }),
+    obstacles: [
+      // The eye: one channel through a thick wall, a ball and a hair wide.
+      rect(1250, 166, 160, 212, 0),
+      rect(1250, 583, 160, 512, 0),
+    ],
+  }),
+  farHole({
+    id: 'f2',
+    hole: 2,
+    par: 4,
+    title: 'Carousel',
+    track: 'carousel',
+    intro: 'The cup rides a rail round a stone, and a maw rides the same rail half a turn behind it. One gate lets you into the ring. The line through the gate is the easy part; the hard part is when. Launch so the cup comes round to meet you, and not the thing that follows it.',
+    record: 'The rail was laid for the cup alone. The maw found it later, and took the only seat left.',
+    sunk: 'Caught on the way round. The rider behind it waits another turn.',
+    width: 3200,
+    height: 900,
+    view: SCREEN,
+    boundary: room(3200, 900),
+    flightSeconds: 8,
+    tee: { x: 240, y: 450, angle: -0.25 },
+    wells: [
+      planet(2560, 420, { r: 70, range: 480, pull: 80000 }),
+      // The rider behind the cup: the same rail, half a turn back.
+      maw(2310, 420, { r: 34, range: 170, pull: 56000, rail: { cx: 2560, cy: 420, R: 250, period: 9, phase: Math.PI } }),
+      planet(1250, 250, { r: 44, range: 300, pull: 40000 }),
+      planet(1250, 650, { r: 44, range: 300, pull: 40000 }),
+    ],
+    cup: cup(2810, 420, { range: 100, rail: { cx: 2560, cy: 420, R: 250, period: 9, phase: 0 } }),
+    obstacles: [
+      // The carousel's fence, and its one gate.
+      rect(2050, 330, 30, 540, 0),
+      rect(2050, 789, 30, 98, 0),
+    ],
+  }),
+  farHole({
+    id: 'f3',
+    hole: 3,
+    par: 4,
+    title: 'Glasshouse',
+    track: 'glasshouse',
+    intro: 'A floor of glass lies across the room, and the cup is above it. Glass this thick gives only to a charge moving a thousand a second or more, and the only thing out here that fast is a charge falling past the maw under the floor. Skim its edge, go up through the glass, then burn: you will be moving far too fast to stop on your own.',
+    record: 'Every pane of the floor has been broken, one launch at a time, and the course puts every one of them back before the next.',
+    sunk: 'Through the glass at full speed, and into the cup at none.',
+    width: 1600,
+    height: 1800,
+    view: SCREEN,
+    boundary: room(1600, 1800),
+    fuel: 4,
+    flightSeconds: 7,
+    tee: { x: 300, y: 1600, angle: -1.2 },
+    wells: [
+      maw(800, 1060, { r: 36, range: 800, pull: 300000 }),
+    ],
+    cup: cup(1060, 600, { range: 110 }),
+    obstacles: [
+      // A floor of glass across the room, just above the maw: only the panes
+      // nearest its horizon can be struck hard enough to break.
+      { poly: rect(152.5, 900, 185, 16, 0), color: '#7fe9d6', glass: true },
+      { poly: rect(337.5, 900, 185, 16, 0), color: '#b8fff0', glass: true },
+      { poly: rect(522.5, 900, 185, 16, 0), color: '#7fe9d6', glass: true },
+      { poly: rect(707.5, 900, 185, 16, 0), color: '#b8fff0', glass: true },
+      { poly: rect(892.5, 900, 185, 16, 0), color: '#7fe9d6', glass: true },
+      { poly: rect(1077.5, 900, 185, 16, 0), color: '#b8fff0', glass: true },
+      { poly: rect(1262.5, 900, 185, 16, 0), color: '#7fe9d6', glass: true },
+      { poly: rect(1447.5, 900, 185, 16, 0), color: '#b8fff0', glass: true },
+    ],
+  }),
+  farHole({
+    id: 'f4',
+    hole: 4,
+    par: 4,
+    title: 'Switchback',
+    track: 'switchback',
+    intro: 'The cup\'s house has one door, and it is shut. The switch down the room opens it for four seconds and no longer. Bank off the switch and come straight back, and have the gauge ready: the door will not wait for a charge that wanders.',
+    record: 'The door was hung before the switch was wired. For a long time the cup here was simply closed.',
+    sunk: 'Out, back, and in before the door swung to.',
+    width: 3200,
+    height: 900,
+    view: SCREEN,
+    boundary: room(3200, 900),
+    flightSeconds: 8,
+    tee: { x: 1400, y: 720, angle: -0.1 },
+    wells: [
+      planet(1900, 640, { r: 50, range: 340, pull: 45000 }),
+    ],
+    cup: cup(820, 210, { range: 110 }),
+    obstacles: [
+      // The cup's house: shut on every side but one, and that side a door.
+      rect(840, 380, 460, 24, 0),
+      rect(610, 225, 24, 330, 0),
+    ],
+    doors: [rect(1060, 220, 24, 316, 0)],
+    nodes: [{ x: 2350, y: 420, r: 56, kind: 'switch', toggles: [0], holdOpen: 4 }],
+  }),
+  farHole({
+    id: 'f5',
+    hole: 5,
+    par: 5,
+    title: 'Eclipse',
+    track: 'eclipse',
+    intro: 'Two stones stand between the tee and the cup, and neither is always there. Each keeps its own clock, drawn round it as a ring: there, then gone, then there again. A line that needs a stone to bend it needs it standing; a line through where one stood needs it gone. Read both clocks before you launch.',
+    record: 'The two stones have been out of step since the course was laid. Once in a long while their clocks agree, and the whole hole goes dark.',
+    sunk: 'Between the two clocks, while neither was looking.',
+    open: true,
+    width: 20000,
+    height: 20000,
+    view: SCREEN,
+    area: { x: 9000, y: 9300, w: 3000, h: 1400 },
+    flightSeconds: 10,
+    boundary: room(20000, 20000),
+    tee: { x: 9300, y: 10200, angle: -0.2 },
+    wells: [
+      planet(10200, 9900, { r: 64, range: 520, pull: 90000, phasing: { on: 5, off: 3, offset: 0 } }),
+      planet(10900, 10250, { r: 64, range: 480, pull: 80000, phasing: { on: 3, off: 4, offset: 1.5 } }),
+      maw(10750, 9560, { r: 40, range: 300, pull: 55000 }),
+    ],
+    cup: cup(11600, 9950),
+  }),
+  farHole({
+    id: 'f6',
+    hole: 6,
+    par: 4,
+    title: 'Breakers',
+    track: 'breakers',
+    intro: 'A great maw lies across the way, and nothing at launch speed gets past it. Just off the tee an emitter throws a ring every three seconds, faster than the charge. Let a ring catch you from behind and it throws you across; meet one head on and it throws you back where you came from.',
+    record: 'The emitter was set here to keep the maw fed. It has been used the other way ever since.',
+    sunk: 'Carried over on the break, and down on the far shore.',
+    open: true,
+    width: 20000,
+    height: 20000,
+    view: SCREEN,
+    area: { x: 9000, y: 9300, w: 3800, h: 1400 },
+    boundary: room(20000, 20000),
+    flightSeconds: 9,
+    tee: { x: 9300, y: 10000, angle: 0.25 },
+    wells: [
+      maw(10900, 10050, { r: 44, range: 700, pull: 130000 }),
+    ],
+    cup: cup(12400, 9900),
+    emitters: [
+      { x: 9750, y: 10000, period: 3, speed: 900, maxRadius: 380, thick: 8, warn: 0.8, delay: 1.5 },
+    ],
+  }),
+];
+
 /** "Hole 2", for the HUD and the roster. */
 export function holeLabel(def) {
   return `Hole ${def.hole}`;
@@ -641,6 +841,15 @@ export function holeLabel(def) {
 
 /** The course's total par. */
 export const COURSE_PAR = COURSE.reduce((n, h) => n + h.par, 0);
+
+/** The Far Course's total par. */
+export const FAR_COURSE_PAR = FAR_COURSE.reduce((n, h) => n + h.par, 0);
+
+/** Both courses, by the id a round and the saved bests know them by. */
+export const COURSES = {
+  outer: { id: 'outer', name: 'The Outer Course', holes: COURSE, par: COURSE_PAR, blurb: 'Out past the last room the Architect drew. Tilt the frame to pick a line, thrust once to launch, and steer what is left with the ion gauge. Play the round, or pick a hole.' },
+  far: { id: 'far', name: 'The Far Course', holes: FAR_COURSE, par: FAR_COURSE_PAR, blurb: 'Further out, where the light runs cold, and not one hole on it easy: glass, doors, beats, bodies that come and go, and cups that will not wait for you. Everything the first course taught, asked for all at once.' },
+};
 
 /** How a score reads against par: -1 under, level, +2 over. */
 export function toPar(n) {
