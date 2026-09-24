@@ -4,14 +4,14 @@
 // real world (and some whimsy) behind it.
 import { portalHue, mix } from '../../src/color.js';
 import { openPortals } from '../../src/portals.js';
-import { ROBOT } from './config.js';
+import { ROBOT, SCREEN } from './config.js';
 import { seeded } from './build.js';
 import { drawRobot, drawEnemy, drawBoss, drawProp, drawPickup, drawCheckpoint, drawSign, drawExit, withAlpha } from './art.js';
 
 const TAU = Math.PI * 2;
 const TILE_PX = 512; // world px per cached terrain tile
 const MAX_TILES = 80;
-const VIEW_H = 720; // world px the screen is tall, outside an arena
+const VIEW_H = SCREEN.h; // world px the screen is tall, outside an arena
 const STRIP_W = 2400; // screen px of a parallax strip before it repeats
 
 /** How the camera follows: world px and seconds. */

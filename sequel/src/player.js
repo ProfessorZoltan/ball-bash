@@ -10,7 +10,7 @@ import { capsuleVsCapsule } from '../../src/physics.js';
 import { wellsAccel, swallowingWell } from '../../src/gamestate.js';
 import { ROBOT, MOVE, ROBOT_PULL } from './config.js';
 import { segmentsNear } from './world.js';
-import { bodyMouth, openedSegments, openPortals, throughPortal, exitVelocity, PORTAL } from './wormholes.js';
+import { bodyMouth, openedSegments, openPortals, throughPortal, exitVelocity, isFloorEnd, WORM, PORTAL } from './wormholes.js';
 
 const approach = (v, target, d) => (v < target ? Math.min(target, v + d) : Math.max(target, v - d));
 
@@ -336,7 +336,10 @@ function portalStep(bot, world, hooks) {
     const { p, q } = mouth;
     const o = throughPortal(p, q, bot.x, bot.y, bot.vx, bot.vy);
     const from = { x: bot.x, y: bot.y };
-    const v = exitVelocity(q, o.vx, o.vy);
+    const v = exitVelocity(q, o.vx, o.vy, isFloorEnd(q) ? WORM.floorExit : WORM.minExit);
+    // Floor to floor, the turn is half a circle and would send the robot back the way it came:
+    // it keeps walking the way it was going instead, so it steps off the mouth it came out of.
+    if (isFloorEnd(p) && isFloorEnd(q)) v.vx = bot.vx;
     bot.x = o.x;
     bot.y = o.y;
     bot.vx = v.vx;

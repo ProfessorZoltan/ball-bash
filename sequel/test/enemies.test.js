@@ -213,3 +213,32 @@ test('a moon that goes through a wormhole leaves its orbit for good', () => {
   run(e, w, far, 1);
   assert.ok(Math.abs(e.x - x) < 400, 'it patrols where it came out, not dragged back');
 });
+
+test('a locked room left through a wormhole, with no end inside to get back by, opens its doors and starts over', () => {
+  const bp = buildLevel({ id: 93, boss: 'gardener', theme: {}, sections: [['flat', { len: 8, deco: false }], ['ambush', { len: 22, roof: 8, waves: [[['skitter', 6], ['skitter', 16]], [['hopper', 10]]] }], ['flat', { len: 40, deco: false }]] });
+  const g = new Game(bp, { shields: Infinity });
+  const a = g.ambushes[0];
+  const w = g.world;
+  const floorY = a.floor;
+  g.bot.spawn((a.x0 + a.x1) / 2, floorY - 31);
+  g.step(DT, { mx: 0 });
+  assert.equal(a.state, 'fight', 'walking in locks it');
+  assert.ok(a.gates.every((gt) => gt.closed), 'doors shut');
+  // One end in the room's floor, the other far outside: the robot goes through.
+  const inRoom = placeEnd(w, sightLine(w, a.x0 + 200, floorY - 100, Math.PI / 2), 0);
+  const outside = placeEnd(w, sightLine(w, a.x1 + 600, floorY - 100, Math.PI / 2), 1);
+  w.portals[0] = [inRoom, outside];
+  g.bot.spawn(a.x1 + 700, floorY - 31);
+  g.bot.invuln = 1e9;
+  g.step(DT, { mx: 0 });
+  assert.equal(a.state, 'fight', 'with an end still inside, the way back is open, so it stays locked');
+  g.closeEnd(0);
+  g.step(DT, { mx: 0 });
+  assert.equal(a.state, 'idle', 'with no way back, it starts over');
+  assert.equal(g.enemies.filter((e) => e.room === a).length, 0, 'its wave is gone');
+  assert.ok(a.gates.every((gt) => !gt.closed), 'its doors are open');
+  g.bot.spawn((a.x0 + a.x1) / 2, floorY - 31);
+  g.step(DT, { mx: 0 });
+  assert.equal(a.state, 'fight', 'and it locks again from the first wave when the robot comes back in');
+  assert.equal(a.wave, 0);
+});

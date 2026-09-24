@@ -213,3 +213,23 @@ test('a pit\'s black hole never drags a robot standing at its lip, and it can al
   for (; t < 3 && b.x < p.far + 16 + 3 * TILE; t += DT) stepRobot(b, { mx: 1 }, p.w, DT);
   assert.ok(t < 1.3, `three tiles clear of the lip in ${t.toFixed(2)} s, straining against the pull`);
 });
+
+test('a laser gate is lit for its time in each period, warns before it lights, and costs a shield to touch while lit', () => {
+  const bp = buildLevel({ id: 92, boss: 'gardener', theme: {}, sections: [['flat', { len: 6, deco: false }], ['laser', { len: 10, n: 1, period: 3, on: 1.2, roof: 5 }], ['flat', { len: 10, deco: false }]] });
+  const g = new Game(bp, { shields: 5 });
+  const l = g.world.lasers[0];
+  let lit = 0;
+  let warned = 0;
+  for (let i = 0; i < 240 * 3; i++) {
+    stepWorld(g.world, DT);
+    if (l.on) lit++;
+    if (l.warn) warned++;
+  }
+  assert.ok(Math.abs(lit / 240 - 1.2) < 0.02, `lit ${(lit / 240).toFixed(2)} s of each 3`);
+  assert.ok(Math.abs(warned / 240 - 0.6) < 0.02, 'with 0.6 s of warning first');
+  // Stand in it: when it lights, a shield goes.
+  g.bot.spawn(l.x, l.y1 - 31);
+  const pool = g.pool;
+  for (let i = 0; i < 240 * 3 && g.pool === pool; i++) g.step(DT, { mx: 0 });
+  assert.equal(g.pool, pool - 1, 'standing in the gate cost a shield');
+});

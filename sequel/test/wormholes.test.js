@@ -184,3 +184,71 @@ test('pressing an end\'s button opens it where the aim line meets a surface', ()
   assert.ok(p && Math.abs(p.cy - 0) < 1, 'the light end is in the floor at its feet');
   assert.equal(g.world.portals[0][1], null, 'and the dark end is not out yet');
 });
+
+test('out of a floor end the robot hops about its own height and walks on, so two floor ends never trap it', () => {
+  for (const [mx, run] of [[1, false], [1, true], [-1, false]]) {
+    const w = hall();
+    const [a, b] = pair(w, [3000, 900, Math.PI / 2], [3400, 900, Math.PI / 2]);
+    const into = mx > 0 ? a : b;
+    const bot = new Robot(into.cx - mx * 160, 960);
+    let warps = 0;
+    let top = Infinity;
+    let clear = 0;
+    for (let i = 0; i < 240 * 3 && clear < 60; i++) {
+      stepRobot(bot, { mx, run }, w, DT, { warp: () => warps++ });
+      if (warps) top = Math.min(top, bot.y);
+      const inMouth = [a, b].some((p) => Math.abs(bot.x - p.cx) < PORTAL.halfWidth + bot.r);
+      clear = warps && bot.onGround && !inMouth ? clear + 1 : 0;
+    }
+    assert.equal(warps, 1, 'it went through once, and not back and forth');
+    assert.ok(1000 - (top + bot.half + bot.r) > 45, `it rose ${Math.round(1000 - (top + bot.half + bot.r))} px clear of the floor`);
+    assert.ok(clear >= 60, 'and is standing on the floor beside the mouth, going the way it was');
+  }
+});
+
+test('whatever is halfway into an end when it goes is put back out in front of it, never left inside the floor', () => {
+  const g = new Game(buildLevel({ id: 73, boss: 'gardener', theme: {}, sections: [['flat', { len: 60, deco: false }]] }), { shields: 5 });
+  const w = g.world;
+  pair(w, [800, -200, Math.PI / 2], [1600, -200, Math.PI / 2]);
+  const end = w.portals[0][0];
+  g.bot.spawn(end.cx, end.cy - 10); // sunk to the waist
+  g.closeEnd(0);
+  assert.ok(g.bot.y + g.bot.half + g.bot.r <= end.cy + 0.5, 'standing on the floor again');
+  assert.equal(w.portals[0][0], null);
+});
+
+test('an end the robot has left three screens behind closes, and one opened far off stays open until the robot has been near it', () => {
+  const g = new Game(buildLevel({ id: 74, boss: 'gardener', theme: {}, sections: [['flat', { len: 300, deco: false }]] }), { shields: 5 });
+  const w = g.world;
+  const floor = (x) => placeEnd(w, sightLine(w, x, -200, Math.PI / 2), 0);
+  const step = (x) => {
+    g.bot.spawn(x, -31);
+    g.step(DT, { mx: 0 });
+  };
+  // Both ends where the robot is; it walks on.
+  w.portals[0] = [floor(800), { ...floor(1100), which: 1, key: '01' }];
+  step(600);
+  step(1100 + 3 * 1280 + 200);
+  assert.deepEqual(w.portals[0], [null, null], 'both closed once it was three screens on');
+  // One end at its feet, the other far down the line of sight.
+  w.portals[0] = [floor(800), { ...floor(7000), which: 1, key: '01' }];
+  step(700);
+  assert.ok(w.portals[0][1], 'the far end stays open: the robot has not been near it yet');
+  step(6900); // through the wormhole, say
+  assert.equal(w.portals[0][0], null, 'the end it came from is three screens behind now, and closes');
+  assert.ok(w.portals[0][1], 'the one it is at stays');
+});
+
+test('every wormhole closes when a boss fight starts', () => {
+  const bp = level(1);
+  const g = new Game(bp, { shields: 5 });
+  const w = g.world;
+  const A = bp.arena;
+  const a = placeEnd(w, sightLine(w, A.x0 - 300, A.floor - 200, Math.PI / 2), 0);
+  const b = placeEnd(w, sightLine(w, A.x0 + 500, A.floor - 200, Math.PI / 2), 1);
+  w.portals[0] = [a, b];
+  g.bot.spawn(A.x0 + 160, A.floor - 31);
+  g.step(DT, { mx: 0 });
+  assert.equal(g.phase, 'intro');
+  assert.deepEqual(w.portals[0], [null, null]);
+});

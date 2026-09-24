@@ -8,7 +8,7 @@
 import { PORTAL, portalLocal, throughPortal, openPortals, partner, openedSegments } from '../../src/portals.js';
 import { raycastSegments } from '../../src/physics.js';
 import { wellsAccel, swallowingWell } from '../../src/gamestate.js';
-import { BLASTER } from './config.js';
+import { BLASTER, SCREEN } from './config.js';
 import { segmentsNear } from './world.js';
 
 export { PORTAL, openPortals, openedSegments, throughPortal, portalLocal };
@@ -18,7 +18,12 @@ export const WORM = {
   maxLen: 200000, // px: in practice no range at all; only a line caught orbiting a well forever is cut off
   maxLegs: 6000, // legs flown inside wells before the line gives up
   minExit: 220, // px/s: whatever comes out of a mouth leaves at least this fast, so it can never hang in it
+  // px/s: the robot out of a floor leaves at least this fast upward, its feet some 50 px clear, with
+  // time to step off the mouth onto solid ground instead of dropping straight back in (two floor ends
+  // otherwise bounce it to and fro, half sunk in the floor)
+  floorExit: 800,
   minSurface: PORTAL.halfWidth * 2, // a surface must hold the whole mouth
+  keep: 3, // screens: an end the robot has left this far behind (either way) closes
 };
 
 /** How far (x, y) is from the reach of the nearest well that is there: Infinity with none. */
@@ -178,9 +183,59 @@ export function bodyMouth(world, x, y, r, half, ahead = 0) {
   return best;
 }
 
-/** Leaving a mouth: at least WORM.minExit out along its face, whatever the speed going in. */
-export function exitVelocity(q, vx, vy) {
+/** Leaving a mouth: at least `min` (WORM.minExit) out along its face, whatever the speed going in. */
+export function exitVelocity(q, vx, vy, min = WORM.minExit) {
   const vn = vx * q.nx + vy * q.ny;
-  if (vn >= WORM.minExit) return { vx, vy };
-  return { vx: vx + (WORM.minExit - vn) * q.nx, vy: vy + (WORM.minExit - vn) * q.ny };
+  if (vn >= min) return { vx, vy };
+  return { vx: vx + (min - vn) * q.nx, vy: vy + (min - vn) * q.ny };
+}
+
+/**
+ * The robot's ends it has left behind: more than WORM.keep screens from it,
+ * across or up and down, having once been nearer. An end opened far off down
+ * the line of sight stays open until the robot has been near it (through the
+ * wormhole, or on foot), so there is still no range; but whatever is behind
+ * is tidied away. Returns which ends ([0, 1]) should close.
+ */
+export function endsLeftBehind(world, x, y) {
+  const out = [];
+  const pair = world.portals[0];
+  for (let k = 0; k < 2; k++) {
+    const p = pair[k];
+    if (!p) continue;
+    const far = Math.abs(p.cx - x) > WORM.keep * SCREEN.w || Math.abs(p.cy - y) > WORM.keep * SCREEN.h;
+    if (!far) p.visited = true;
+    else if (p.visited) out.push(k);
+  }
+  return out;
+}
+
+/** Is `q` a floor: an end facing up, that the robot comes out of heading up? */
+export function isFloorEnd(q) {
+  return q.ny < -0.7;
+}
+
+/**
+ * An end is going (moved, closed, or its surface gone): anything sunk into its
+ * mouth is put back in front of the surface, rather than left inside the
+ * floor or wall with no way out. `b` has x, y, r and, for the robot, half.
+ */
+export function ejectFrom(p, b) {
+  const { u, v } = portalLocal(p, b.x, b.y);
+  const half = b.half || 0;
+  const extV = half * Math.abs(p.ny) + b.r;
+  const extU = half * Math.abs(p.nx) + b.r;
+  if (Math.abs(u) > p.hw + extU || v >= extV || v < -extV - 4) return false;
+  b.x += p.nx * (extV + 1 - v);
+  b.y += p.ny * (extV + 1 - v);
+  const vn = (b.vx || 0) * p.nx + (b.vy || 0) * p.ny;
+  if (vn < 0) {
+    b.vx -= vn * p.nx;
+    b.vy -= vn * p.ny;
+  }
+  if (b.prevX != null) {
+    b.prevX = b.x;
+    b.prevY = b.y;
+  }
+  return true;
 }

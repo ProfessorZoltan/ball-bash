@@ -1108,6 +1108,10 @@ take no wormhole, and neither does a surface shorter than the mouth.
 | Where it sits | centred where the line lands, slid along the surface so the whole 96 px mouth lies on it, never on top of its twin | `placeEnd`, same file |
 | On a moving platform | it rides with it; when a blinking platform blinks out, its end goes too | `refreshEnds`, same file |
 | Going through | the moment the robot's middle crosses the surface; out of the other end no slower than 220 px/s, so nothing hangs in a mouth | `portalStep` in `sequel/src/player.js`, `exitVelocity` |
+| Out of a floor | the robot leaves an end facing up at no less than 800 px/s, a hop that lifts its feet some 50 px clear, with time to step off the mouth onto solid ground; floor to floor it keeps walking the way it was going instead of being turned round. Two floor ends side by side no longer bounce it to and fro, half sunk in the floor | `WORM.floorExit` in `sequel/src/wormholes.js`, `portalStep` |
+| Left behind | an end more than three screens from the robot (3840 px across or 2160 up and down) closes, once the robot has been nearer to it. An end opened far off down the line of sight stays open until the robot has been near it, so there is still no range | `endsLeftBehind` in `sequel/src/wormholes.js` |
+| A boss's door | both ends close as the door shuts behind you: every fight starts without them | `stepBoss` in `sequel/src/game.js` |
+| An end going | moved, closed, or its surface gone: whatever was halfway into it is put back out in front of the surface, never left inside the floor | `ejectFrom` in `sequel/src/wormholes.js` |
 | Gravity | stays down: the robot comes out upright | same |
 | Who goes through | the robot, your charges, **enemies** (walking, flying or falling in) and **enemies' shots**, through anyone's wormholes | `portalEnemy` in `sequel/src/enemies.js`, `stepCharge` in `sequel/src/blaster.js` |
 
@@ -1119,6 +1123,12 @@ Some things only a wormhole gets you past, on purpose:
 | A chasm | too wide for any jump, with a wall facing back across it. One end on that wall, the other at your feet | `SECTIONS.chasm`, same file |
 | A folded enemy (Wraith, Echo, Shade, or any enemy placed folded) | it is only half here: a charge passes straight through it unless the charge has itself been through a wormhole (anyone's). Drawn doubled and flickering | `folded` in `sequel/src/enemies.js`, `stepCharges` in `sequel/src/game.js` |
 | A folded room | an ambush room that locks until its folded waves are beaten | `PIECES.foldroom` in `sequel/src/levels.js` |
+
+A locked room left through a wormhole while its waves are unbeaten stays
+locked as long as one of your ends is inside it, the way back. With none,
+it would be shut for good, so its doors open and it starts over: what was
+left of its wave goes, and it locks again from the first wave when you walk
+back in (`stepAmbushes` in `sequel/src/game.js`).
 | The Conductor | its underside and ends are armoured and its back is pressed to the station roof: a wormhole in the roof is the only way to its core | `BOSSES.conductor` in `sequel/src/bosses.js` |
 | The Cartographer | folded: only a charge that has been through a wormhole, yours or one of its own, touches it | `BOSSES.cartographer`, same file |
 
@@ -1226,6 +1236,13 @@ its pull:
 | A running leap over it | rises about a third less and comes down some 50 px shorter; on the harder pits it needs the stepping stone | `sequel/test/robot.test.js` |
 | The stepping stone over the hole | heavy ground: a jump from it rises 35 to 45% lower | same |
 | Standing at the lip | the robot stays put; walking away it strains, three tiles clear in 0.8 to 1 s instead of 0.6 | same |
+
+A laser gate is a beam from a roof too low to jump over down to the
+floor, on a clock: lit for 1.2 to 1.6 s of every 3 (longer as the run gets
+harder), after 0.6 s of a flickering dashed warning. Touching it while lit
+costs a shield. Two gates in one stretch light a second apart, with room to
+wait between them (`SECTIONS.laser` in `sequel/src/build.js`, `stepWorld` in
+`sequel/src/world.js`).
 
 The scenery is the real world lit like the grid: orchards and houses,
 a night market in the rain, an elevated railway, a lighthouse over rock

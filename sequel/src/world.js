@@ -321,7 +321,7 @@ export function createWorld(bp) {
     pulsers: [],
     springs: (bp.springs || []).map((s) => ({ ...s, squash: 0 })),
     spikes: (bp.spikes || []).map((s) => ({ ...s })),
-    lasers: (bp.lasers || []).map((l) => ({ ...l, on: false })),
+    lasers: (bp.lasers || []).map((l) => ({ ...l, lit: l.on ?? 1.4, on: false })), // `lit`: seconds on in each period; `on`: is it now
     gates: [],
     portals: { 0: [null, null] }, // the robot's pair, the shape src/portals.js reads
   };
@@ -376,8 +376,8 @@ export function stepWorld(world, dt) {
   for (const c of world.crates) c.flash = Math.max(0, c.flash - dt);
   for (const l of world.lasers) {
     const u = (((t + (l.offset || 0)) % l.period) + l.period) % l.period;
-    l.warn = u >= l.period - l.on - 0.6 && u < l.period - l.on;
-    l.on = u >= l.period - l.on;
+    l.warn = u >= l.period - l.lit - 0.6 && u < l.period - l.lit;
+    l.on = u >= l.period - l.lit;
   }
 }
 

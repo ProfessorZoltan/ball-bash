@@ -21,6 +21,9 @@ export const STORE = {
 
 export const TILE = 40; // the grid levels are drafted on, in world px
 
+/** One screen, in world px: as tall as the view outside an arena, and as wide at 16:9. */
+export const SCREEN = { w: 1280, h: 720 };
+
 /**
  * The robot. Its body is an upright capsule: a segment `half` either side of
  * its centre, `r` thick, so it stands 2 * (half + r) = 60 px tall and 30 wide,

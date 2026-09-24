@@ -8,7 +8,7 @@ import { ROBOT, MOVE, BLASTER, POWER, POWERUPS, PICKUP, ACTIVE, BOSS_INTRO, SURF
 import { createWorld, stepWorld, segmentsNear, addGate, setGate, makeWell } from './world.js';
 import { Robot, stepRobot } from './player.js';
 import { Charge, chargeSpec, stepCharge, clampCharge, muzzle, guideLine } from './blaster.js';
-import { sightLine, placeEnd, refreshEnds, PORTAL } from './wormholes.js';
+import { sightLine, placeEnd, refreshEnds, ejectFrom, endsLeftBehind, PORTAL } from './wormholes.js';
 import { Enemy, stepEnemy, touchesRobot, freezeEnemy } from './enemies.js';
 import { Boss } from './bosses.js';
 import { Fx } from './fx.js';
@@ -157,6 +157,7 @@ export class Game {
     stepWorld(w, dt);
     w.pulsers = w.pulsers.filter((p) => !p.done);
     for (const p of refreshEnds(w)) {
+      this.ejectAll(p);
       this.fx.ring(p.cx, p.cy, '#ffffff', 60, 0.4);
       this.emit('unportal');
     }
@@ -192,6 +193,8 @@ export class Game {
     });
 
     if (this.inPit(bot.x, bot.top)) this.hurt('fell', null, true);
+
+    for (const k of endsLeftBehind(w, bot.x, bot.y)) this.closeEnd(k);
 
     this.cool -= dt;
     if (it.fire) {
@@ -275,10 +278,34 @@ export class Game {
       this.emit('fizzle');
       return false;
     }
+    const old = this.world.portals[0][which];
+    if (old) this.ejectAll(old); // whatever was halfway into the end being moved is put back out
     this.world.portals[0][which] = p;
     this.fx.ring(p.cx, p.cy, which === 0 ? '#e6fbff' : '#2c7c9a', 70, 0.4);
     this.emit('portal', { which });
     return true;
+  }
+
+  /** Close the robot's end `which` (both with `which` left out), putting back whatever was sunk in it. */
+  closeEnd(which) {
+    const pair = this.world.portals[0];
+    let closed = false;
+    for (const k of which == null ? [0, 1] : [which]) {
+      const p = pair[k];
+      if (!p) continue;
+      this.ejectAll(p);
+      pair[k] = null;
+      this.fx.ring(p.cx, p.cy, '#ffffff', 60, 0.4);
+      closed = true;
+    }
+    if (closed) this.emit('unportal');
+    return closed;
+  }
+
+  /** An end is going: the robot and any enemy sunk in its mouth are put back in front of its surface. */
+  ejectAll(p) {
+    ejectFrom(p, this.bot);
+    for (const e of this.enemies) if (!e.dead && !e.frozen) ejectFrom(p, e);
   }
 
   stepCharges(dt) {
@@ -550,7 +577,7 @@ export class Game {
       const dx = Math.abs(e.x - bot.x);
       const dy = Math.abs(e.y - bot.y);
       if (!e.awake && dx < ACTIVE.wakeX && dy < ACTIVE.wakeY) e.awake = true;
-      else if (e.awake && (dx > ACTIVE.sleepX || dy > ACTIVE.sleepY) && !e.bossMinion) e.awake = false;
+      else if (e.awake && (dx > ACTIVE.sleepX || dy > ACTIVE.sleepY) && !e.bossMinion && !e.room) e.awake = false;
       if (!e.awake) continue;
       stepEnemy(e, this.world, bot, dt, shoot);
       if (e.y > this.world.height + 300 || this.inPit(e.x, e.y - e.r)) {
@@ -655,6 +682,13 @@ export class Game {
         continue;
       }
       if (a.state !== 'fight') continue;
+      // Out of a locked room with its waves not beaten (through a wormhole), and no end left
+      // inside to get back in by: it would be shut for good, so its doors open and it starts over.
+      const inside = (x, y) => x >= a.x0 - 2 && x <= a.x1 + 2 && y >= a.top - 2 && y <= a.floor + 2;
+      if (!inside(bot.x, bot.y) && !this.world.portals[0].some((p) => p && inside(p.cx, p.cy)) && a.live.some((e) => !e.dead)) {
+        this.resetRoom(a);
+        continue;
+      }
       if (a.live.every((e) => e.dead)) {
         if (a.wave + 1 < a.waves.length) this.nextWave(a);
         else {
@@ -668,12 +702,23 @@ export class Game {
     }
   }
 
+  /** A locked room starts over: what is left of its wave goes, its doors open, and it locks again when the robot comes back in. */
+  resetRoom(a) {
+    for (const e of a.live) if (!e.dead) this.fx.ring(e.x, e.y, e.color, 40, 0.3);
+    this.enemies = this.enemies.filter((e) => e.room !== a);
+    a.live = [];
+    a.wave = -1;
+    a.state = 'idle';
+    for (const g of a.gates) setGate(g, false);
+    this.emit('unlock');
+  }
+
   nextWave(a) {
     a.wave++;
     a.live = a.waves[a.wave].map((spec) => {
       const e = new Enemy(spec, this.nextEnemy++);
       e.awake = true;
-      e.bossMinion = true; // it stays awake however far the robot wanders in the room
+      e.room = a; // it stays awake however far the robot wanders in the room
       this.enemies.push(e);
       this.fx.ring(e.x, e.y, e.color, 50, 0.45);
       return e;
@@ -789,8 +834,9 @@ export class Game {
     if (!A) return;
     const bot = this.bot;
     if (this.phase === 'play' && bot.x > A.x0 + 70 && bot.y > A.top && bot.y < A.floor) {
-      // The door closes behind you, and the music doubles.
+      // The door closes behind you, and the music doubles. Every wormhole closes too: the fight starts clean.
       setGate(this.gate, true);
+      this.closeEnd();
       this.phase = 'intro';
       this.phaseT = 0;
       this.boss = new Boss(A.boss, A);
