@@ -3,9 +3,9 @@
 // the boss at the end. DOM-free: main.js feeds it intents and draws it, and
 // the tests drive it directly. It speaks back through `events` (sound cues
 // and state changes for main.js) and `fx` (particles).
-import { circleVsCapsule, circleVsCircle, reflect, raycastSegments } from '../../src/physics.js';
+import { circleVsCapsule, circleVsCircle, capsuleVsCapsule, reflect, raycastSegments } from '../../src/physics.js';
 import { ROBOT, MOVE, BLASTER, POWER, POWERUPS, PICKUP, ACTIVE, BOSS_INTRO, SURFACE_VELOCITY_FACTOR } from './config.js';
-import { createWorld, stepWorld, segmentsNear, addGate, setGate } from './world.js';
+import { createWorld, stepWorld, segmentsNear, addGate, setGate, makeWell } from './world.js';
 import { Robot, stepRobot } from './player.js';
 import { Charge, chargeSpec, stepCharge, clampCharge, muzzle, guideLine } from './blaster.js';
 import { sightLine, placeEnd, refreshEnds, PORTAL } from './wormholes.js';
@@ -63,7 +63,7 @@ export class Game {
   /**
    * `bp` is a built level (build.js). Options: shields (the pool), maxShields
    * (what a shield pickup can top it up to), checkpoint (index to start at),
-   * ammo (power-ups carried in), stats (carried over a continue), rng.
+   * ammo (power-ups held, kept over a continue in the same level), stats (carried over a continue), rng.
    */
   constructor(bp, opts = {}) {
     this.bp = bp;
@@ -409,6 +409,7 @@ export class Game {
       this.fx.blink('#ffffff', 0.8);
       this.shots.length = 0;
       this.hazards.length = 0;
+      this.world.wells = this.world.wells.filter((w) => !w.charted); // what a boss made goes with it
       for (const e of this.enemies) if (!e.dead && e.bossMinion) this.defeat(e);
       this.emit('bossDown');
     }
@@ -691,7 +692,7 @@ export class Game {
       this.fx.word(bot.x, bot.top - 30, 'SECRET', '#ffd23f', 1.6);
       this.emit('secret');
     }
-    if (this.exit && this.phase === 'exit' && Math.abs(bot.x - this.exit.x) < 40 && Math.abs(bot.y - this.exit.y) < 80) {
+    if (this.exit && this.phase === 'exit' && Math.abs(bot.x - this.exit.x) < 48 && Math.abs(bot.y - this.exit.y) < 90) {
       this.phase = 'cleared';
       this.stats.time = this.time;
       this.fx.blink('#ffffff', 0.9);
@@ -728,6 +729,14 @@ export class Game {
           }
         }
         this.hazards.push({ age: 0, ...h });
+      },
+      addWell: (spec) => {
+        const w = makeWell(spec);
+        this.world.wells.push(w);
+        return w;
+      },
+      removeWell: (w) => {
+        this.world.wells = this.world.wells.filter((x) => x !== w);
       },
       ring: (x, y, o) => {
         this.world.pulsers.push(new OneRing(x, y, o, this.ringId++));
@@ -816,10 +825,36 @@ export class Game {
       this.phaseT = 0;
       setGate(this.gate, false);
       delete this.world.portals[1];
-      this.exit = { x: A.cx, y: A.floor - 50 };
+      this.exit = this.exitSpot();
       this.fx.ring(this.exit.x, this.exit.y, '#ffffff', 140, 0.8);
       this.emit('exitOpen');
     }
+  }
+
+  /**
+   * Where the exit opens: on the arena floor, as near the middle as the room
+   * allows, and never inside anything (an arena can have its own rock there,
+   * as the Keeper's does): the first place from the middle outward, the door
+   * side first, where the robot fits standing on the floor.
+   */
+  exitSpot() {
+    const A = this.arena;
+    const fits = (x) => {
+      const y = A.floor - ROBOT.half - ROBOT.r - 0.5;
+      const segs = segmentsNear(this.world, x - 60, y - 60, x + 60, A.floor + 4, { oneWay: false, movers: false });
+      const clear = !segs.some((s) => {
+        // The beacon is wider than the robot: a body 30 px bigger all round, still resting on the floor, must fit.
+        const cy = y - 30;
+        const h = capsuleVsCapsule(x, cy - ROBOT.half, x, cy + ROBOT.half, ROBOT.r + 30, s.ax, s.ay, s.bx, s.by, s.thick || 0, x, cy);
+        return h && h.depth > 1;
+      });
+      const floor = raycastSegments(x, y, 0, 1, segs, ROBOT.half + ROBOT.r + 4);
+      return clear && floor && floor.seg.ny < -0.6;
+    };
+    for (let d = 0; d < A.w / 2 - 80; d += 20) {
+      for (const x of [A.cx - d, A.cx + d]) if (fits(x)) return { x, y: A.floor - 50 };
+    }
+    return { x: A.x0 + 200, y: A.floor - 50 };
   }
 
   /** Reaching the boss counts as a checkpoint, so a continue starts the fight over rather than the level. */

@@ -11,7 +11,8 @@
 // A brain gets `g`, the game's side of the bargain: g.bot (the robot),
 // g.world, g.wells (the arena's own gravity bodies), g.shot(x, y, angle,
 // speed, opts), g.spawn(enemySpec),
-// g.hazard(h), g.fx, g.sound(name), g.enemyCount().
+// g.hazard(h), g.addWell(spec), g.removeWell(well), g.fx, g.sound(name),
+// g.enemyCount().
 const TAU = Math.PI * 2;
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const angleTo = (b, p) => Math.atan2(p.y - b.y, p.x - b.x);
@@ -434,7 +435,7 @@ export const BOSSES = {
 
   astronomer: {
     name: 'The Astronomer',
-    epithet: 'it charts the dark it keeps',
+    epithet: 'it charts the dark, and the dark it charts is real',
     color: '#c9a2ff',
     hp: 28,
     r: 34,
@@ -443,6 +444,8 @@ export const BOSSES = {
       h: H,
       wells: [{ x: W / 2, y: H / 2 - 40, r: 28, range: 400, pull: 360000 }],
       oneWays: [{ x0: 110, x1: 300, y: H - 200 }, { x0: 980, x1: 1170, y: H - 200 }, { x0: 90, x1: 260, y: H - 400 }, { x0: 1020, x1: 1190, y: H - 400 }, { x0: 540, x1: 740, y: H - 110 }],
+      // Where it can chart a hole: open air, at least 90 px from anywhere the robot can stand.
+      chart: [[330, 380], [950, 380], [400, 560], [880, 560], [420, 160], [860, 160]],
     },
     init(b, A) {
       b.orbit = 0;
@@ -450,6 +453,8 @@ export const BOSSES = {
       b.y = A.cy - 40;
       b.shotT = 2;
       b.breathT = 9;
+      b.chartT = 3;
+      b.charted = [];
       b.guard = Math.PI;
     },
     update(b, g, dt, A) {
@@ -462,7 +467,7 @@ export const BOSSES = {
       seek(b, tx, ty, 260, 600, dt);
       b.shotT -= dt;
       if (b.shotT <= 0) {
-        b.shotT = 2.4;
+        b.shotT = 2;
         const a = angleTo(b, bot);
         for (let i = -1; i <= 1; i++) g.shot(b.x, b.y, a + i * 0.16, 320, { r: 9, color: '#e7d6ff', life: 4, bounce: false });
         g.sound('fan');
@@ -478,6 +483,30 @@ export const BOSSES = {
         b.breath -= dt;
         well.pull = well.basePull * (b.breath > 3 ? 1 : 1.9);
       } else well.pull = well.basePull;
+      // It charts new holes: each forms over 1.3 s (no pull yet, a ring closing in), lives 8 s, and collapses.
+      // Never on top of the robot: the nearest charted spot at least 260 px from it, and clear of the others.
+      b.chartT -= dt;
+      if (b.chartT <= 0 && b.charted.length < 3) {
+        b.chartT = 5;
+        const free = b.def.arena.chart
+          .map(([x, y]) => ({ x: A.x0 + x, y: A.top + y }))
+          .filter((p) => Math.hypot(p.x - bot.x, p.y - bot.y) >= 260 && !b.charted.some((w) => Math.hypot(w.x - p.x, w.y - p.y) < 220));
+        free.sort((p, q) => Math.hypot(p.x - bot.x, p.y - bot.y) - Math.hypot(q.x - bot.x, q.y - bot.y));
+        if (free.length) {
+          const w = g.addWell({ x: free[0].x, y: free[0].y, r: 20, range: 260, pull: 260000 });
+          Object.assign(w, { charted: true, absent: true, forming: 0, life: 0 });
+          b.charted.push(w);
+          g.sound('rumble');
+        }
+      }
+      for (const w of b.charted) {
+        w.life += dt;
+        w.forming = Math.min(1, w.life / 1.3);
+        w.absent = w.life < 1.3 || w.life > 9.3;
+        w.collapsing = w.life > 9.3 ? Math.min(1, (w.life - 9.3) / 0.6) : 0;
+        if (w.life > 9.9) g.removeWell(w);
+      }
+      b.charted = b.charted.filter((w) => w.life <= 9.9);
       // Its lens is on the hole, always: it is only open to you from the hole's far side.
       const before = b.guard;
       b.guard = turnToward(b.guard, angleTo(b, well), 3, dt);

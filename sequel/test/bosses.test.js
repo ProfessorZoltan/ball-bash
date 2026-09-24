@@ -68,6 +68,34 @@ test('the Cartographer is folded: a charge that has not been through a wormhole 
   assert.equal(b.hp, hp - 1);
 });
 
+test('the Astronomer charts black holes as it fights: never on the robot, a warning first, and gone when it falls', () => {
+  const g = new Game(level(6), { shields: Infinity });
+  const A = g.arena;
+  g.bot.spawn(A.x0 + 160, A.floor - 31);
+  const seen = new Map();
+  let most = 0;
+  for (let i = 0; i < 240 * 30; i++) {
+    g.bot.invuln = 1e9;
+    g.step(DT, { mx: Math.sin(i / 240) > 0 ? 1 : -1 });
+    const charted = g.world.wells.filter((w) => w.charted);
+    most = Math.max(most, charted.length);
+    for (const w of charted) {
+      if (!seen.has(w)) {
+        assert.ok(w.absent, 'a new hole is only a ring closing in at first: it does not pull yet');
+        assert.ok(Math.hypot(w.x - g.bot.x, w.y - g.bot.y) >= 260, 'and it is never charted on top of the robot');
+        assert.ok(w.x > A.x0 && w.x < A.x1 && w.y > A.top && w.y < A.floor, 'it is inside the arena');
+        seen.set(w, g.time);
+      } else if (g.time - seen.get(w) > 1.5 && g.time - seen.get(w) < 9) assert.ok(!w.absent, 'then it opens, and pulls');
+    }
+  }
+  assert.ok(seen.size >= 4, `${seen.size} holes charted in 30 s`);
+  assert.ok(most <= 3, 'never more than three at once');
+  g.phase = 'boss';
+  g.damageBoss({ freeze: false, damage: 999 }, { cx: g.boss.x, cy: g.boss.y, nx: 1, ny: 0 });
+  for (let i = 0; i < 240; i++) g.step(DT, { mx: 0 });
+  assert.equal(g.world.wells.filter((w) => w.charted).length, 0, 'what it charted goes with it');
+});
+
 test('the music doubles for the boss, and settles back after', () => {
   const a = new DefectorAudio();
   a.bossTime(true);
@@ -94,5 +122,35 @@ test('a continue after losing to a boss starts again at the boss\'s door', () =>
     assert.ok(again.bot.x > bp.arena.x0 && again.bot.x < bp.arena.x0 + 200, `${L.title}: back at the door`);
     again.step(DT, { mx: 0 });
     assert.equal(again.phase, 'intro', `${L.title}: and straight into the fight`);
+  }
+});
+
+test('after each boss the exit opens where the robot can walk to it from the door', () => {
+  for (const L of LEVEL_DEFS) {
+    const bp = level(L.id);
+    const g = new Game(bp, { shields: Infinity });
+    const A = g.arena;
+    g.bot.spawn(A.x0 + 160, A.floor - 31);
+    g.step(DT, { mx: 0 });
+    g.phase = 'boss';
+    g.damageBoss({ freeze: false, damage: 999 }, { cx: g.boss.x, cy: g.boss.y, nx: 1, ny: 0 });
+    for (let i = 0; i < 240 * 3; i++) {
+      g.bot.invuln = 1e9;
+      g.step(DT, { mx: 0 });
+    }
+    assert.equal(g.phase, 'exit', `${L.title}: the exit opened`);
+    // Walk to it, jumping whenever a step makes no headway, as a player would.
+    g.bot.spawn(A.x0 + 120, A.floor - 31);
+    let lastX = g.bot.x;
+    let stuck = 0;
+    for (let i = 0; i < 240 * 12 && g.phase !== 'cleared'; i++) {
+      g.bot.invuln = 1e9;
+      const mx = Math.sign(g.exit.x - g.bot.x);
+      stuck = Math.abs(g.bot.x - lastX) < 0.3 ? stuck + 1 : 0;
+      lastX = g.bot.x;
+      const jump = stuck > 10 || (!g.bot.onGround && g.bot.vy < 0);
+      g.step(DT, { mx, jump, jumpPressed: stuck === 11 });
+    }
+    assert.equal(g.phase, 'cleared', `${L.title}: the exit at ${Math.round(g.exit.x - A.x0)} could not be reached`);
   }
 });

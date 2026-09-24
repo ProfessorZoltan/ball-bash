@@ -986,7 +986,8 @@ levels.
 
 The campaign is ten levels, each ending in a boss. The difficulty is
 Deflector's: the lives are still called **shields**, and the pool is carried
-from level to level with the power-ups you have gathered. Losing the last
+from level to level. Power-ups are not: each level starts on the standard
+charge (a continue in the same level keeps what you held). Losing the last
 shield offers a **continue** from the last checkpoint (reaching a boss
 counts as one) with the pool refilled, and the continue is counted. Saves use
 their own `defector.*` keys, so neither game ever reads the other's.
@@ -1073,7 +1074,9 @@ loads 15 charges of its kind (up to 45); the first of a kind is loaded at
 once, LT or 1 cycles through the kinds you hold and the standard charge,
 and an empty kind falls back to the standard one. When multiplayer comes,
 every drop is one pickup per player that only that player can take; the
-game already makes them that way (`drop` in `sequel/src/game.js`).
+game already makes them that way (`drop` in `sequel/src/game.js`). What you
+gather stays in its level: the next one starts you on the standard charge
+again.
 
 | Power-up | What it does | Source |
 | --- | --- | --- |
@@ -1149,7 +1152,9 @@ past, the way a side-scroller always has.
 Each boss is built from parts: a **core** that takes damage, **armour** that
 turns a charge away like a wall, and **plates**, Deflector shields that
 turn it away with their own motion. The door shuts behind you, the boss is
-named, and the music doubles.
+named, and the music doubles. When it falls the exit opens on open floor
+that the robot can walk to from the door, never inside a rock or a wall
+(`exitSpot` in `sequel/src/game.js`).
 
 | Level | Boss | Toughness | How it fights | Its arena | Source |
 | --- | --- | --- | --- | --- | --- |
@@ -1158,7 +1163,7 @@ named, and the music doubles.
 | 3 | The Conductor | 20 | a train car flush under the roof: shots from its windows as it passes over, a volley of ricochets at each stop. Wormhole only | a station with two platforms | same |
 | 4 | The Keeper | 22 | a lighthouse: two plates turn round its lamp, pulses roll out over the pools, a beam sweeps (rock stops it), crabs come | rocks to shelter behind | same |
 | 5 | The Bloom | 26 | petals close into a ring and open, a spiral of seeds while closed, vines that burst up under you | springs and two rising leaves | same |
-| 6 | The Astronomer | 28 | orbits a black hole with its lens always on the hole; volleys that curve round it; the hole draws in harder now and then | ledges round the hole | same |
+| 6 | The Astronomer | 28 | orbits a black hole with its lens always on the hole; three-way volleys every 2 s that curve round it; the hole draws in harder now and then; every 5 s it charts a new black hole in the open air, never within 260 px of you, that forms over 1.3 s (a ring closing in), pulls for 8 s and collapses | ledges round the hole | same |
 | 7 | The Ringmaster | 30 | bounces round the ring on a unicycle behind three turning cards, juggles balls that ricochet, bursts confetti | a Ferris wheel of four platforms | same |
 | 8 | The Angler | 32 | in the dark: its body is all armour, its lure is the core; lunges, bubble volleys, wisps | two white holes, three ledges | same |
 | 9 | The Cartographer | 34 | opens wormholes of its own, walks through them, fires volleys back through behind it. Folded | blinking platforms, two black holes | same |

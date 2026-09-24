@@ -941,6 +941,25 @@ function drawCrate(ctx, c, th, low) {
 }
 
 function drawWell(ctx, w, t) {
+  if (w.charted && w.absent) {
+    // A hole being charted: a ring closing in on where it will open. Or one collapsing.
+    const u = w.collapsing ? 1 - w.collapsing : w.forming;
+    ctx.strokeStyle = `rgba(215, 200, 255, ${0.25 + 0.55 * u})`;
+    ctx.setLineDash([6, 8]);
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(w.x, w.y, w.collapsing ? w.r * u : w.range - (w.range - w.r) * u, 0, TAU);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = `rgba(0, 0, 0, ${0.8 * u})`;
+    ctx.beginPath();
+    ctx.arc(w.x, w.y, w.r * u, 0, TAU);
+    ctx.fill();
+    ctx.strokeStyle = `rgba(215, 200, 255, ${0.6 * u})`; // a rim, so the dark sky does not hide it
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    return;
+  }
   if (w.absent) {
     ctx.strokeStyle = 'rgba(180,156,255,0.15)';
     ctx.setLineDash([3, 9]);

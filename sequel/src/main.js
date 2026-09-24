@@ -103,8 +103,10 @@ function startLevel(id, opts = {}) {
     shields: opts.shields ?? (carry ? carry.pool : d.shields),
     maxShields: d.shields,
     checkpoint: opts.checkpoint ?? -1,
-    ammo: opts.ammo ?? (carry ? carry.ammo : undefined),
-    loaded: opts.loaded ?? (carry ? carry.loaded : undefined),
+    // Power-ups belong to the level they were found in: each level starts on the standard charge.
+    // (A continue or a return to a checkpoint is the same level, and keeps them.)
+    ammo: opts.ammo,
+    loaded: opts.loaded,
     stats: opts.stats,
   });
   renderer.setLevel(bp);
@@ -151,7 +153,7 @@ function beginCampaign(fresh) {
   mode = 'campaign';
   if (fresh || !run) {
     const d = difficulty();
-    run = { level: 1, pool: d.shields === Infinity ? 'inf' : d.shields, difficulty: d.id, continues: 0, time: 0, shieldsLost: 0, defeated: 0, secrets: 0, powerups: 0, ammo: null, loaded: 'std' };
+    run = { level: 1, pool: d.shields === Infinity ? 'inf' : d.shields, difficulty: d.id, continues: 0, time: 0, shieldsLost: 0, defeated: 0, secrets: 0, powerups: 0 };
     save(STORE.run, run);
   } else {
     settings.difficulty = run.difficulty;
@@ -193,8 +195,6 @@ function levelCleared() {
     run.powerups += g.stats.powerups;
     run.continues += g.stats.continues || 0;
     run.pool = g.pool;
-    run.ammo = { ...g.ammo };
-    run.loaded = g.loaded;
     if (id >= LEVEL_DEFS.length) {
       campaignDone();
       return;
@@ -333,7 +333,7 @@ function showTitle() {
       <div class="cols">
         <div>
           <h3>Campaign</h3>
-          <p class="small muted">Ten levels, one pool of shields carried from each to the next, and the power-ups you gather go with you.</p>
+          <p class="small muted">Ten levels and one pool of shields, carried from each level to the next. Power-ups stay in the level they were found in.</p>
           <div class="row" style="justify-content:flex-start">
             ${resumeLabel ? `<button id="resume" class="primary">${resumeLabel}</button>` : ''}
             <button id="new" class="${resumeLabel ? '' : 'primary'}">New campaign</button>
