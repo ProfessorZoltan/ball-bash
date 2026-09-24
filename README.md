@@ -1582,6 +1582,8 @@ src/fx.js                  particles, rings, screen shake
 src/audio/engine.js        Web Audio synths, sequencer, tempo-follow, SFX
 src/audio/tracks.js        per-level track definitions
 test/*.test.js             node --test suites (physics, net, input, input queue)
+tools/                     golf design and screenshot scripts, not shipped (tools/README.md)
+CLAUDE.md                  working notes for Claude Code: conventions, golf design rules, a sequel
 server.js                  zero-dependency static server + LAN relay
 relay/                     the same relay as a Cloudflare Worker for online play
 desktop/                   Electron wrapper for the Windows and macOS builds (bundles server.js)

@@ -680,6 +680,9 @@ function farHole(spec) {
   return { ...hole({ ...spec, palette: { ...FAR_PALETTE, ...(spec.palette || {}) } }), course: 'far' };
 }
 
+/** The parts every hole is built from, for drafting one outside the course (tools/golf/draft.mjs). */
+export const PARTS = { hole, farHole, planet, maw, fount, cup, cage, warp, binary, oneWay, orbitingWarp, slots, room, ROOM, SCREEN, GOLD };
+
 export const FAR_COURSE = [
   farHole({
     id: 'f1',
