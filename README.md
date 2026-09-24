@@ -1260,6 +1260,37 @@ Each tool also runs on its own (`node sequel/tools/reach.mjs 4`), and
 real game. `window.__defector` is the browser handle (`state`, `game`,
 `startLevel(id, opts)`, `renderer`, `input`, `audio`, `level`).
 
+### Roadmap
+
+1. **Multiplayer**, on the same levels: only the number of power-ups dropped
+   changes (one pickup per player, which `drop` already makes).
+2. **Gravitational lensing**: black and white holes bend the picture round
+   them, walls, platforms and background art included, as they already bend
+   a charge's path and the wormhole sight line. It is a lens on the drawn
+   frame, never a change to the geometry, so physics, levels and the checks
+   above stay as they are. What it needs:
+   - Warp the whole world layer together (terrain, sky and strips, robot,
+     enemies, charges, the aim line), after `drawWorldThings` and before the
+     dark overlay and vignette in `frame()` in `sequel/src/render.js`. The
+     warp is continuous, so whatever touches in the game still touches on
+     screen.
+   - Take its strength from the pull itself (`wellField` in
+     `src/gamestate.js`): it reaches exactly as far as the hole pulls and
+     fades to nothing at the edge, so there is no seam. A stronger hole
+     bends more, the Astronomer's harder draw swells it, a charted hole
+     bends in as it forms, and a white hole pushes the picture outward.
+   - Keep it monotone (no Einstein-ring double images; fake the ring with a
+     glow), so everything is shown once and the mouse can be mapped back
+     through it in `screenToWorld`: pointing at something aims at it.
+   - Put the forward and inverse maps in a DOM-free module with tests (each
+     undoes the other; zero at the edge of reach). Skip the lens in low
+     quality.
+   - Draw it as a WebGL pass over the finished frame: exact per pixel, and
+     the cost does not grow with the number of holes. Without WebGL there is
+     no lens. The Canvas 2D fallback, about thirty annuli each a scaled copy
+     of the frame, is a stepped approximation that costs more per hole.
+   - Then Deflector, whose golf holes put several bodies on screen at once.
+
 ## Online multiplayer (different networks)
 
 The LAN server only works on one Wi-Fi network, because the guest has to reach
