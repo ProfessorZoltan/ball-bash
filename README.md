@@ -971,6 +971,272 @@ may now rest on a step (`null` in its pattern), so a figure can leave room
 between its notes. The music test holds every Far Course track to a minor key,
 and every track on both courses to being its own.
 
+## Defector (the sequel)
+
+**Play the Sequel!** on the title screen opens *[<R/D>EF(L)/V]ECTOR: Defector*,
+a side-scrolling platformer that picks up where the campaign ends: the
+Defector is out of the grid's sealed rooms and into a world where the grid
+and the real one overlap. The robot is a fighter now, with no shield: it
+runs and jumps like Super Mario Bros. 3, shoots Deflector's own charge in any
+direction, and carries a pair of wormholes. It lives in `sequel/`, a page of
+its own (`sequel/index.html`) that imports Deflector's physics, portals,
+colour helpers, config and audio engine from `src/`; nothing in `src/`
+imports from it. Single player for now; multiplayer comes later, on the same
+levels.
+
+The campaign is ten levels, each ending in a boss. The difficulty is
+Deflector's: the lives are still called **shields**, and the pool is carried
+from level to level with the power-ups you have gathered. Losing the last
+shield offers a **continue** from the last checkpoint (reaching a boss
+counts as one) with the pool refilled, and the continue is counted. Saves use
+their own `defector.*` keys, so neither game ever reads the other's.
+
+| Difficulty | Shields | Source |
+| --- | --- | --- |
+| Easy | unlimited | `DIFFICULTIES` in `src/config.js` |
+| Normal (default) | 5 | same |
+| Hard | 3 | same |
+| Punishing | 1 | same |
+
+A shield goes to an enemy's touch or shot, spikes, a laser, a crusher, a
+black hole's horizon or a fall into a pit; after one the robot flickers for
+1.6 s and cannot lose another. A fall, the horizon or a crush also puts it
+back on the last solid ground it stood on. A shield pickup (rare, mostly in
+secrets) gives one back, never above the difficulty's pool.
+
+### Controls
+
+Holding is aiming; letting go is acting. The blaster and both wormhole ends
+each show their line while their button is held and act when it is let go,
+on the controller and the keyboard alike.
+
+| Action | Controller | Keyboard and mouse | Source |
+| --- | --- | --- | --- |
+| Move | left stick or d-pad | A, D (W, S) | `Input.intent` in `sequel/src/input.js` |
+| Jump (hold for higher) | A | Space | same |
+| Run | hold X while moving | hold 2 while moving | same |
+| Aim the blaster | right stick points it | mouse points it; the arrow keys swing it toward where they point | same |
+| Fire | hold RT for the targeting line, let go to fire | hold left click or / , let go | same |
+| Light wormhole end | hold LB for its aim line, let go to open it | hold Q, let go | same |
+| Dark wormhole end | hold RB, let go | hold E, let go | same |
+| Cycle power-ups | LT | 1 | same |
+| Drop through a thin platform | hold down | hold S | `stepRobot` in `sequel/src/player.js` |
+| Pause, mute, fullscreen | Start | Esc or P, M, F | `frame` in `sequel/src/main.js` |
+
+With nothing aiming (no stick, no mouse), the blaster turns round with the
+robot when it turns round. A button that was held when play began (the one
+that pressed Start) does nothing until it is let go.
+
+### Movement
+
+The robot is an upright capsule 60 px tall and 30 wide on a 40 px tile. It
+stands on anything whose surface faces up by at least 0.6 (so on slopes and
+on the lip of a ledge until its middle is past it), jumps up through thin
+platforms and lands on them, and is carried by moving ones.
+
+| Figure | Value | Source |
+| --- | --- | --- |
+| Walking / running speed | 220 / 360 px/s | `MOVE` in `sequel/src/config.js` |
+| Walking jump, held | 4.5 tiles high, about 4.6 across | same |
+| Running jump, held | 5.5 tiles high, about 8.5 across | same |
+| A tap of jump | under 2 tiles | `gCut`, same |
+| Gravity: rising with jump held / let go / falling | 1500 / 4000 / 2800 px/s² | same |
+| Coyote time, jump buffer | 0.08 s, 0.12 s | same |
+| A black hole's pull on the robot | half what it pulls a charge | `ROBOT_PULL`, same |
+
+### The blaster
+
+The charge is Blaster mode's: it leaves at the middle of the ball's speed
+range (825 px/s), is the ball's size, lives three seconds, turns off walls
+at the speed it arrived and takes a moving part's motion, is bent by wells
+and taken by a horizon, and goes through wormholes. The targeting line is
+that charge flown ahead for 1.6 s by the same code (`guideLine` in
+`sequel/src/blaster.js`), so every bounce, bend and wormhole it shows is
+real. A new charge is ready 0.22 s after the last. Your own charges never
+hurt you, and a charge that meets an enemy's shot knocks it out of the air.
+
+Power-ups drop from some enemies, some crates and every secret. Each pickup
+loads 15 charges of its kind (up to 45); the first of a kind is loaded at
+once, LT or 1 cycles through the kinds you hold and the standard charge,
+and an empty kind falls back to the standard one. When multiplayer comes,
+every drop is one pickup per player that only that player can take; the
+game already makes them that way (`drop` in `sequel/src/game.js`).
+
+| Power-up | What it does | Source |
+| --- | --- | --- |
+| Titan | a charge three times the size; it carries on through what it kills | `POWERUPS`, `POWER` in `sequel/src/config.js` |
+| Trident | three charges, half a degree apart | same |
+| Frost | freezes an enemy solid for five seconds (no damage): it stops, it is harmless, and it is a block to stand on, in mid-air if it was flying; a boss is only slowed, for 2.5 s | same |
+| Longwave | lives six seconds instead of three | same |
+| Hammer | double damage | same |
+
+### Wormholes
+
+Deflector's Wormhole Variant pair, light end and dark end, built from the
+same parts (`src/portals.js`): the same mouth, the same crossing, momentum
+kept and turned by the angle between the ends. What is new is the aim:
+**a wormhole has no range**. Its end goes wherever the line of sight first
+meets a surface that can hold it, however far, and that line bends through
+gravity fields exactly as a charge does, so the dashed aim line is the
+truth. Thin platforms let the line through; crates, glass, spikes and doors
+take no wormhole, and neither does a surface shorter than the mouth.
+
+| Rule | What it means | Source |
+| --- | --- | --- |
+| Aim | straight lines away from every well, cast in one go; inside a well's reach, flown step by step like a charge | `sightLine` in `sequel/src/wormholes.js` |
+| Where it sits | centred where the line lands, slid along the surface so the whole 96 px mouth lies on it, never on top of its twin | `placeEnd`, same file |
+| On a moving platform | it rides with it; when a blinking platform blinks out, its end goes too | `refreshEnds`, same file |
+| Going through | the moment the robot's middle crosses the surface; out of the other end no slower than 220 px/s, so nothing hangs in a mouth | `portalStep` in `sequel/src/player.js`, `exitVelocity` |
+| Gravity | stays down: the robot comes out upright | same |
+| Who goes through | the robot, your charges, **enemies** (walking, flying or falling in) and **enemies' shots**, through anyone's wormholes | `portalEnemy` in `sequel/src/enemies.js`, `stepCharge` in `sequel/src/blaster.js` |
+
+Some things only a wormhole gets you past, on purpose:
+
+| What | How it is beaten | Source |
+| --- | --- | --- |
+| A bulkhead | a wall from the floor to far above any jump, with a gap under it too low for the robot but tall enough to see and shoot under. Aim an end under it at the pillar beyond, the other at your feet, and step in | `SECTIONS.bulkhead` in `sequel/src/build.js` |
+| A chasm | too wide for any jump, with a wall facing back across it. One end on that wall, the other at your feet | `SECTIONS.chasm`, same file |
+| A folded enemy (Wraith, Echo, Shade, or any enemy placed folded) | it is only half here: a charge passes straight through it unless the charge has itself been through a wormhole (anyone's). Drawn doubled and flickering | `folded` in `sequel/src/enemies.js`, `stepCharges` in `sequel/src/game.js` |
+| A folded room | an ambush room that locks until its folded waves are beaten | `PIECES.foldroom` in `sequel/src/levels.js` |
+| The Conductor | its underside and ends are armoured and its back is pressed to the station roof: a wormhole in the roof is the only way to its core | `BOSSES.conductor` in `sequel/src/bosses.js` |
+| The Cartographer | folded: only a charge that has been through a wormhole, yours or one of its own, touches it | `BOSSES.cartographer`, same file |
+
+Level 1 teaches wormholes with an optional secret up on a loft; every level
+after it has at least one of these on the main path, taught by a sign the
+first time.
+
+### Enemies
+
+Six ways of moving, any size, any toughness. Every enemy that is beaten
+bursts into particles that spread to its own diameter from its centre: a
+cloud twice its size (`explode` in `sequel/src/fx.js`). Enemies wake when
+the robot comes within about a screen and go back to sleep when it is well
+past, the way a side-scroller always has.
+
+| Enemy | Moves | Hits | Can be stomped | Also | Source |
+| --- | --- | --- | --- | --- | --- |
+| Skitter | walks, turning at ledges | 1 | yes | | `KINDS` in `sequel/src/enemies.js` |
+| Trundle | walks, slowly | 4 | yes | big | same |
+| Burr | walks | 2 | no: spiky | | same |
+| Dasher | runs at the robot when it sees it on its level | 2 | yes | | same |
+| Clacker | runs | 3 | yes | | same |
+| Drifter | flies a straight line, across or up and down | 1 | no | | same |
+| Urchin | flies straight | 3 | no: spiky | | same |
+| Gunner | flies straight | 2 | no | shoots | same |
+| Flitter | flies a zig-zag that drifts to the robot's height | 1 | no | | same |
+| Lampmoth | zig-zags | 3 | no | shoots three at once | same |
+| Swooper, Wisp | perches, then dives through where the robot stands and climbs out | 2, 1 | no | | same |
+| Hopper, Boing | jumps toward the robot | 2, 5 | yes | | same |
+| Sentry | still | 3 | no | shoots | same |
+| Lancer | walks | 3 | no | carries a Deflector shield that turns to face the robot and turns a charge away: bank the shot | same |
+| Wraith, Echo, Shade | zig-zags, walks, swoops | 2, 2, 3 | no | folded | same |
+
+### Bosses
+
+Each boss is built from parts: a **core** that takes damage, **armour** that
+turns a charge away like a wall, and **plates**, Deflector shields that
+turn it away with their own motion. The door shuts behind you, the boss is
+named, and the music doubles.
+
+| Level | Boss | Toughness | How it fights | Its arena | Source |
+| --- | --- | --- | --- | --- | --- |
+| 1 | The Gardener | 14 | a huge mower: patrols, lobs seed pods that burst, revs and charges the length of the lawn | a flat lawn under three hedges | `BOSSES` in `sequel/src/bosses.js` |
+| 2 | The Lantern Moth | 18 | a figure of eight over the market, dropping lanterns that burst into embers, five-way fans, a dive through where you stood | three awnings and a drifting cart | same |
+| 3 | The Conductor | 20 | a train car flush under the roof: shots from its windows as it passes over, a volley of ricochets at each stop. Wormhole only | a station with two platforms | same |
+| 4 | The Keeper | 22 | a lighthouse: two plates turn round its lamp, pulses roll out over the pools, a beam sweeps (rock stops it), crabs come | rocks to shelter behind | same |
+| 5 | The Bloom | 26 | petals close into a ring and open, a spiral of seeds while closed, vines that burst up under you | springs and two rising leaves | same |
+| 6 | The Astronomer | 28 | orbits a black hole with its lens always on the hole; volleys that curve round it; the hole draws in harder now and then | ledges round the hole | same |
+| 7 | The Ringmaster | 30 | bounces round the ring on a unicycle behind three turning cards, juggles balls that ricochet, bursts confetti | a Ferris wheel of four platforms | same |
+| 8 | The Angler | 32 | in the dark: its body is all armour, its lure is the core; lunges, bubble volleys, wisps | two white holes, three ledges | same |
+| 9 | The Cartographer | 34 | opens wormholes of its own, walks through them, fires volleys back through behind it. Folded | blinking platforms, two black holes | same |
+| 10 | The Administrator | 48 | three phases: behind four plates with pulses; round a black hole it opens, spiralling; plates gone, dashing at you and calling flitters | five ledges | same |
+
+`sequel/tools/fight.mjs` fights each one in the real game with a robot that
+cannot be hurt and only fires shots it has flown ahead and seen reach the
+core (bank shots and wormholes included): every boss falls to it, and the
+Conductor does not without wormholes.
+
+### Levels
+
+A level is written as a list of sections laid end to end (a gap, a climb, a
+pit with a black hole in it, a bulkhead), each a few numbers in tiles: an
+opening written by hand that teaches what is new, then a seeded run of set
+pieces from the level's own palette that gets harder toward the end, then
+the arena. The seed makes the run the same every time. Checkpoints come
+every ten or so pieces; secrets are a loft only a wormhole reaches, a cellar
+under a crate in the floor, or a ledge above an unneeded spring.
+
+| # | Level | Estimated minutes before the boss | New | Source |
+| --- | --- | --- | --- | --- |
+| 1 | Neon Orchard | 4.3 | running, jumping, stomping, the blaster, crates, wormholes (a secret) | `LEVEL_DEFS` in `sequel/src/levels.js` |
+| 2 | Rain Market | 4.3 | thin awnings, moving carts, the bulkhead | same |
+| 3 | Transit Loop | 4.5 | shielded Lancers, crushers, lasers, the chasm | same |
+| 4 | Tidepool Light | 6.4 | pulse emitters, spikes, platforms on a wheel | same |
+| 5 | Greenhouse Arcology | 6.3 | springs, glass, folded enemies | same |
+| 6 | Observatory Heights | 7.2 | black holes over pits, white holes that lift | same |
+| 7 | Carnival of Echoes | 7.4 | ambush rooms that lock until cleared | same |
+| 8 | Deep Relay | 11.4 | darkness: only the robot, its charges and what glows are lit | same |
+| 9 | Folded City | 13.9 | blinking platforms, folded rooms | same |
+| 10 | The Source | 13.3 | everything | same |
+
+The design asks for 3 to 5 minutes on an early level, 4 to 8 on a middle one
+and 8 to 15 on a late one. The estimate is the level's length at Super Mario
+Bros. 3's careful pace of 2.6 tiles a second plus time for each enemy, pit,
+climb and lock (`estimateSeconds` in `sequel/src/build.js`); a test holds
+each level inside its band.
+
+The scenery is the real world lit like the grid: orchards and houses,
+a night market in the rain, an elevated railway, a lighthouse over rock
+pools, glass domes, observatories on peaks, a carnival, the deep sea, a city
+folded over itself, and the source. Behind each, two layers of skyline slide
+at their own speeds under a sky that shifts colour, with a banded sun,
+turning rays and things drifting across it.
+
+### Music
+
+Each level has its own track on Deflector's engine and instruments, written
+calmer and more spacious than the arcade's: 72 to 100 BPM against the
+arcade's 96 to 150, long pads, bells and triangle arpeggios in a big room,
+and light drums. The tempo never follows the action; it holds until the boss
+fight, when it doubles (`bossTime` in `sequel/src/audio.js`), and settles
+back when the boss falls. The filters open a little when the action picks
+up.
+
+| Level | Track | Key | BPM | Source |
+| --- | --- | --- | --- | --- |
+| Title | Defector (Title) | E dorian | 88 | `SEQUEL_TRACKS` in `sequel/src/tracks.js` |
+| 1 | Orchard Lights (Gardener Theme) | F lydian | 90 | same |
+| 2 | Rain Market (Lantern Theme) | A dorian | 84 | same |
+| 3 | Transit Loop (Conductor Theme) | E mixolydian | 96 | same |
+| 4 | Tidepool Light (Keeper Theme) | D major | 80 | same |
+| 5 | Greenhouse Arcology (Bloom Theme) | G lydian | 92 | same |
+| 6 | Observatory Heights (Astronomer Theme) | C# minor | 76 | same |
+| 7 | Carnival of Echoes (Ringmaster Theme) | B-flat major | 100 | same |
+| 8 | Deep Relay (Angler Theme) | F# minor | 72 | same |
+| 9 | Folded City (Cartographer Theme) | E-flat lydian | 88 | same |
+| 10 | The Source (Administrator Theme) | D minor | 98 | same |
+
+The last level plays the Antechamber's progression, Deflector's first.
+
+### Checking it
+
+`npm test` runs the sequel's tests in `sequel/test/` with the rest. They
+fly the robot's jumps against the numbers above, every power-up, every way
+through a wormhole (enemies and their shots included), each enemy's way of
+moving, the burst, the boss fights, and every level:
+
+| Check | What it proves | Source |
+| --- | --- | --- |
+| Crossing | a search over everything the robot can stand on, flown with its own physics (hops and leaps at walking and running speed, walking off ends), reaches the boss's arena. Moving platforms are somewhere to stand along their path, crates are shot, and a wormhole puzzle is a link | `sequel/tools/reach.mjs` |
+| Puzzles | every bulkhead and chasm in every level is solved in the real game by aiming the ends and stepping through, and no level with one can be crossed without wormholes | `sequel/tools/solve.mjs` |
+| Bosses | every boss is beaten in the real game by a robot that aims well | `sequel/tools/fight.mjs` |
+| Lengths | each level's estimate sits in its band | `sequel/test/levels.test.js` |
+
+Each tool also runs on its own (`node sequel/tools/reach.mjs 4`), and
+`node sequel/tools/shots.mjs level 4 out/` or `boss 4 out/` screenshots the
+real game. `window.__defector` is the browser handle (`state`, `game`,
+`startLevel(id, opts)`, `renderer`, `input`, `audio`, `level`).
+
 ## Online multiplayer (different networks)
 
 The LAN server only works on one Wi-Fi network, because the guest has to reach
@@ -1583,6 +1849,7 @@ src/audio/engine.js        Web Audio synths, sequencer, tempo-follow, SFX
 src/audio/tracks.js        per-level track definitions
 test/*.test.js             node --test suites (physics, net, input, input queue)
 tools/                     golf design and screenshot scripts, not shipped (tools/README.md)
+sequel/                    Defector, the sequel: its page, style and code (sequel/src/), tests, tools
 CLAUDE.md                  working notes for Claude Code: conventions, golf design rules, a sequel
 server.js                  zero-dependency static server + LAN relay
 relay/                     the same relay as a Cloudflare Worker for online play

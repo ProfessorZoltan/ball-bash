@@ -37,7 +37,10 @@
           "package.json",
           "server.js",
           "src/**/*",
-          "icons/**/*"
+          "icons/**/*",
+          "sequel/index.html",
+          "sequel/style.css",
+          "sequel/src/**/*"
         ]
       }
     ],

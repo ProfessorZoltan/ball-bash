@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#05030f" />
+  <title>Defector</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2305030f'/%3E%3Crect x='20' y='14' width='24' height='26' rx='6' fill='none' stroke='%237fe9ff' stroke-width='4'/%3E%3Crect x='26' y='21' width='14' height='4' fill='%23e8fdff'/%3E%3Cpath d='M26 40 L22 54 M38 40 L42 54' stroke='%237fe9ff' stroke-width='4' stroke-linecap='round'/%3E%3Ccircle cx='52' cy='30' r='5' fill='%23ffb347'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Inter:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div id="hud" hidden>
+    <div class="hud-left">
+      <div id="hud-level" class="hud-big"></div>
+      <div class="hud-row"><span class="label">TIME</span><span id="hud-time">0:00</span><span class="label">SECRETS</span><span id="hud-secrets"></span></div>
+    </div>
+    <div class="hud-center">
+      <div class="hud-row center"><span class="label">SHIELDS</span><span id="hud-shields" class="shields"></span></div>
+      <div id="hud-boss" class="boss" hidden><div id="hud-boss-name"></div><div class="boss-bar"><div id="hud-boss-bar"></div></div></div>
+    </div>
+    <div class="hud-right">
+      <div class="hud-row right"><span class="label">BLASTER</span><span id="hud-loaded"></span></div>
+      <div id="hud-ammo" class="ammo"></div>
+      <div class="hud-row right small"><span id="hud-cycle" class="muted"></span><span id="hud-mute" class="muted"></span><button id="hud-pause" class="hud-btn" title="Pause (Esc)" aria-label="Pause">❚❚</button></div>
+    </div>
+  </div>
+
+  <div id="banner" hidden><div class="banner-eyebrow" id="banner-eyebrow"></div><div class="banner-title" id="banner-title"></div><div class="banner-sub" id="banner-sub"></div></div>
+
+  <div id="overlay" hidden></div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

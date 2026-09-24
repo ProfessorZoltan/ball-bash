@@ -33,6 +33,7 @@ there, and its "Layout" section maps the files.
 | `relay/` | The same relay protocol, as a Cloudflare Worker. |
 | `desktop/` | The Electron wrapper. |
 | `tools/` | Design and screenshot scripts. They are not shipped. |
+| `sequel/` | Defector, the sequel: `index.html`, `style.css`, `src/`, `test/` and `tools/`. Its DOM modules are `main.js`, `render.js`, `art.js`, `input.js` and `audio.js`; the rest of `sequel/src/` is DOM-free. |
 
 ## Conventions
 
@@ -64,6 +65,17 @@ A hole is data in `src/golf.js`. The tests hold every hole to these rules:
 - **Three flight loops must agree.** `golfFly` in `test/physics.test.js` and `fly()` in `tools/golf/fly.mjs` mirror the golf flight in `src/main.js` (`golfTick` and the fixed-step loop). If that loop changes, change all three.
 - **The minimum speed leaks energy.** The ball's minimum speed (`BALL.minSpeed`, 150) is clamped after every step, so a charge that falls nearly radially, or slows at the far end of an eccentric orbit, gains energy. A maw on a rail can pump energy in too. Never trust a long orbit to stay bounded. Give it a backstop (a central maw, a wall, the clock), and sweep launch moments as well as angles.
 - **Each new hole also needs** a track in `src/audio/tracks.js`, its README entry (the hole and the music table), and a look in the real game (`tools/golf/route.mjs`, `tools/golf/holes.mjs`) for its brief text and map labels.
+
+## Defector design rules
+
+Defector is the sequel, in `sequel/` (its README section is "Defector (the
+sequel)"). The tests hold its levels and bosses to these rules:
+
+- **Every level can be crossed.** `sequel/tools/reach.mjs` flies the robot's own physics over everything it can stand on. A level that fails it has a jump nobody can make.
+- **A wormhole puzzle is a link.** A section that only wormholes get past records itself in `bp.portalLinks`; `sequel/tools/solve.mjs` must solve every one in the real game, and the level must not be crossable without it.
+- **Every boss can be beaten.** `sequel/tools/fight.mjs` fights it in the real game. A wormhole-only boss must also lose to it only with wormholes.
+- **Lengths stay in their bands.** `estimateSeconds` in `sequel/src/build.js`: early levels 3 to 5 minutes, middle 4 to 8, late 8 to 15. Tune a level's `count`, not the estimate.
+- **Levels are seeded.** Changing a level's `seed`, `count` or palette rebuilds its run; check it with the tools above and `node sequel/tools/shots.mjs level <id> out/`.
 
 ## A sequel or a new game
 

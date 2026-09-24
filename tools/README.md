@@ -67,3 +67,14 @@ relay, so the multiplayer screenshots need nothing else.
 `window.__game` is the handle the browser tools use. It exposes `state`,
 `game`, `net`, `golfRound`, `startGolf(index, course)`, `startGolfHole`,
 `golfPulse`, `startLevel`, `renderer`, `input` and `audio`.
+
+## Defector (`sequel/tools/`)
+
+The sequel's own tools sit with it, and the tests use them.
+
+| Script | What it does | Example |
+| --- | --- | --- |
+| `reach.mjs` | Can each level be crossed? A search over everything the robot can stand on, flown with its own physics. | `node sequel/tools/reach.mjs 6` |
+| `solve.mjs` | Solves every wormhole puzzle (bulkhead, chasm) in a level in the real game. | `node sequel/tools/solve.mjs 9` |
+| `fight.mjs` | Fights a level's boss with a robot that cannot be hurt and only fires shots it has checked. `noportals` forbids wormholes. | `node sequel/tools/fight.mjs 3 noportals` |
+| `shots.mjs` | Screenshots from the real game: the title, three places along a level, or its boss fight. Needs Playwright. | `node sequel/tools/shots.mjs boss 3 shots/` |

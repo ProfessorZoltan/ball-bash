@@ -4573,7 +4573,7 @@ function showTitle() {
         ${foldHtml('settings', '<h3>Settings</h3>', `${qualitySelectHtml()}${audioSelectHtml()}${mouseSelectHtml()}`)}
       </div>
     </div>
-    <div class="row menu">${campaignButtonsHtml()}<button id="btn-start">${levelLabel(def)} only</button><button id="btn-golf" title="Galactic Golf: the course out in the void, the whole round or any one hole">Galactic Golf</button><button id="btn-tutorial">Tutorial</button><button id="btn-jukebox">Soundtrack</button><button id="btn-multi" title="${lanInfo && lanInfo.online ? 'Play online through the relay' : lanInfo ? 'Play on this Wi-Fi network' : 'Set a relay in the lobby, or run npm start on one PC and open its LAN address on both'}">${lanInfo && lanInfo.online ? 'Online match' : lanInfo ? 'LAN match' : 'Multiplayer'}</button>${fullscreenHint()}</div>
+    <div class="row menu">${campaignButtonsHtml()}<button id="btn-start">${levelLabel(def)} only</button><button id="btn-golf" title="Galactic Golf: the course out in the void, the whole round or any one hole">Galactic Golf</button><button id="btn-sequel" class="sequel" title="Defector: the sequel, a platformer out past the grid's last wall">Play the Sequel!</button><button id="btn-tutorial">Tutorial</button><button id="btn-jukebox">Soundtrack</button><button id="btn-multi" title="${lanInfo && lanInfo.online ? 'Play online through the relay' : lanInfo ? 'Play on this Wi-Fi network' : 'Set a relay in the lobby, or run npm start on one PC and open its LAN address on both'}">${lanInfo && lanInfo.online ? 'Online match' : lanInfo ? 'LAN match' : 'Multiplayer'}</button>${fullscreenHint()}</div>
     ${lanInfo ? '' : IS_DESKTOP ? '<p class="small muted">Multiplayer is unavailable: neither the relay nor the app\'s own server answered.</p>' : '<p class="small muted">Multiplayer needs a relay: paste one in the lobby for online play, or run <code>npm start</code> on one PC and open its LAN address on both.</p>'}
   `);
   $('btn-start').onclick = begin;
@@ -4591,6 +4591,10 @@ function showTitle() {
   };
   bindOwnBallToggle();
   $('btn-golf').onclick = () => showCourse();
+  // The sequel is its own page; nothing of it is loaded until you go.
+  $('btn-sequel').onclick = () => {
+    location.href = 'sequel/';
+  };
   $('btn-tutorial').onclick = async () => {
     await audio.init();
     startTutorial(true);
