@@ -6,7 +6,7 @@
 import { circleVsCapsule, circleVsCircle, capsuleVsCapsule, reflect, raycastSegments } from '../../src/physics.js';
 import { ROBOT, MOVE, BLASTER, POWER, POWERUPS, PICKUP, ACTIVE, BOSS_INTRO, SURFACE_VELOCITY_FACTOR } from './config.js';
 import { createWorld, stepWorld, segmentsNear, addGate, setGate, makeWell } from './world.js';
-import { Robot, stepRobot } from './player.js';
+import { Robot, stepRobot, firmGround } from './player.js';
 import { Charge, chargeSpec, stepCharge, clampCharge, muzzle, guideLine } from './blaster.js';
 import { sightLine, placeEnd, refreshEnds, ejectFrom, endsLeftBehind, PORTAL } from './wormholes.js';
 import { Enemy, stepEnemy, touchesRobot, freezeEnemy } from './enemies.js';
@@ -993,9 +993,8 @@ export class Game {
     }
     bot.invuln = ROBOT.invuln;
     if (respawn) {
-      const s = bot.safe;
       const aim = bot.aim;
-      const safe = { x: s.x, y: s.y };
+      const safe = this.returnSpot();
       bot.spawn(safe.x, safe.y);
       bot.aim = aim;
       bot.invuln = ROBOT.invuln;
@@ -1007,6 +1006,21 @@ export class Game {
       bot.onGround = false;
       bot.rising = false;
     }
+  }
+
+  /**
+   * Where a fall puts the robot back: the last safe spot it stood on, if there
+   * is still firm ground under it; if not (the ground broke, or was never
+   * meant to last), the last checkpoint. Never back over the pit.
+   */
+  returnSpot() {
+    const bot = this.bot;
+    const s = bot.safe;
+    const reach = bot.half + bot.r + 8;
+    const segs = segmentsNear(this.world, s.x - bot.r, s.y, s.x + bot.r, s.y + reach, { movers: false }).filter(firmGround);
+    if (raycastSegments(s.x, s.y, 0, 1, segs, reach)) return { x: s.x, y: s.y };
+    const c = this.checkpoint >= 0 ? this.checkpoints[this.checkpoint] : this.bp.spawn;
+    return { x: c.x, y: c.y };
   }
 
   /** Everything a HUD needs to know. */

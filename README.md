@@ -1002,7 +1002,11 @@ their own `defector.*` keys, so neither game ever reads the other's.
 A shield goes to an enemy's touch or shot, spikes, a laser, a crusher, a
 black hole's horizon or a fall into a pit; after one the robot flickers for
 1.6 s and cannot lose another. A fall, the horizon or a crush also puts it
-back on the last solid ground it stood on. A shield pickup (rare, mostly in
+back on the last firm ground it stood on: never a frozen enemy (it thaws),
+a crate, glass or anything that moves, and if the ground there has gone
+since, the last checkpoint instead, so it is never put back over a pit
+(`firmGround` in `sequel/src/player.js`, `returnSpot` in
+`sequel/src/game.js`). A shield pickup (rare, mostly in
 secrets) gives one back, never above the difficulty's pool.
 
 ### Controls

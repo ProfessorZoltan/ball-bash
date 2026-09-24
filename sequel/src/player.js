@@ -199,7 +199,7 @@ export function stepRobot(bot, it, world, dt, hooks = {}) {
 
   // Remember the last solid, still ground it stood on: a fall is survived from there.
   const underCrusher = world.movers.some((m) => m.kind === 'crusher' && bot.x > m.bx - 40 && bot.x < m.bx + m.w + 40 && bot.y > m.by);
-  if (bot.onGround && !bot.groundMover && bot.ground && !bot.ground.crate && bot.ground.kind !== 'spikes' && bot.ground.kind !== 'gate' && !underCrusher) {
+  if (bot.onGround && !bot.groundMover && firmGround(bot.ground) && !underCrusher) {
     bot.safeT += dt;
     if (bot.safeT > 0.25) bot.safe = { x: bot.x, y: bot.y };
   } else bot.safeT = 0;
@@ -214,6 +214,15 @@ export function stepRobot(bot, it, world, dt, hooks = {}) {
     if (took && hooks.swallowed) hooks.swallowed(took);
   }
   if (bot.top > world.height + 80 && hooks.fell) hooks.fell();
+}
+
+/**
+ * Ground a fall can be survived from: still, and there to stay. Not a crate or
+ * glass (they break), a frozen enemy's ice (it thaws), spikes, a door, or
+ * anything that moves or blinks.
+ */
+export function firmGround(s) {
+  return !!s && !s.crate && !s.ice && !s.mover && !s.broken && s.kind !== 'ice' && s.kind !== 'spikes' && s.kind !== 'gate';
 }
 
 /** The segments the robot can touch this step, with a wormhole's mouth cut out of them when it stands in one. */

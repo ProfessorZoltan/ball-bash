@@ -6,6 +6,8 @@ import { Robot, stepRobot } from '../src/player.js';
 import { Game } from '../src/game.js';
 import { buildLevel } from '../src/build.js';
 import { MOVE, TILE } from '../src/config.js';
+import { Enemy } from '../src/enemies.js';
+import { Charge } from '../src/blaster.js';
 
 const DT = 1 / 240;
 const floorWorld = (extra = {}) => createWorld({ width: 6000, height: 1600, solids: [{ pts: box(0, 1000, 6000, 600) }, ...(extra.solids || [])], oneWays: extra.oneWays || [], movers: extra.movers || [], wells: extra.wells || [] });
@@ -166,6 +168,35 @@ test('a fall into a pit costs a shield and puts the robot back on the ground it 
   assert.equal(g.pool, 2);
   assert.ok(g.bot.invuln > 0, 'it flickers after');
   assert.ok(g.bot.x <= safe.x + 400 && g.bot.y < bp.pits[0].y, 'it is back up on solid ground');
+});
+
+test('a fall after standing on a frozen enemy over a pit puts the robot back on solid ground, never over the pit', () => {
+  const bp = buildLevel({ id: 94, boss: 'gardener', theme: {}, sections: [['flat', { len: 8, deco: false }], ['gap', { w: 8, run: 3, land: 6 }], ['flat', { len: 8, deco: false }]] });
+  const g = new Game(bp, { shields: 5 });
+  const pit = bp.pits[0];
+  // A drifter frozen just off the lip, its ice level with the floor: a step out over the pit.
+  const e = new Enemy({ kind: 'drifter', x: pit.x0 + 22, y: 22 }, 0);
+  e.awake = true;
+  g.enemies.push(e);
+  g.damageEnemy(e, new Charge({ x: 0, y: 0, vx: 0, vy: 0, freeze: true }));
+  g.bot.spawn(pit.x0 - 60, -31);
+  for (let i = 0; i < 240; i++) g.step(DT, { mx: 0 });
+  for (let i = 0; i < 240 && g.bot.x < e.x; i++) g.step(DT, { mx: 0.5 });
+  for (let i = 0; i < 240; i++) g.step(DT, { mx: 0 });
+  assert.ok(g.bot.onGround && g.bot.ground.ice && g.bot.x > pit.x0, 'standing on the ice, out over the pit');
+  // Off the far side of the ice, into the pit.
+  const pool = g.pool;
+  for (let i = 0; i < 240 * 4 && g.pool === pool; i++) g.step(DT, { mx: 1 });
+  assert.equal(g.pool, pool - 1, 'the fall cost a shield');
+  assert.ok(g.bot.x < pit.x0, `put back on the lip at x ${Math.round(g.bot.x)}, not on the ice over the pit`);
+  // A fall with no firm ground left under the last safe spot at all goes back to the checkpoint.
+  g.bot.spawn((pit.x0 + pit.x1) / 2, -31); // out over the pit: a spawn records where it is
+  g.bot.invuln = 0;
+  for (let i = 0; i < 240 * 4 && g.pool === pool - 1; i++) g.step(DT, { mx: 0 });
+  assert.equal(g.pool, pool - 2);
+  assert.ok(g.bot.x < pit.x0 - g.bot.r || g.bot.x > pit.x1 + g.bot.r, `put back at x ${Math.round(g.bot.x)}, not over the pit`);
+  for (let i = 0; i < 240 * 2; i++) g.step(DT, { mx: 0 });
+  assert.ok(g.bot.onGround && g.pool === pool - 2, 'and it stands there, no loop');
 });
 
 test('a crusher that pins the robot to the floor costs a shield', () => {
