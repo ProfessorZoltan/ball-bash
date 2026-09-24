@@ -1046,7 +1046,7 @@ platforms and lands on them, and is carried by moving ones.
 | A tap of jump | under 2 tiles | `gCut`, same |
 | Gravity: rising with jump held / let go / falling | 1500 / 4000 / 2800 px/s² | same |
 | Coyote time, jump buffer | 0.08 s, 0.12 s | same |
-| A black hole's pull on the robot | half what it pulls a charge | `ROBOT_PULL`, same |
+| A black hole's pull on the robot | half what it pulls a charge; on the ground its feet hold against the sideways part, so it never slides a robot standing still | `ROBOT_PULL`, same; `stepRobot` in `sequel/src/player.js` |
 
 The camera rides a damped spring, so it eases in and out and never jerks.
 It leads a little toward the side the robot faces, drifting there at about
@@ -1152,6 +1152,14 @@ past, the way a side-scroller always has.
 | Lancer | walks | 3 | no | carries a Deflector shield that turns to face the robot and turns a charge away: bank the shot | same |
 | Wraith, Echo, Shade | zig-zags, walks, swoops | 2, 2, 3 | no | folded | same |
 
+A black hole in a pit keeps **moons**: one of the level's fliers, two once
+the run is hard, circling it on an ellipse deep in its pull, so every shot
+at one bends. A moon stays in the pit, under the stepping stone and clear
+of the walls and the horizon, so it never meets a jump across; at most one
+of a pit's moons shoots, and its shots bend too. A moon taken through a
+wormhole leaves its orbit and patrols where it came out (`well` in
+`sequel/src/build.js`, the `orbit` of a flier in `sequel/src/enemies.js`).
+
 ### Bosses
 
 Each boss is built from parts: a **core** that takes damage, **armour** that
@@ -1196,17 +1204,28 @@ under a crate in the floor, or a ledge above an unneeded spring.
 | 3 | Transit Loop | 4.5 | shielded Lancers, crushers, lasers, the chasm | same |
 | 4 | Tidepool Light | 6.4 | pulse emitters, spikes, platforms on a wheel | same |
 | 5 | Greenhouse Arcology | 6.3 | springs, glass, folded enemies | same |
-| 6 | Observatory Heights | 7.2 | black holes over pits, white holes that lift | same |
+| 6 | Observatory Heights | 7.3 | black holes over pits, with moons circling them; white holes that lift | same |
 | 7 | Carnival of Echoes | 7.4 | ambush rooms that lock until cleared | same |
-| 8 | Deep Relay | 11.4 | darkness: only the robot, its charges and what glows are lit | same |
-| 9 | Folded City | 13.9 | blinking platforms, folded rooms | same |
-| 10 | The Source | 13.3 | everything | same |
+| 8 | Deep Relay | 11.6 | darkness: only the robot, its charges and what glows are lit | same |
+| 9 | Folded City | 14.1 | blinking platforms, folded rooms | same |
+| 10 | The Source | 13.5 | everything | same |
 
 The design asks for 3 to 5 minutes on an early level, 4 to 8 on a middle one
 and 8 to 15 on a late one. The estimate is the level's length at Super Mario
 Bros. 3's careful pace of 2.6 tiles a second plus time for each enemy, pit,
 climb and lock (`estimateSeconds` in `sequel/src/build.js`); a test holds
 each level inside its band.
+
+A pit with a black hole in it is felt all the way across. The hole hangs
+2.5 tiles under the lip and reaches 9 tiles, so the whole jump is inside
+its pull:
+
+| Black hole pit | Value | Source |
+| --- | --- | --- |
+| Pull | 330,000 on the easiest, rising with the run to 450,000 (the level 6 lesson: 300,000, reaching 8 tiles) | `PIECES.well` in `sequel/src/levels.js` |
+| A running leap over it | rises about a third less and comes down some 50 px shorter; on the harder pits it needs the stepping stone | `sequel/test/robot.test.js` |
+| The stepping stone over the hole | heavy ground: a jump from it rises 35 to 45% lower | same |
+| Standing at the lip | the robot stays put; walking away it strains, three tiles clear in 0.8 to 1 s instead of 0.6 | same |
 
 The scenery is the real world lit like the grid: orchards and houses,
 a night market in the rain, an elevated railway, a lighthouse over rock

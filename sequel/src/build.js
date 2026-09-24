@@ -476,14 +476,29 @@ export const SECTIONS = {
     b.enemies(p.e, x0);
   },
 
-  /** A pit with a black hole in it that bends every jump across. */
+  /**
+   * A pit with a black hole in it that bends every jump across, and its
+   * moons: fliers ([kind, opts]) that circle it deep in its pull, so a shot
+   * at one bends. A moon stays in the pit, under the stepping stones and
+   * clear of the walls, so it never meets a jump across.
+   */
   well(b, p) {
     b.flat(p.run ?? 3);
     const x0 = b.x;
     const w = p.w ?? 7;
     const floorY = b.y;
-    b.bp.wells.push({ x: x0 + (w * T) / 2, y: floorY + (p.depth ?? 2.5) * T, r: p.r ?? 24, range: (p.range ?? 7) * T, pull: p.pull ?? 360000 });
+    const hole = { x: x0 + (w * T) / 2, y: floorY + (p.depth ?? 2.5) * T, r: p.r ?? 24, range: (p.range ?? 9) * T, pull: p.pull ?? 360000 };
+    b.bp.wells.push(hole);
     for (const k of p.list || []) b.thin(x0 + k[0] * T, x0 + (k[0] + k[2]) * T, floorY - k[1] * T);
+    const lid = Math.min(floorY, ...(p.list || []).map((k) => floorY - k[1] * T)); // the highest a moon may reach
+    (p.moons || []).forEach(([kind, opts = {}], i) => {
+      const r = KINDS[kind].r;
+      const rx = (w * T) / 2 - r - 10;
+      const ry = Math.min(rx, hole.y - lid - r - 14); // spines and wings are drawn past the body: room for them too
+      if (Math.min(rx, ry) < hole.r + r + 20) return; // no room to circle clear of the horizon
+      const orbit = { cx: hole.x, cy: hole.y, rx, ry, period: p.moonPeriod ?? 5.5, a: -Math.PI / 2 + i * Math.PI, dir: 1 };
+      b.bp.enemies.push({ kind, x: hole.x + Math.cos(orbit.a) * rx, y: hole.y + Math.sin(orbit.a) * ry, move: 'fly', orbit, drop: opts.drop ?? null });
+    });
     b.gap(w, p.up ?? 0);
     b.flat(p.land ?? 3);
     b.enemies(p.e, x0, floorY);

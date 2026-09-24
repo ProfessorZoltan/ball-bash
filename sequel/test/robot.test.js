@@ -177,3 +177,39 @@ test('a crusher that pins the robot to the floor costs a shield', () => {
   for (let i = 0; i < 240 * 3; i++) g.step(DT, { mx: 0 });
   assert.ok(g.pool < 3, 'the slab came down on it');
 });
+
+/** A pit with a black hole in it, as the campaign lays them, and the lip it is jumped from. */
+function holePit(pull, wells = true) {
+  const bp = buildLevel({ id: 91, boss: 'gardener', theme: {}, sections: [['flat', { len: 10, deco: false }], ['well', { w: 7, depth: 2.5, range: 9, pull }], ['flat', { len: 12, deco: false }]] });
+  const hole = bp.wells[0];
+  const floorY = hole.y - 2.5 * TILE;
+  return { w: createWorld({ ...bp, wells: wells ? bp.wells : [] }), lip: hole.x - 3.5 * TILE, far: hole.x + 3.5 * TILE, floorY };
+}
+
+test('a black hole in a pit drags a running leap across it down by a quarter, and more', () => {
+  const leap = (p) => {
+    const b = new Robot(p.lip - 250, p.floorY - 31);
+    let jumped = false;
+    let top = b.y;
+    for (let i = 0; i < 240 * 2; i++) {
+      const go = !jumped && b.x > p.lip - 12;
+      stepRobot(b, { mx: 1, run: true, jump: go || (jumped && b.vy < 0), jumpPressed: go }, p.w, DT);
+      if (go) jumped = true;
+      if (jumped) top = Math.min(top, b.y);
+    }
+    return p.floorY - 31 - top;
+  };
+  const free = leap(holePit(330000, false));
+  const pulled = leap(holePit(330000));
+  assert.ok(pulled < free * 0.75, `a leap of ${free.toFixed(0)} px rises only ${pulled.toFixed(0)} over the easiest pit`);
+});
+
+test('a pit\'s black hole never drags a robot standing at its lip, and it can always walk away', () => {
+  const p = holePit(450000); // the hardest pit in the campaign
+  const b = new Robot(p.far + 16, p.floorY - 31);
+  for (let i = 0; i < 240 * 2; i++) stepRobot(b, { mx: 0 }, p.w, DT);
+  assert.ok(Math.abs(b.x - (p.far + 16)) < 1 && b.onGround, 'standing still, it stays put');
+  let t = 0;
+  for (; t < 3 && b.x < p.far + 16 + 3 * TILE; t += DT) stepRobot(b, { mx: 1 }, p.w, DT);
+  assert.ok(t < 1.3, `three tiles clear of the lip in ${t.toFixed(2)} s, straining against the pull`);
+});

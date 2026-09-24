@@ -1,6 +1,7 @@
 // Enemies: what they are, how they move, and what they do to the robot.
-// DOM-free. Six ways of moving (walking, running, flying straight, flying
-// zig-zag, swooping and jumping), any size, any toughness; some shoot, some
+// DOM-free. Six ways of moving (walking, running, flying straight or round a
+// black hole as its moon, flying zig-zag, swooping and jumping), any size,
+// any toughness; some shoot, some
 // carry a Deflector shield that turns a charge away, some can be stomped.
 // Every one of them goes through the robot's wormholes as the robot does.
 // A folded enemy is only half in this world: a charge passes through it
@@ -67,6 +68,7 @@ export class Enemy {
     this.dir = spec.dir ?? -1;
     this.range = spec.range ?? (this.move === 'fly' ? 220 : this.move === 'zigzag' ? 260 : 0);
     this.axis = spec.axis || 'x'; // a straight flier's line: across, or up and down
+    this.orbit = spec.orbit ? { ...spec.orbit } : null; // { cx, cy, rx, ry, period, a, dir }: a moon, circling a black hole
     this.drop = spec.drop ?? null; // a power-up id, 'shield', or 'random'
     this.onGround = false;
     this.frozen = 0;
@@ -277,6 +279,21 @@ export function stepEnemy(e, world, bot, dt, shoot) {
       break;
     }
     case 'fly': {
+      if (e.orbit) {
+        // A moon: round its black hole on an ellipse, deep in the pull, where every shot at it bends.
+        const o = e.orbit;
+        o.a += (o.dir * TAU * dt) / o.period;
+        e.vx = (o.cx + Math.cos(o.a) * o.rx - e.x) / dt;
+        e.vy = (o.cy + Math.sin(o.a) * o.ry - e.y) / dt;
+        moveBody(e, world, dt, 0);
+        if (e.warped) {
+          // Through a wormhole it is off its orbit for good, and patrols where it came out.
+          e.orbit = null;
+          e.hx = e.x;
+          e.hy = e.y;
+        }
+        break;
+      }
       // A straight line there and back, across or up and down.
       if (e.axis === 'x') {
         e.vx = e.dir * e.speed;

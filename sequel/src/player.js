@@ -97,6 +97,13 @@ export function stepRobot(bot, it, world, dt, hooks = {}) {
     if (gm.path && gm.path.type === 'fall') gm.stoodOn = true;
   }
 
+  // A black hole's pull. On the ground the sideways part goes in before the feet
+  // do their work, so they hold against it the way they hold a standstill:
+  // a robot standing at a pit's lip stays put, and walks away straining.
+  const pull = world.wells.length ? wellsAccel(world.wells, bot.x, bot.y) : null;
+  const held = !!pull && bot.onGround;
+  if (held) bot.vx += pull.ax * ROBOT_PULL * dt;
+
   // Walking and running.
   const mx = Math.abs(it.mx) < 0.15 ? 0 : it.mx;
   const top = it.run ? MOVE.run : MOVE.walk;
@@ -145,12 +152,9 @@ export function stepRobot(bot, it, world, dt, hooks = {}) {
   if (!it.jump) bot.rising = false;
   const g = bot.vy < 0 ? (bot.rising ? MOVE.gUp : MOVE.gCut) : MOVE.gFall;
   bot.vy += g * dt;
-  if (world.wells.length) {
-    const a = wellsAccel(world.wells, bot.x, bot.y);
-    if (a) {
-      bot.vx += a.ax * ROBOT_PULL * dt;
-      bot.vy += a.ay * ROBOT_PULL * dt;
-    }
+  if (pull) {
+    if (!held) bot.vx += pull.ax * ROBOT_PULL * dt; // in the air nothing holds it
+    bot.vy += pull.ay * ROBOT_PULL * dt;
   }
   pulsePush(bot, world, hooks);
   if (bot.vy > MOVE.maxFall) bot.vy = MOVE.maxFall;

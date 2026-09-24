@@ -218,9 +218,20 @@ const PIECES = {
   laser: (rng, d) => ['laser', { len: ri(rng, 8, 12), n: ri(rng, 1, 2), period: 3, on: 1.2 + d * 0.4, roof: 5 }],
   glass: (rng) => ['glass', { n: ri(rng, 1, 3), len: 10, hp: 2, drop: rng() < 0.4 ? 'random' : null }],
   pulse: (rng, d, L) => ['pulse', { len: ri(rng, 12, 16), period: 3.4 - d * 0.6, e: foes(rng, L, 12, 1) }],
-  well: (rng, d) => {
+  well: (rng, d, L) => {
     const w = ri(rng, 6, 8);
-    return ['well', { w, depth: 3, range: 7, pull: 360000 + d * 160000, list: [[w / 2 - 1, 0.5, 2]] }];
+    // Its moons: one, two once the run is hard, from the level's own fliers. They come
+    // from a generator of their own, so the rest of the run is laid as it always was.
+    const own = seeded(L.seed * 97 + w + Math.round(d * 1000));
+    const fliers = Object.fromEntries(Object.entries(L.roster).filter(([k]) => ['fly', 'zigzag'].includes(KINDS[k].move) && !KINDS[k].folded));
+    const quiet = Object.fromEntries(Object.entries(fliers).filter(([k]) => !KINDS[k].shoot));
+    const moons = [];
+    for (let i = 0; i < (d >= 0.6 ? 2 : 1) && Object.keys(fliers).length; i++) {
+      // At most one of them shoots: the other is one of the level's quiet fliers, or a drifter.
+      const pool = i && KINDS[moons[0][0]].shoot ? (Object.keys(quiet).length ? quiet : { drifter: 1 }) : fliers;
+      moons.push([pickW(own, pool), { drop: own() < L.dropRate ? 'random' : null }]);
+    }
+    return ['well', { w, depth: 2.5, range: 9, pull: 330000 + d * 120000, list: [[w / 2 - 1, 0.5, 2]], moons }];
   },
   fount: (rng) => ['fount', { w: ri(rng, 9, 11), push: 900000, depth: 2, range: 10 }],
   phase: (rng, d) => ['phase', { w: 11, n: 3, on: 2.6 - d * 0.4, off: 1.2, up: 1 }],
@@ -465,8 +476,8 @@ export const LEVEL_DEFS = [
     pieces: { run: 4, hop: 3, well: 3, fount: 2, mover: 2, plats: 2, climb: 2, stairs: 1, bricks: 2, spikes: 1, drop: 1, long: 1, slope: 1, chasm: 1, bulkhead: 1 },
     secretsAt: [{ at: 0.3, kind: 'loft', reward: ['durable', 'strong'], up: 8 }, { at: 0.6, kind: 'sky', reward: ['shield', 'big'] }, { at: 0.9, kind: 'cellar', reward: ['triple', 'freeze'] }],
     opening: [
-      ['sign', { text: say('A black hole pulls you and your charges · cross its horizon and it takes a shield', 'A black hole pulls you and your charges · cross its horizon and it takes a shield') }],
-      ['well', { w: 6, depth: 3, range: 6, pull: 300000, list: [[2, 0.5, 2]] }],
+      ['sign', { text: say('A black hole pulls you and your charges · the aim line bends with it · cross its horizon and it takes a shield', 'A black hole pulls you and your charges · the aim line bends with it · cross its horizon and it takes a shield') }],
+      ['well', { w: 6, depth: 2.5, range: 8, pull: 300000, list: [[2, 0.5, 2]], moons: [['drifter']] }],
       ['flat', { len: 4 }],
       ['sign', { text: say('A white hole pushes: let it carry you over', 'A white hole pushes: let it carry you over') }],
       ['fount', { w: 9, push: 900000, depth: 2, range: 10 }],

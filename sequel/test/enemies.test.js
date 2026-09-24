@@ -10,6 +10,9 @@ import { Fx } from '../src/fx.js';
 import { buildLevel } from '../src/build.js';
 import { Charge } from '../src/blaster.js';
 import { BLASTER } from '../src/config.js';
+import { level, LEVEL_DEFS } from '../src/levels.js';
+import { sightLine, placeEnd } from '../src/wormholes.js';
+import { wellsAccel } from '../../src/gamestate.js';
 
 const DT = 1 / 240;
 /** A floor from x 0 to 2000 with a ledge at 1400: beyond it, a drop. */
@@ -163,4 +166,50 @@ test('a drop makes one pickup for each player, and only that player can take it'
   for (let i = 0; i < 240 * 2; i++) g.step(DT, { mx: 0 });
   assert.equal(g.ammo.strong > 0, true, 'the robot took its own');
   assert.equal(g.pickups.filter((p) => p.owner === 1).length, 1, "the other player's is still there");
+});
+
+test('every black hole in a pit has moons: fliers that circle it deep in its pull, clear of its horizon, the walls and the stepping stone', () => {
+  let pits = 0;
+  for (const L of LEVEL_DEFS) {
+    const bp = level(L.id);
+    const g = new Game(bp, { shields: Infinity });
+    for (const hole of g.world.wells.filter((w) => w.pull > 0 && w.x < bp.arena.x0)) {
+      pits++;
+      const moons = g.enemies.filter((e) => e.orbit && e.orbit.cx === hole.x && e.orbit.cy === hole.y);
+      assert.ok(moons.length >= 1 && moons.length <= 2, `level ${L.id}: the hole at x ${Math.round(hole.x)} has ${moons.length} moons`);
+      assert.ok(moons.filter((e) => e.k.shoot).length <= 1, 'at most one of them shoots');
+      const stone = Math.min(...bp.oneWays.filter((o) => o.x0 < hole.x && o.x1 > hole.x && o.y < hole.y).map((o) => o.y));
+      for (const e of moons) {
+        let weakest = Infinity;
+        for (let i = 0; i < 240 * e.orbit.period; i++) {
+          stepEnemy(e, g.world, far, DT, null);
+          assert.ok(!e.bumped && e.orbit, 'it keeps its orbit, touching nothing');
+          assert.ok(Math.hypot(e.x - hole.x, e.y - hole.y) > hole.r + e.r + 20, 'clear of the horizon');
+          assert.ok(e.y - e.r > stone + 10, 'under the stepping stone, where a jump across never meets it');
+          weakest = Math.min(weakest, Math.hypot(...Object.values(wellsAccel(g.world.wells, e.x, e.y))));
+        }
+        assert.ok(weakest > 2000, `a charge anywhere on its orbit is pulled at ${Math.round(weakest)} px/s² or more`);
+      }
+    }
+  }
+  assert.ok(pits >= 10, `${pits} pits with black holes in the campaign`);
+});
+
+test('a moon that goes through a wormhole leaves its orbit for good', () => {
+  const w = ledge();
+  // One end on the wall its orbit runs into, the other in the floor far off.
+  const a = placeEnd(w, sightLine(w, 200, 700, Math.PI), 0);
+  const b = placeEnd(w, sightLine(w, 1000, 900, Math.PI / 2), 1);
+  w.portals[0] = [a, b];
+  const e = new Enemy({ kind: 'drifter', x: 440, y: 700, move: 'fly', orbit: { cx: 200, cy: 700, rx: 240, ry: 40, period: 4, a: 0, dir: 1 } }, 0);
+  let warped = false;
+  for (let i = 0; i < 240 * 4 && !warped; i++) {
+    stepEnemy(e, w, far, DT, null);
+    warped = e.warped;
+  }
+  assert.ok(warped, 'it went through');
+  assert.equal(e.orbit, null, 'and left its orbit');
+  const x = e.x;
+  run(e, w, far, 1);
+  assert.ok(Math.abs(e.x - x) < 400, 'it patrols where it came out, not dragged back');
 });
