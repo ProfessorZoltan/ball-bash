@@ -79,3 +79,20 @@ test('the music doubles for the boss, and settles back after', () => {
   g.step(DT, { mx: 0 });
   assert.ok(g.events.some((e) => e.s === 'bossIntro'), 'the game says when the fight starts');
 });
+
+test('a continue after losing to a boss starts again at the boss\'s door', () => {
+  for (const L of LEVEL_DEFS) {
+    const bp = level(L.id);
+    const g = new Game(bp, { shields: 1 });
+    g.bot.spawn(bp.arena.x0 + 160, bp.arena.floor - 31);
+    g.step(DT, { mx: 0 });
+    assert.ok(g.checkpoints[g.checkpoint].boss, `${L.title}: reaching the boss is a checkpoint`);
+    g.bot.invuln = 0;
+    g.hurt('enemy', { x: g.bot.x, y: g.bot.y });
+    assert.equal(g.phase, 'down');
+    const again = new Game(bp, { shields: 5, checkpoint: g.checkpoint, stats: { ...g.stats, continues: 1 } });
+    assert.ok(again.bot.x > bp.arena.x0 && again.bot.x < bp.arena.x0 + 200, `${L.title}: back at the door`);
+    again.step(DT, { mx: 0 });
+    assert.equal(again.phase, 'intro', `${L.title}: and straight into the fight`);
+  }
+});

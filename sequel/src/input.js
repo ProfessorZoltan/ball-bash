@@ -1,15 +1,16 @@
 // Keyboard, mouse and controller, turned into one intent per frame.
 //
 // Controller (standard mapping, e.g. Xbox): left stick or d-pad moves, A
-// jumps, X held runs, the right stick points the blaster, RT held shows the
-// targeting line and letting go fires, LB / RB held show a wormhole end's
-// aim line and letting go opens it, LT cycles the power-ups, Start pauses.
+// jumps, X held runs, the right stick points the blaster, RT fires, LB and
+// RB open the light and dark wormhole ends, LT cycles the power-ups, Start
+// pauses.
 //
 // Keyboard and mouse: W A S D move (S held on a thin platform drops through
 // it), Space jumps, 2 held runs, the mouse points the blaster (or the arrow
-// keys swing it toward where they point), left click or / held shows the
-// targeting line and letting go fires, Q and E held aim the light and dark
-// wormhole ends and letting go opens them, 1 cycles the power-ups.
+// keys swing it toward where they point), left click or / fires, Q and E
+// open the light and dark wormhole ends, 1 cycles the power-ups.
+//
+// Nothing is held to aim: the aim line is always up, and a press acts.
 const DEAD = 0.25; // stick travel ignored round the centre
 const AIM_DEAD = 0.45; // the right stick has to be pushed this far to point
 const TRIGGER_ON = 0.45;
@@ -211,10 +212,8 @@ export class Input {
       jump,
       jumpPressed: jump && !this.prev.jump,
       aim,
-      fire,
-      fireUp: !fire && this.prev.fire,
-      worm,
-      wormUp: [!worm[0] && this.prev.worm[0], !worm[1] && this.prev.worm[1]],
+      fire: fire && !this.prev.fire, // pressed this frame
+      worm: [worm[0] && !this.prev.worm[0], worm[1] && !this.prev.worm[1]],
       cycle: cycleNow && !this.prev.cycle,
     };
     this.prev = { fire, worm, jump, cycle: cycleNow };

@@ -1,7 +1,7 @@
 // Solving a wormhole puzzle the way a player would, in the real game: stand
-// at the near side, sweep the aim until the dark end's line of sight lands
-// on the far wall, let go, point at the floor underfoot, let go again, and
-// fall through. Used by the tests on every puzzle in every level.
+// at the near side, sweep the aim until the line of sight lands on the far
+// wall, open the dark end there, point at the floor underfoot, open the
+// light end, and fall through. Used by the tests on every puzzle in every level.
 //
 // Usage: node sequel/tools/solve.mjs [level id]
 import { Game } from '../src/game.js';
@@ -31,15 +31,12 @@ export function solve(game, link) {
     if (p && p.nx < -0.9 && Math.abs(p.cx - wallX) < 6) aim = a;
   }
   if (aim == null) return { ok: false, reason: 'no line of sight to the far wall' };
-  const hold = (a, which, steps) => {
-    for (let i = 0; i < steps; i++) {
-      const worm = [which === 0, which === 1];
-      game.step(DT, { mx: 0, aim: a, worm, wormUp: [false, false] });
-    }
-    game.step(DT, { mx: 0, aim: a, worm: [false, false], wormUp: [which === 0, which === 1] });
+  const press = (a, which) => {
+    game.step(DT, { mx: 0, aim: a, worm: [which === 0, which === 1] });
+    for (let i = 0; i < 10; i++) game.step(DT, { mx: 0, aim: a });
   };
-  hold(aim, 1, 10);
-  hold(Math.PI / 2, 0, 10);
+  press(aim, 1);
+  press(Math.PI / 2, 0);
   for (let i = 0; i < 240 * 2; i++) game.step(DT, { mx: 0 });
   const across = link.kind === 'bulkhead' ? bot.x > link.wall + 80 && bot.x < link.face : bot.x > link.to.x - 100 && bot.x < link.wall;
   return { ok: across && bot.onGround, aim, x: bot.x, y: bot.y };

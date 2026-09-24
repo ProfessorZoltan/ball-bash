@@ -14,6 +14,39 @@ const MAX_TILES = 80;
 const VIEW_H = 720; // world px the screen is tall, outside an arena
 const STRIP_W = 2400; // screen px of a parallax strip before it repeats
 
+/** How the camera follows: world px and seconds. */
+const CAM = {
+  lookMoving: 120, // px ahead of the robot while it moves
+  lookStill: 60, // and while it stands
+  lookRate: 140, // px/s the lead drifts at: about walking pace, so turning round pans gently
+  raise: 50, // px the view sits above the robot's feet line
+  above: 230, // px the robot may climb above the ground it last stood on before the view follows
+  below: 110, // and fall below it
+  smoothX: 0.38, // seconds the spring takes to settle, across
+  smoothY: 0.5, // and up and down
+  smoothFall: 0.18, // falling fast, it keeps up
+  smoothArena: 0.6,
+};
+
+/**
+ * A critically damped spring toward `target`: returns [position, velocity].
+ * It starts and stops smoothly and settles without swinging past a target
+ * that has stopped. It is never cut short on arrival: stopping it dead
+ * there is itself a jolt, while the lead is still drifting.
+ */
+function smoothDamp(cur, target, vel, time, dt) {
+  const omega = 2 / Math.max(1e-4, time);
+  const x = omega * dt;
+  const exp = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
+  const change = cur - target;
+  const temp = (vel + omega * change) * dt;
+  return [target + (change + temp) * exp, (vel - omega * temp) * exp];
+}
+
+function approachTo(v, target, step) {
+  return v < target ? Math.min(target, v + step) : Math.max(target, v - step);
+}
+
 export class Renderer {
   constructor(canvas) {
     this.canvas = canvas;
@@ -95,39 +128,82 @@ export class Renderer {
     return { x: (sx - this.w / 2) / this.scale + this.cam.x, y: (sy - this.h / 2) / this.scale + this.cam.y };
   }
 
-  /** Move the camera toward where it should be: ahead of the robot, or holding the arena whole. */
+  /**
+   * Move the camera. It rides a damped spring (it eases in and eases out,
+   * never jerks) toward a point a little ahead of the robot. The lead drifts
+   * to the side the robot faces at a walking pace, so stopping never swings
+   * the view back; and the height follows the ground the robot last stood
+   * on, not every jump, until the robot climbs or drops well away from it.
+   * In a boss arena it holds the whole room.
+   */
   updateCamera(game, alpha, dt) {
     const bp = this.bp;
     const bot = game.bot;
-    const bx = lerp(bot.prevX, bot.x, alpha);
-    const by = lerp(bot.prevY, bot.y, alpha);
-    let tx = bx + Math.cos(bot.aim) * 90 + clamp(bot.vx * 0.3, -160, 160);
-    let ty = by - 50 + clamp(bot.vy * 0.12, -60, 120);
+    const c = this.cam;
+    const bx = bot.warped ? bot.x : lerp(bot.prevX, bot.x, alpha);
+    const by = bot.warped ? bot.y : lerp(bot.prevY, bot.y, alpha);
+    const halfW = this.w / 2 / this.scale;
+    const halfH = this.h / 2 / this.scale;
+    if (!c.set) {
+      c.look = bot.facing * CAM.lookStill;
+      c.anchor = by;
+      c.x = bx + c.look;
+      c.y = by - CAM.raise;
+      c.vx = 0;
+      c.vy = 0;
+      c.set = true;
+    }
+    c.look = approachTo(c.look, bot.facing * (Math.abs(bot.vx) > 30 ? CAM.lookMoving : CAM.lookStill), CAM.lookRate * dt);
+    if (bot.onGround) c.anchor = by;
+    else c.anchor = clamp(c.anchor, by - CAM.below, by + CAM.above);
+    let tx = bx + c.look;
+    let ty = c.anchor - CAM.raise;
     let scale = this.base;
+    let smoothX = CAM.smoothX;
+    let smoothY = bot.vy > 700 ? CAM.smoothFall : CAM.smoothY;
     const A = bp.arena;
     const inArena = A && ['intro', 'boss', 'bossDown', 'exit'].includes(game.phase) && bx > A.x0 - 40 && bx < A.x1 && by > A.top - 100 && by < A.floor + 60;
     if (inArena) {
       tx = (A.x0 + A.x1) / 2;
       ty = (A.top + A.floor) / 2 - 10;
       scale = Math.min(this.h / (A.h + 110), this.w / (A.w + 80));
+      smoothX = smoothY = CAM.smoothArena;
     }
-    const k = 1 - Math.exp(-dt * (inArena ? 3 : 5));
-    const ky = 1 - Math.exp(-dt * (bot.vy > 600 ? 9 : 4));
-    if (!this.cam.set || bot.warped) {
-      this.cam.x = tx;
-      this.cam.y = ty;
-      this.cam.set = true;
+    // The level's edges bound where it heads, not where it is: it eases up to an edge instead of stopping dead on it.
+    const edgeX = (hw) => clamp(tx, hw - 200, bp.width - hw + 200);
+    tx = edgeX(this.w / 2 / scale);
+    ty = clamp(ty, bp.top + this.h / 2 / scale, bp.height - this.h / 2 / scale);
+    // Through a wormhole to somewhere far off: cut there rather than sweep across the level.
+    if (bot.warped && Math.hypot(tx - c.x, ty - c.y) > halfW * 1.2) {
+      c.x = tx;
+      c.y = ty;
+      c.vx = 0;
+      c.vy = 0;
     } else {
-      this.cam.x += (tx - this.cam.x) * k;
-      this.cam.y += (ty - this.cam.y) * (inArena ? k : ky);
+      [c.x, c.vx] = smoothDamp(c.x, tx, c.vx, smoothX, dt);
+      [c.y, c.vy] = smoothDamp(c.y, ty, c.vy, smoothY, dt);
     }
-    this.scale += (scale - this.scale) * (1 - Math.exp(-dt * 3));
+    // Whatever the spring is doing, the robot never goes off screen.
+    if (!inArena) {
+      const mx = halfW * 0.72;
+      const up = halfH * 0.62;
+      const down = halfH * 0.7;
+      if (bx - c.x > mx) c.x = bx - mx;
+      if (c.x - bx > mx) c.x = bx + mx;
+      if (by - c.y > down) c.y = by - down;
+      if (c.y - by > up) c.y = by + up;
+    }
+    this.scale += (scale - this.scale) * (1 - Math.exp(-dt * 2.5));
     if (Math.abs(this.scale - scale) < 0.001) this.scale = scale;
-    // Keep the view inside the level.
-    const halfW = this.w / 2 / this.scale;
-    const halfH = this.h / 2 / this.scale;
-    this.cam.x = clamp(this.cam.x, halfW - 200, bp.width - halfW + 200);
-    this.cam.y = clamp(this.cam.y, bp.top + halfH, bp.height - halfH);
+    // Never past the level's edges, whatever the zoom is doing.
+    const hw = this.w / 2 / this.scale;
+    const hh = this.h / 2 / this.scale;
+    const x = clamp(c.x, hw - 200, bp.width - hw + 200);
+    const y = clamp(c.y, bp.top + hh, bp.height - hh);
+    if (x !== c.x) c.vx = 0;
+    if (y !== c.y) c.vy = 0;
+    c.x = x;
+    c.y = y;
   }
 
   /** Point the camera somewhere directly (the title screen's slow pan). */
@@ -1127,7 +1203,7 @@ function drawGuide(ctx, lines, color, scale) {
         const a = 1 - n / Math.max(1, total);
         n += 2;
         if (i % 6) continue;
-        ctx.fillStyle = withAlpha(color, 0.15 + 0.7 * a);
+        ctx.fillStyle = withAlpha(color, 0.12 + 0.55 * a);
         ctx.beginPath();
         ctx.arc(leg[i][0], leg[i][1], 2.6 / Math.sqrt(scale), 0, TAU);
         ctx.fill();
@@ -1144,40 +1220,42 @@ function drawGuide(ctx, lines, color, scale) {
   }
 }
 
-/** A wormhole's aim line: dashed in the end's own shade, and the end itself ghosted where it will land. */
+/**
+ * Where a wormhole end would open: a ghost of the mouth, half in each end's
+ * shade, on the surface the aim line meets first; a red cross where no end
+ * can sit; nothing when the line meets nothing. (The line itself is the
+ * targeting line's first leg: a charge and a line of sight fly the same.)
+ */
 function drawSight(ctx, s, t, scale) {
-  const col = portalHue(ROBOT.color, s.which);
   const line = s.line;
-  ctx.strokeStyle = withAlpha(col, 0.85);
-  ctx.lineWidth = 2 / Math.sqrt(scale);
-  ctx.setLineDash([10, 8]);
-  ctx.lineDashOffset = -t * 60;
-  ctx.beginPath();
-  line.pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
-  ctx.stroke();
-  ctx.setLineDash([]);
-  ctx.lineDashOffset = 0;
-  const end = line.pts[line.pts.length - 1];
+  if (!line.hit) return;
   if (s.place) {
     const p = s.place;
     ctx.save();
     ctx.translate(p.cx, p.cy);
     ctx.rotate(Math.atan2(p.nx, -p.ny));
-    ctx.strokeStyle = col;
-    ctx.globalAlpha = 0.55 + 0.35 * Math.sin(t * 10);
-    ctx.lineWidth = 3;
+    ctx.globalAlpha = 0.45 + 0.25 * Math.sin(t * 6);
+    ctx.lineWidth = 2 / Math.sqrt(scale);
+    ctx.setLineDash([7, 6]);
+    ctx.strokeStyle = portalHue(ROBOT.color, 0);
     ctx.beginPath();
-    ctx.ellipse(0, 0, p.hw, 10, 0, 0, TAU);
+    ctx.ellipse(0, 0, p.hw, 9, 0, Math.PI, Math.PI * 2);
     ctx.stroke();
-    ctx.restore();
-  } else if (end) {
-    ctx.strokeStyle = '#ff5c7a';
-    ctx.lineWidth = 3;
+    ctx.strokeStyle = portalHue(ROBOT.color, 1);
     ctx.beginPath();
-    ctx.moveTo(end[0] - 9, end[1] - 9);
-    ctx.lineTo(end[0] + 9, end[1] + 9);
-    ctx.moveTo(end[0] + 9, end[1] - 9);
-    ctx.lineTo(end[0] - 9, end[1] + 9);
+    ctx.ellipse(0, 0, p.hw, 9, 0, 0, Math.PI);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  } else {
+    const [x, y] = line.pts[line.pts.length - 1];
+    ctx.strokeStyle = 'rgba(255, 92, 122, 0.8)';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(x - 7, y - 7);
+    ctx.lineTo(x + 7, y + 7);
+    ctx.moveTo(x + 7, y - 7);
+    ctx.lineTo(x - 7, y + 7);
     ctx.stroke();
   }
 }

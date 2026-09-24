@@ -74,8 +74,8 @@ all of them to one GitHub Release (a tag with a `-` in it, like an alpha, is
 marked pre-release):
 
 ```bash
-git tag v2.0.0-alpha
-git push origin v2.0.0-alpha
+git tag v3.0.0-alpha
+git push origin v3.0.0-alpha
 ```
 
 **Run workflow** on the Actions tab builds without publishing; the files are in
@@ -1006,9 +1006,12 @@ secrets) gives one back, never above the difficulty's pool.
 
 ### Controls
 
-Holding is aiming; letting go is acting. The blaster and both wormhole ends
-each show their line while their button is held and act when it is let go,
-on the controller and the keyboard alike.
+Nothing is held to aim. The aim line is always up: a dotted line showing
+where a shot will go (its bounces and bends included), with a ghost of the
+mouth on the first surface it meets, where a wormhole end would open (a red
+cross where none can sit). A press fires, or opens that end, at once. A
+press made while the blaster is still cooling fires the moment it can. The
+line can be turned off under **Aim line** on the title screen.
 
 | Action | Controller | Keyboard and mouse | Source |
 | --- | --- | --- | --- |
@@ -1016,9 +1019,9 @@ on the controller and the keyboard alike.
 | Jump (hold for higher) | A | Space | same |
 | Run | hold X while moving | hold 2 while moving | same |
 | Aim the blaster | right stick points it | mouse points it; the arrow keys swing it toward where they point | same |
-| Fire | hold RT for the targeting line, let go to fire | hold left click or / , let go | same |
-| Light wormhole end | hold LB for its aim line, let go to open it | hold Q, let go | same |
-| Dark wormhole end | hold RB, let go | hold E, let go | same |
+| Fire | RT | left click or / | same |
+| Open the light wormhole end | LB | Q | same |
+| Open the dark wormhole end | RB | E | same |
 | Cycle power-ups | LT | 1 | same |
 | Drop through a thin platform | hold down | hold S | `stepRobot` in `sequel/src/player.js` |
 | Pause, mute, fullscreen | Start | Esc or P, M, F | `frame` in `sequel/src/main.js` |
@@ -1036,13 +1039,22 @@ platforms and lands on them, and is carried by moving ones.
 
 | Figure | Value | Source |
 | --- | --- | --- |
-| Walking / running speed | 220 / 360 px/s | `MOVE` in `sequel/src/config.js` |
-| Walking jump, held | 4.5 tiles high, about 4.6 across | same |
+| Walking / running speed | 245 / 360 px/s | `MOVE` in `sequel/src/config.js` |
+| Walking jump, held | 4.5 tiles high, about 5.2 across | same |
 | Running jump, held | 5.5 tiles high, about 8.5 across | same |
 | A tap of jump | under 2 tiles | `gCut`, same |
 | Gravity: rising with jump held / let go / falling | 1500 / 4000 / 2800 px/s² | same |
 | Coyote time, jump buffer | 0.08 s, 0.12 s | same |
 | A black hole's pull on the robot | half what it pulls a charge | `ROBOT_PULL`, same |
+
+The camera rides a damped spring, so it eases in and out and never jerks.
+It leads a little toward the side the robot faces, drifting there at about
+walking pace, so stopping or turning never swings the view back at once;
+and it holds the height of the ground the robot last stood on, not every
+jump, until the robot climbs or drops well away from it. The robot never
+leaves the screen, and a wormhole that carries it more than a screen away
+cuts there rather than sweeping across the level. In a boss arena the view
+holds the whole room (`updateCamera` and `CAM` in `sequel/src/render.js`).
 
 ### The blaster
 
@@ -1052,7 +1064,8 @@ at the speed it arrived and takes a moving part's motion, is bent by wells
 and taken by a horizon, and goes through wormholes. The targeting line is
 that charge flown ahead for 1.6 s by the same code (`guideLine` in
 `sequel/src/blaster.js`), so every bounce, bend and wormhole it shows is
-real. A new charge is ready 0.22 s after the last. Your own charges never
+real, and it is always on screen. A new charge is ready 0.22 s after the
+last. Your own charges never
 hurt you, and a charge that meets an enemy's shot knocks it out of the air.
 
 Power-ups drop from some enemies, some crates and every secret. Each pickup
@@ -1065,7 +1078,7 @@ game already makes them that way (`drop` in `sequel/src/game.js`).
 | Power-up | What it does | Source |
 | --- | --- | --- |
 | Titan | a charge three times the size; it carries on through what it kills | `POWERUPS`, `POWER` in `sequel/src/config.js` |
-| Trident | three charges, half a degree apart | same |
+| Trident | three charges, a degree apart | same |
 | Frost | freezes an enemy solid for five seconds (no damage): it stops, it is harmless, and it is a block to stand on, in mid-air if it was flying; a boss is only slowed, for 2.5 s | same |
 | Longwave | lives six seconds instead of three | same |
 | Hammer | double damage | same |
@@ -1094,7 +1107,7 @@ Some things only a wormhole gets you past, on purpose:
 
 | What | How it is beaten | Source |
 | --- | --- | --- |
-| A bulkhead | a wall from the floor to far above any jump, with a gap under it too low for the robot but tall enough to see and shoot under. Aim an end under it at the pillar beyond, the other at your feet, and step in | `SECTIONS.bulkhead` in `sequel/src/build.js` |
+| A bulkhead | a wall from the floor to far above any jump, with a 52 px gap under it: too low for the 60 px robot, tall enough to see and shoot under, level or a few degrees either side. Aim an end under it at the pillar beyond, the other at your feet, and step in | `SECTIONS.bulkhead` in `sequel/src/build.js` |
 | A chasm | too wide for any jump, with a wall facing back across it. One end on that wall, the other at your feet | `SECTIONS.chasm`, same file |
 | A folded enemy (Wraith, Echo, Shade, or any enemy placed folded) | it is only half here: a charge passes straight through it unless the charge has itself been through a wormhole (anyone's). Drawn doubled and flickering | `folded` in `sequel/src/enemies.js`, `stepCharges` in `sequel/src/game.js` |
 | A folded room | an ambush room that locks until its folded waves are beaten | `PIECES.foldroom` in `sequel/src/levels.js` |

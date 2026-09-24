@@ -69,7 +69,7 @@ test('the durable charge lives six seconds instead of three', () => {
   assert.equal(POWER.durableLife, 6);
 });
 
-test('the triple shot fires three charges half a degree apart', () => {
+test('the triple shot fires three charges a degree apart', () => {
   const g = field();
   g.ammo.triple = 5;
   g.loaded = 'triple';
@@ -77,8 +77,8 @@ test('the triple shot fires three charges half a degree apart', () => {
   g.fire();
   assert.equal(g.charges.length, 3);
   const angles = g.charges.map((c) => Math.atan2(c.vy, c.vx)).sort((a, b) => a - b);
-  const half = (0.5 * Math.PI) / 180;
-  assert.ok(Math.abs(angles[1] - angles[0] - half) < 1e-9 && Math.abs(angles[2] - angles[1] - half) < 1e-9);
+  const degree = Math.PI / 180;
+  assert.ok(Math.abs(angles[1] - angles[0] - degree) < 1e-9 && Math.abs(angles[2] - angles[1] - degree) < 1e-9);
   assert.equal(g.ammo.triple, 4, 'one volley is one charge of ammunition');
 });
 
@@ -150,4 +150,23 @@ test('the targeting line is the path the charge then flies', () => {
   const p = line[60];
   assert.ok(Math.hypot(p[0] - c.x, p[1] - c.y) < 1e-6, 'the half-second mark on the line is where the charge is');
   assert.ok(Math.abs(Math.atan2(c.vy, c.vx) + 0.4) > 0.05, 'and the well has bent both');
+});
+
+test('a press fires one charge, and holding the button fires no more', () => {
+  const g = field();
+  g.bot.aim = -0.3;
+  g.step(DT, { mx: 0, fire: true });
+  assert.equal(g.charges.length, 1, 'the press fired');
+  for (let i = 0; i < 240; i++) g.step(DT, { mx: 0, fire: false });
+  assert.equal(g.charges.length, 1, 'holding it down is not another press');
+});
+
+test('a press while the blaster is still cooling fires the moment it is ready', () => {
+  const g = field();
+  g.bot.aim = -0.3;
+  g.step(DT, { mx: 0, fire: true });
+  g.step(DT, { mx: 0, fire: true });
+  assert.equal(g.charges.length, 1);
+  for (let i = 0; i < 240 * BLASTER.cooldown + 2; i++) g.step(DT, { mx: 0 });
+  assert.equal(g.charges.length, 2, 'the early press was kept, not lost');
 });

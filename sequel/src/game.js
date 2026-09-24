@@ -81,6 +81,8 @@ export class Game {
     this.loaded = opts.loaded && this.ammo[opts.loaded] > 0 ? opts.loaded : 'std';
     this.checkpoints = (bp.checkpoints || []).map((c) => ({ ...c, on: false }));
     this.checkpoint = opts.checkpoint ?? -1;
+    // A checkpoint this level does not have (a save from an older build of it) starts the level over.
+    if (!(this.checkpoint < this.checkpoints.length)) this.checkpoint = -1;
     const at = this.checkpoint >= 0 ? this.checkpoints[this.checkpoint] : bp.spawn;
     for (let i = 0; i <= this.checkpoint; i++) this.checkpoints[i].on = true;
     this.bot = new Robot(at.x, at.y);
@@ -113,8 +115,7 @@ export class Game {
       live: [],
     }));
     this.pits = bp.pits || [];
-    this.fireHeld = false;
-    this.wormHeld = [false, false];
+    this.firePending = 0; // a press that came while the blaster was still cooling: it fires the moment it can
     this.tally = { shots: 0, warps: 0 };
     this.lastJumpHeld = false;
   }
@@ -143,8 +144,8 @@ export class Game {
 
   /**
    * One physics step. `it`: mx, run, jump, jumpPressed, down, aim (radians,
-   * or null to keep), fire (held), fireUp (let go this step), worm [held,
-   * held], wormUp [let go, let go], cycle (pressed).
+   * or null to keep), fire (pressed this step), worm [light end pressed,
+   * dark end pressed], cycle (pressed).
    */
   step(dt, it) {
     const bot = this.bot;
@@ -193,10 +194,12 @@ export class Game {
     if (this.inPit(bot.x, bot.top)) this.hurt('fell', null, true);
 
     this.cool -= dt;
-    this.fireHeld = !!it.fire;
-    if (it.fireUp) this.fire();
-    this.wormHeld = [!!(it.worm && it.worm[0]), !!(it.worm && it.worm[1])];
-    if (it.wormUp) for (let k = 0; k < 2; k++) if (it.wormUp[k]) this.deploy(k);
+    if (it.fire) this.firePending = BLASTER.cooldown + 0.05; // a press during the cooldown is kept, not lost
+    if (this.firePending > 0) {
+      if (this.fire()) this.firePending = 0;
+      else this.firePending -= dt;
+    }
+    if (it.worm) for (let k = 0; k < 2; k++) if (it.worm[k]) this.deploy(k);
     if (it.cycle) this.cycle();
 
     this.stepCharges(dt);
@@ -821,15 +824,10 @@ export class Game {
 
   /** Reaching the boss counts as a checkpoint, so a continue starts the fight over rather than the level. */
   bossCheckpoint() {
-    const A = this.arena;
     const idx = this.checkpoints.findIndex((c) => c.boss);
-    if (idx >= 0) {
-      this.checkpoints[idx].on = true;
-      this.checkpoint = Math.max(this.checkpoint, idx);
-      return;
-    }
-    this.checkpoints.push({ x: A.x0 + 110, y: A.floor - 40, boss: true, on: true, hidden: true });
-    this.checkpoint = this.checkpoints.length - 1;
+    if (idx < 0) return;
+    this.checkpoints[idx].on = true;
+    this.checkpoint = Math.max(this.checkpoint, idx);
   }
 
   // --------------------------------------------------------------- hazards

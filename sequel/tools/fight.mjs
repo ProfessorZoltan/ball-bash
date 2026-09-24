@@ -138,7 +138,7 @@ export function fight(id, { limit = 240, angles = 40, seed = 7, portals = true }
       }
       const before = game.boss.hp;
       const fire = found && game.cool <= 0;
-      game.step(DT, { ...idle, aim, fire: false, fireUp: fire });
+      game.step(DT, { ...idle, aim, fire });
       if (fire) {
         shots++;
         found = false;

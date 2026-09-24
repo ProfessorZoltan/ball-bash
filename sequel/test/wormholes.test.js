@@ -175,3 +175,12 @@ test('every bulkhead and chasm in every level is solved by wormholes, and by not
   }
   assert.ok(solved >= 10, `${solved} puzzles in the game`);
 });
+
+test('pressing an end\'s button opens it where the aim line meets a surface', () => {
+  const g = new Game(buildLevel({ id: 72, boss: 'gardener', theme: {}, sections: [['flat', { len: 40, deco: false }]] }), { shields: 5 });
+  g.bot.aim = Math.PI / 2;
+  g.step(DT, { mx: 0, worm: [true, false] });
+  const p = g.world.portals[0][0];
+  assert.ok(p && Math.abs(p.cy - 0) < 1, 'the light end is in the floor at its feet');
+  assert.equal(g.world.portals[0][1], null, 'and the dark end is not out yet');
+});

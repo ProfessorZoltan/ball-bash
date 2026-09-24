@@ -43,7 +43,7 @@ export const ROBOT = {
  * air steers nearly as well as the ground does.
  */
 export const MOVE = {
-  walk: 220, // px/s top speed walking
+  walk: 245, // px/s top speed walking
   run: 360, // px/s top speed with the run button held
   accel: 1050, // px/s² speeding up on the ground
   runAccel: 1250,
@@ -88,7 +88,7 @@ export const BLASTER = {
  */
 export const POWERUPS = [
   { id: 'big', name: 'Titan', blurb: 'a charge three times the size', color: '#ffb347', glyph: '●' },
-  { id: 'triple', name: 'Trident', blurb: 'three charges, half a degree apart', color: '#9dff5c', glyph: '⋔' },
+  { id: 'triple', name: 'Trident', blurb: 'three charges, a degree apart', color: '#9dff5c', glyph: '⋔' },
   { id: 'freeze', name: 'Frost', blurb: 'freezes what it hits for five seconds', color: '#8fdcff', glyph: '❄' },
   { id: 'durable', name: 'Longwave', blurb: 'lives six seconds instead of three', color: '#c9a2ff', glyph: '∿' },
   { id: 'strong', name: 'Hammer', blurb: 'double damage', color: '#ff5c7a', glyph: '✦' },
@@ -97,7 +97,7 @@ export const POWER = {
   ammo: 15,
   maxAmmo: 45,
   bigScale: 3,
-  tripleSpread: (0.5 * Math.PI) / 180,
+  tripleSpread: Math.PI / 180, // one degree between the three
   freeze: 5, // seconds an enemy stays frozen
   bossChill: 2.5, // seconds a boss is slowed instead
   bossChillRate: 0.45, // and how much of its speed it keeps

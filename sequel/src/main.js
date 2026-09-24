@@ -38,7 +38,7 @@ function save(key, value) {
   }
 }
 
-const settings = { difficulty: DEFAULT_DIFFICULTY, muted: false, quality: 'high', ...load(STORE.settings, {}) };
+const settings = { difficulty: DEFAULT_DIFFICULTY, muted: false, quality: 'high', aimLine: true, ...load(STORE.settings, {}) };
 let run = load(STORE.run, null); // the campaign in progress, if any
 const cleared = new Set(load(STORE.cleared, []));
 const best = load(STORE.best, {});
@@ -340,6 +340,7 @@ function showTitle() {
           </div>
           <div class="field"><label for="diff">Difficulty</label><select id="diff">${DIFFICULTIES.map((x) => `<option value="${x.id}" ${x.id === d.id ? 'selected' : ''}>${x.name} · ${x.blurb}</option>`).join('')}</select></div>
           <div class="field"><label for="snd">Sound</label><select id="snd"><option value="on" ${settings.muted ? '' : 'selected'}>On</option><option value="off" ${settings.muted ? 'selected' : ''}>Off</option></select><label for="q">Quality</label><select id="q"><option value="high" ${settings.quality === 'high' ? 'selected' : ''}>High</option><option value="low" ${settings.quality === 'low' ? 'selected' : ''}>Low</option></select></div>
+          <div class="field"><label for="aimline">Aim line</label><select id="aimline"><option value="on" ${settings.aimLine ? 'selected' : ''}>On</option><option value="off" ${settings.aimLine ? '' : 'selected'}>Off</option></select></div>
           <details><summary>Controls</summary>${controlsTable()}</details>
           <div class="row" style="justify-content:flex-start"><button id="deflector" title="Back to the first game">← Deflector</button></div>
         </div>
@@ -367,6 +368,10 @@ function showTitle() {
     await unlockAudio();
     audio.setMuted(settings.muted);
     playMusic('defector');
+  };
+  $('aimline').onchange = (e) => {
+    settings.aimLine = e.target.value === 'on';
+    saveSettings();
   };
   $('q').onchange = (e) => {
     settings.quality = e.target.value;
@@ -400,9 +405,9 @@ function controlsTable() {
     ['Jump (hold for higher)', 'Space', 'A'],
     ['Run', 'Hold 2 while moving', 'Hold X while moving'],
     ['Aim the blaster', 'Mouse (point), or the arrow keys', 'Right stick (point)'],
-    ['Fire', 'Hold left click or / for the targeting line, let go to fire', 'Hold RT for the targeting line, let go to fire'],
-    ['Light wormhole end', 'Hold Q for its aim line, let go to open it', 'Hold LB, let go'],
-    ['Dark wormhole end', 'Hold E, let go', 'Hold RB, let go'],
+    ['Fire', 'Left click or /', 'RT'],
+    ['Open the light wormhole end', 'Q', 'LB'],
+    ['Open the dark wormhole end', 'E', 'RB'],
     ['Cycle power-ups', '1', 'LT'],
     ['Drop through a thin platform', 'Hold S', 'Hold down'],
     ['Pause / mute / fullscreen', 'Esc or P / M / F', 'Start'],
@@ -542,7 +547,7 @@ function frame(now) {
     while (acc >= PHYSICS_DT && steps < 30) {
       game.step(PHYSICS_DT, it);
       // Presses and releases belong to the first step of the frame only.
-      it = { ...it, jumpPressed: false, fireUp: false, wormUp: [false, false], cycle: false };
+      it = { ...it, jumpPressed: false, fire: false, worm: [false, false], cycle: false };
       acc -= PHYSICS_DT;
       steps++;
     }
@@ -556,12 +561,11 @@ function frame(now) {
   if (game) {
     renderer.updateCamera(game, alpha, dt);
     const ui = { device: input.device };
-    if (state === 'play' && game.fireHeld) ui.guide = game.guide();
-    const wh = game.wormHeld;
-    if (state === 'play' && (wh[0] || wh[1])) {
-      const which = wh[0] ? 0 : 1;
+    if (settings.aimLine && (state === 'play' || state === 'paused') && game.phase !== 'down' && game.phase !== 'cleared') {
+      // Always up: where a shot goes, and where a wormhole end would open.
+      ui.guide = game.guide();
       const line = game.sight();
-      ui.sight = { line, which, place: placeEnd(game.world, line, which) };
+      ui.sight = { line, place: placeEnd(game.world, line, 0) || placeEnd(game.world, line, 1) };
     }
     renderer.frame(game, alpha, clock, ui);
   } else {

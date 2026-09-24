@@ -653,7 +653,7 @@ export const SECTIONS = {
     b.flat(p.run ?? 6);
     const wx = b.x;
     const floorY = b.y;
-    const gap = (p.gap ?? 0.9) * T;
+    const gap = (p.gap ?? 1.3) * T; // 52 px: easy to see and shoot under, and still short of the robot's 60
     const tall = (p.tall ?? 11) * T;
     b.flat(2);
     b.solid(wx, floorY - tall, 2 * T, tall - gap, 'bulkhead');
@@ -730,6 +730,8 @@ function arena(b, id) {
     b.bp.springs.push(rec);
   }
   b.bp.arena = { boss: id, x0, x1, top, floor, door, cx: (x0 + x1) / 2, cy: (top + floor) / 2, w: A.w, h: A.h, dark: !!def.dark };
+  // Just inside the door: the checkpoint a continue at the boss starts from, straight back into the fight.
+  b.bp.checkpoints.push({ x: x0 + 110, y: floor - 40, boss: true, hidden: true });
   b.x = x1 + 400;
   b.run.pts.push([b.x, floor]);
   b.minY = Math.min(b.minY, top - 300);
