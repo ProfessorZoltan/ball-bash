@@ -194,7 +194,11 @@ export class Game {
     if (this.inPit(bot.x, bot.top)) this.hurt('fell', null, true);
 
     this.cool -= dt;
-    if (it.fire) this.firePending = BLASTER.cooldown + 0.05; // a press during the cooldown is kept, not lost
+    if (it.fire) {
+      // A press during the cooldown is kept, not lost. One with six already out is refused, audibly.
+      if (this.roomFor(this.spec)) this.firePending = BLASTER.cooldown + 0.05;
+      else this.emit('dry');
+    }
     if (this.firePending > 0) {
       if (this.fire()) this.firePending = 0;
       else this.firePending -= dt;
@@ -218,9 +222,8 @@ export class Game {
   fire() {
     const bot = this.bot;
     if (this.cool > 0 || this.phase === 'down' || this.phase === 'cleared') return false;
-    const mine = this.charges.length;
     const spec = this.spec;
-    if (mine + spec.spread.length > BLASTER.maxAlive + 2) return false;
+    if (!this.roomFor(spec)) return false;
     this.cool = BLASTER.cooldown;
     const sh = bot.shoulder;
     for (const off of spec.spread) {
@@ -243,6 +246,11 @@ export class Game {
     this.fx.ring(sh.x + Math.cos(bot.aim) * BLASTER.muzzle, sh.y + Math.sin(bot.aim) * BLASTER.muzzle, spec.color, 36, 0.2, 2);
     this.emit('fire', { kind: spec.kind });
     return true;
+  }
+
+  /** Is there room in the air for a volley of `spec`? A whole volley or none: a trident needs three free. */
+  roomFor(spec) {
+    return this.charges.length + spec.spread.length <= BLASTER.maxAlive;
   }
 
   /** The targeting line for what is loaded, from where the robot stands. */
@@ -962,6 +970,8 @@ export class Game {
       time: this.time,
       loaded: this.loaded,
       ammo: this.ammo,
+      charges: this.charges.length,
+      maxCharges: BLASTER.maxAlive,
       boss: this.boss && (this.phase === 'boss' || this.phase === 'intro') ? { name: this.boss.name, hp: this.boss.hp, max: this.boss.maxHp } : null,
       phase: this.phase,
       secrets: this.stats.secrets,

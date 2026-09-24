@@ -122,6 +122,9 @@ export class DefectorAudio extends AudioEngine {
       case 'cycle':
         this.blip(880, 1320, 0.05, 0.08, 'square');
         break;
+      case 'dry':
+        this.blip(180, 150, 0.06, 0.12, 'square');
+        break;
       case 'empty':
         this.blip(600, 300, 0.15, 0.1, 'triangle');
         break;

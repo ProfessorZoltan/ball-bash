@@ -161,6 +161,29 @@ test('a press fires one charge, and holding the button fires no more', () => {
   assert.equal(g.charges.length, 1, 'holding it down is not another press');
 });
 
+test('no more than six of the robot\'s charges are ever in the air, and a trident needs room for all three', () => {
+  const g = field();
+  g.bot.aim = -1.2;
+  assert.equal(BLASTER.maxAlive, 6);
+  let most = 0;
+  for (let i = 0; i < 240 * 4; i++) {
+    g.step(DT, { mx: 0, fire: i % 60 === 0 });
+    most = Math.max(most, g.charges.length);
+  }
+  assert.equal(most, 6, 'pressing as fast as the blaster cools puts six up, never a seventh');
+  assert.ok(g.events.some((e) => e.s === 'dry'), 'and a refused press is heard');
+  const t = field();
+  t.bot.aim = -1.2;
+  t.ammo.triple = 10;
+  t.loaded = 'triple';
+  for (let i = 0; i < 4; i++) {
+    for (let k = 0; k < 240 * BLASTER.cooldown + 2; k++) t.step(DT, { mx: 0 });
+    t.fire();
+  }
+  assert.equal(t.charges.length, 6, 'two volleys of three, and the third waits');
+  assert.equal(t.ammo.triple, 8, 'a refused volley costs nothing');
+});
+
 test('a press while the blaster is still cooling fires the moment it is ready', () => {
   const g = field();
   g.bot.aim = -0.3;

@@ -75,7 +75,7 @@ export const BLASTER = {
   radius: VOLLEY.radius,
   life: VOLLEY.life, // three seconds
   cooldown: 0.22, // seconds between shots
-  maxAlive: 8, // your charges in the air at once
+  maxAlive: 6, // your charges in the air at once, and no more: a boss room cannot be flooded to hide behind
   muzzle: 30, // px from the shoulder that a charge forms at
   damage: 1,
   guide: 1.6, // seconds of flight the targeting line shows

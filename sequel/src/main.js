@@ -465,6 +465,13 @@ function hud() {
   }
   const pu = POWERUPS.find((p) => p.id === h.loaded);
   $('hud-loaded').innerHTML = pu ? `<span style="color:${pu.color}">${pu.name.toUpperCase()}</span>` : 'STANDARD';
+  // Charges ready: one pip for each of the six the blaster may have in the air, dimmed while it is out.
+  let pips = '';
+  for (let i = 0; i < h.maxCharges; i++) pips += i < h.maxCharges - h.charges ? '●' : '<span class="gone">●</span>';
+  if (pips !== hud.lastPips) {
+    $('hud-charges').innerHTML = pips;
+    hud.lastPips = pips;
+  }
   const slots = [`<div class="slot has ${h.loaded === 'std' ? 'on' : ''}" style="color:#dffbff"><b>●</b>STD</div>`].concat(POWERUPS.map((p) => `<div class="slot ${h.ammo[p.id] ? 'has' : ''} ${h.loaded === p.id ? 'on' : ''}" style="color:${p.color}"><b>${p.glyph}</b>${h.ammo[p.id] || 0}</div>`));
   const html = slots.join('');
   if (html !== hud.lastAmmo) {

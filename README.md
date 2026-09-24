@@ -1066,8 +1066,13 @@ and taken by a horizon, and goes through wormholes. The targeting line is
 that charge flown ahead for 1.6 s by the same code (`guideLine` in
 `sequel/src/blaster.js`), so every bounce, bend and wormhole it shows is
 real, and it is always on screen. A new charge is ready 0.22 s after the
-last. Your own charges never
-hurt you, and a charge that meets an enemy's shot knocks it out of the air.
+last, and no more than six of yours are ever in the air at once, so a boss
+room cannot be flooded with charges to hide behind: a press with six out is
+refused with a dry click, a Trident volley needs room for all three (a
+refused volley costs no ammunition), and six pips by the BLASTER label show
+how many are free (`BLASTER.maxAlive` in `sequel/src/config.js`). Your own
+charges never hurt you, and a charge that meets an enemy's shot knocks it
+out of the air.
 
 Power-ups drop from some enemies, some crates and every secret. Each pickup
 loads 15 charges of its kind (up to 45); the first of a kind is loaded at

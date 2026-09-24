@@ -57,6 +57,8 @@ html, body {
 #hud-boss-name { font-size: 12px; letter-spacing: 0.2em; }
 .boss-bar { margin: 5px auto 0; width: min(420px, 40vw); height: 8px; border: 1px solid rgba(255, 255, 255, 0.45); border-radius: 4px; overflow: hidden; }
 #hud-boss-bar { height: 100%; width: 100%; background: linear-gradient(90deg, #ff4fd8, #ffb347); box-shadow: 0 0 12px #ff4fd8; transition: width 0.12s; }
+.charges { color: var(--cyan); letter-spacing: 0.12em; font-size: 12px; }
+.charges .gone { color: rgba(127, 233, 255, 0.18); }
 .ammo { display: flex; gap: 6px; justify-content: flex-end; margin-top: 6px; }
 .ammo .slot {
   min-width: 42px;
