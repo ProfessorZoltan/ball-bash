@@ -96,6 +96,35 @@ test('the Astronomer charts black holes as it fights: never on the robot, a warn
   assert.equal(g.world.wells.filter((w) => w.charted).length, 0, 'what it charted goes with it');
 });
 
+test('the Astronomer turns its lens to meet a charge coming straight at it, and looks away when it charts a hole', () => {
+  let shots = 0;
+  let hits = 0;
+  let glanced = false;
+  for (const spot of [200, 450, 830, 1080]) {
+    const g = new Game(level(6), { shields: Infinity });
+    const A = g.arena;
+    g.bot.spawn(A.x0 + 160, A.floor - 31);
+    for (let i = 0; i < 240 * 4 && g.phase !== 'boss'; i++) {
+      g.bot.invuln = 1e9;
+      g.step(DT, { mx: 0 });
+    }
+    g.bot.spawn(A.x0 + spot, A.floor - 31);
+    for (let i = 0; i < 240 * 12 && g.phase === 'boss'; i++) {
+      g.bot.invuln = 1e9;
+      const b = g.boss;
+      const s = g.bot.shoulder;
+      const hp = b.hp;
+      const fire = i % 120 === 0;
+      g.step(DT, { mx: 0, aim: Math.atan2(b.y - s.y, b.x - s.x), fire });
+      if (fire) shots++;
+      if (g.boss.hp < hp) hits++;
+      if (b.glance > 0.5 && Math.abs(Math.atan2(Math.sin(b.guard - b.glanceAt), Math.cos(b.guard - b.glanceAt))) < 0.2) glanced = true;
+    }
+  }
+  assert.ok(hits < shots * 0.2, `aimed straight at its core, ${hits} of ${shots} got past the lens`);
+  assert.ok(glanced, 'it turned its lens to look at a hole it charted');
+});
+
 test('the music doubles for the boss, and settles back after', () => {
   const a = new DefectorAudio();
   a.bossTime(true);

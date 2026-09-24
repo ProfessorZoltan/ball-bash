@@ -9,7 +9,8 @@
 // and its own size, speed, toughness and attacks.
 //
 // A brain gets `g`, the game's side of the bargain: g.bot (the robot),
-// g.world, g.wells (the arena's own gravity bodies), g.shot(x, y, angle,
+// g.charges (the robot's, in the air), g.world, g.wells (the arena's own
+// gravity bodies), g.shot(x, y, angle,
 // speed, opts), g.spawn(enemySpec),
 // g.hazard(h), g.addWell(spec), g.removeWell(well), g.fx, g.sound(name),
 // g.enemyCount().
@@ -435,7 +436,8 @@ export const BOSSES = {
 
   astronomer: {
     name: 'The Astronomer',
-    epithet: 'it charts the dark, and the dark it charts is real',
+    epithet: 'it reads every line you draw, and none of the curves',
+    hint: 'Its lens turns to meet a shot coming straight at it. Bend one round a black hole, or bank it off a wall.',
     color: '#c9a2ff',
     hp: 28,
     r: 34,
@@ -456,6 +458,7 @@ export const BOSSES = {
       b.chartT = 3;
       b.charted = [];
       b.guard = Math.PI;
+      b.glance = 0;
     },
     update(b, g, dt, A) {
       const bot = g.bot;
@@ -497,6 +500,9 @@ export const BOSSES = {
           Object.assign(w, { charted: true, absent: true, forming: 0, life: 0 });
           b.charted.push(w);
           g.sound('rumble');
+          // It looks where it charts, a moment: the lens swings off you.
+          b.glance = 0.8;
+          b.glanceAt = angleTo(b, w);
         }
       }
       for (const w of b.charted) {
@@ -507,9 +513,26 @@ export const BOSSES = {
         if (w.life > 9.9) g.removeWell(w);
       }
       b.charted = b.charted.filter((w) => w.life <= 9.9);
-      // Its lens is on the hole, always: it is only open to you from the hole's far side.
+      // Its lens is a shield, and it reads a charge's line: it turns to meet whichever of yours is
+      // coming straight for it soonest. The line, not the curve: a charge bent round a hole, or
+      // banked off a wall, arrives from where it was not looking. With nothing coming it watches you.
+      let want = angleTo(b, bot);
+      let soonest = 0.7; // seconds: what it sees coming
+      for (const c of g.charges) {
+        const sp2 = c.vx * c.vx + c.vy * c.vy;
+        if (!sp2) continue;
+        const t = ((b.x - c.x) * c.vx + (b.y - c.y) * c.vy) / sp2; // nearest to it along the line
+        if (t <= 0 || t > soonest) continue;
+        if (Math.hypot(c.x + c.vx * t - b.x, c.y + c.vy * t - b.y) > b.r + c.r + 12) continue;
+        soonest = t;
+        want = Math.atan2(-c.vy, -c.vx);
+      }
+      if (b.glance > 0) {
+        b.glance -= dt;
+        want = b.glanceAt;
+      }
       const before = b.guard;
-      b.guard = turnToward(b.guard, angleTo(b, well), 3, dt);
+      b.guard = turnToward(b.guard, want, 3.2, dt);
       b.guardOmega = (b.guard - before) / dt;
     },
     parts(b) {

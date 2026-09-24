@@ -759,8 +759,12 @@ export class Game {
   bossApi() {
     if (this._api) return this._api;
     const A = this.arena;
+    const game = this;
     this._api = {
       bot: this.bot,
+      get charges() {
+        return game.charges;
+      },
       world: this.world,
       wells: this.world.wells.filter((w) => w.x > A.x0 && w.x < A.x1 && w.y > A.top && w.y < A.floor),
       fx: this.fx,
