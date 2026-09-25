@@ -326,7 +326,11 @@ export function createWorld(bp) {
     portals: { 0: [null, null] }, // the robot's pair, the shape src/portals.js reads
   };
   let walls = [];
-  for (const s of bp.solids || []) walls.push(...solidEdges(s.pts, { kind: s.kind || 'ground', portal: s.portal !== false && s.kind !== 'spikes', solid: s }));
+  for (const s of bp.solids || []) {
+    // A window is armoured glass: solid to everything, but the line of sight goes through it.
+    const window = s.kind === 'window';
+    walls.push(...solidEdges(s.pts, { kind: s.kind || 'ground', portal: s.portal !== false && s.kind !== 'spikes' && !window, solid: s, window }));
+  }
   walls = dropSharedEdges(walls);
   w.walls = walls;
   for (const p of bp.oneWays || []) {
@@ -344,6 +348,15 @@ export function createWorld(bp) {
     pu.sy = p.y;
     w.pulsers.push(pu);
   }
+  // Doors, shut until a switch opens them; and the switches, which a charge of yours flips.
+  w.doors = (bp.doors || []).map((d) => {
+    const g = addGate(w, d.x, d.y0, d.y1);
+    setGate(g, true);
+    g.id = d.id;
+    g.door = true;
+    return g;
+  });
+  w.switches = (bp.switches || []).map((s) => ({ ...s, r: s.r ?? 16, on: false, t: 0, flash: 0 }));
   return w;
 }
 

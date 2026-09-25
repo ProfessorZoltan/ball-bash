@@ -39,7 +39,7 @@ function toNearestField(world, x, y) {
 /**
  * The line of sight from (x, y) along `angle`: flown like a charge at the
  * charge's speed, bent by every well, swallowed by a horizon, and stopped by
- * the first solid it meets (thin platforms let it through). It has no range:
+ * the first solid it meets (thin platforms and windows let it through). It has no range:
  * away from every well it is a straight line cast in one go, however long,
  * and only inside a well's reach is it flown step by step. Returns the
  * polyline, and the hit: the point, the surface and whether a wormhole can
@@ -78,7 +78,8 @@ export function sightLine(world, x, y, angle, { speed = BLASTER.speed, maxLen = 
       dy = vy * step;
     }
     const l = Math.hypot(dx, dy);
-    const segs = segmentsNear(world, Math.min(x, x + dx) - 2, Math.min(y, y + dy) - 2, Math.max(x, x + dx) + 2, Math.max(y, y + dy) + 2, { oneWay: false });
+    // Windows let the line through: you can see through glass, and open a wormhole beyond it.
+    const segs = segmentsNear(world, Math.min(x, x + dx) - 2, Math.min(y, y + dy) - 2, Math.max(x, x + dx) + 2, Math.max(y, y + dy) + 2, { oneWay: false }).filter((s) => !s.window);
     const hit = raycastSegments(x, y, dx / l, dy / l, segs, l);
     if (hit) {
       pts.push([hit.x, hit.y]);

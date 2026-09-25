@@ -69,7 +69,8 @@ const H = 680;
 export const BOSSES = {
   gardener: {
     name: 'The Gardener',
-    epithet: 'keeper of the orchard lawns',
+    epithet: 'keeper of the orchard lawns, behind its grass-box',
+    hint: 'Its grass-box shields its front. When it turns at a wall, the box swings over its top: hit it then, or from behind, or from above.',
     color: '#9dff5c',
     hp: 14,
     r: 54,
@@ -85,6 +86,8 @@ export const BOSSES = {
       b.state = 'patrol';
       b.timer = 2.5;
       b.lobs = 0;
+      b.guard = -Math.PI; // its grass-box: a plate on its front, 0 facing right, -PI facing left
+      b.guardOmega = 0;
     },
     update(b, g, dt, A) {
       const bot = g.bot;
@@ -136,9 +139,15 @@ export const BOSSES = {
         }
         b.dir = b.x <= lo ? 1 : -1;
       }
+      // The grass-box stays on the front. Turning round, it swings over the top (through -PI/2, never
+      // through the ground), and for that moment the front is open.
+      const want = b.dir > 0 ? 0 : -Math.PI;
+      const before = b.guard;
+      b.guard += clamp(want - b.guard, -3.6 * dt, 3.6 * dt);
+      b.guardOmega = (b.guard - before) / dt;
     },
     parts(b) {
-      return [{ type: 'core', x: b.x, y: b.y, r: b.r }];
+      return [{ type: 'core', x: b.x, y: b.y, r: b.r }, plate(b.x, b.y, b.guard, b.r + 14, 150, b.guardOmega, b.vx, 0, 8)];
     },
   },
 

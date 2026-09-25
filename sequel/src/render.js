@@ -25,6 +25,8 @@ const CAM = {
   smoothX: 0.38, // seconds the spring takes to settle, across
   smoothY: 0.5, // and up and down
   smoothFall: 0.18, // falling fast, it keeps up
+  dropLead: 240, // px the view leads downward in a long fall, so a shaft shows where it lands
+  dropRate: 520, // px/s that lead grows and eases back
   smoothArena: 0.6,
 };
 
@@ -156,8 +158,11 @@ export class Renderer {
     c.look = approachTo(c.look, bot.facing * (Math.abs(bot.vx) > 30 ? CAM.lookMoving : CAM.lookStill), CAM.lookRate * dt);
     if (bot.onGround) c.anchor = by;
     else c.anchor = clamp(c.anchor, by - CAM.below, by + CAM.above);
+    // Falling, the view leads downward with the fall's speed; landed, it eases back.
+    const lead = !bot.onGround && bot.vy > 250 ? Math.min(CAM.dropLead, (bot.vy - 250) * 0.35) : 0;
+    c.drop = approachTo(c.drop || 0, lead, CAM.dropRate * dt);
     let tx = bx + c.look;
-    let ty = c.anchor - CAM.raise;
+    let ty = c.anchor - CAM.raise + c.drop;
     let scale = this.base;
     let smoothX = CAM.smoothX;
     let smoothY = bot.vy > 700 ? CAM.smoothFall : CAM.smoothY;
@@ -525,9 +530,24 @@ export class Renderer {
       if (c.broken || !within(c.x, c.y)) continue;
       drawCrate(ctx, c, th, this.low);
     }
-    // Gates (an ambush room's doors, the arena's).
+    // Switches: amber until a charge flips them, then green (a ring counts down a timed one).
+    for (const sw of w.switches) if (within(sw.x, sw.y)) drawSwitch(ctx, sw, t, this.low);
+    // Gates (an ambush room's doors, the arena's, and doors a switch opens).
     for (const gt of w.gates) {
-      if (!gt.closed || !within(gt.x, gt.y1)) continue;
+      if (!within(gt.x, gt.y1)) continue;
+      if (gt.door) {
+        // A switch's door keeps its frame when open, with a lamp at the top: amber shut, green open.
+        ctx.strokeStyle = withAlpha('#ffb347', 0.45);
+        ctx.lineWidth = 2;
+        ctx.strokeRect(gt.x - 12, gt.y0, 24, 8);
+        ctx.fillStyle = gt.closed ? '#ffb347' : '#9dff5c';
+        glow(ctx, ctx.fillStyle, 10, this.low);
+        ctx.beginPath();
+        ctx.arc(gt.x, gt.y0 + 16, 5, 0, TAU);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+      if (!gt.closed) continue;
       ctx.fillStyle = withAlpha('#ff4fd8', 0.25);
       ctx.fillRect(gt.x - 10, gt.y0, 20, gt.y1 - gt.y0);
       ctx.strokeStyle = '#ff4fd8';
@@ -695,6 +715,36 @@ function drawSolid(g, sd, th, low) {
     return;
   }
   if (kind === 'spring') return;
+  if (kind === 'window') {
+    // Armoured glass: you can see (and aim a wormhole) through it; nothing solid passes.
+    const b = sd.bbox;
+    g.fillStyle = 'rgba(127, 233, 255, 0.1)';
+    g.fill();
+    g.save();
+    g.clip();
+    g.strokeStyle = 'rgba(223, 251, 255, 0.35)';
+    g.lineWidth = 3;
+    g.beginPath();
+    for (let x = b.x0 - (b.y1 - b.y0); x < b.x1; x += 46) {
+      g.moveTo(x, b.y1);
+      g.lineTo(x + (b.y1 - b.y0) * 0.5, b.y0);
+    }
+    g.stroke();
+    g.restore();
+    g.beginPath();
+    g.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]);
+    g.closePath();
+    g.strokeStyle = '#bff6ff';
+    g.lineWidth = 2;
+    if (!low) {
+      g.shadowColor = '#7fe9ff';
+      g.shadowBlur = 10;
+    }
+    g.stroke();
+    g.shadowBlur = 0;
+    return;
+  }
   if (kind === 'bulkhead') {
     // A bulkhead: hazard-striped, so it reads as a wall nothing climbs or breaks.
     const b = sd.bbox;
@@ -1034,6 +1084,38 @@ function drawWell(ctx, w, t) {
 function portalColor(game, p) {
   if (p.owner === 1 && game.boss) return portalHue(game.boss.color.length === 7 ? game.boss.color : '#ffffff', p.which);
   return portalHue(ROBOT.color, p.which);
+}
+
+/** A switch: a node in a housing, amber and pulsing until a charge flips it, then green. */
+function drawSwitch(ctx, sw, t, low) {
+  const on = sw.on;
+  const col = on ? '#9dff5c' : '#ffb347';
+  ctx.fillStyle = '#0b0f1c';
+  ctx.strokeStyle = withAlpha(col, 0.7);
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(sw.x, sw.y, sw.r + 7, 0, TAU);
+  ctx.fill();
+  ctx.stroke();
+  const pulse = on ? 1 : 0.65 + 0.35 * Math.sin(t * 5);
+  ctx.fillStyle = withAlpha(col, pulse);
+  glow(ctx, col, 16 + sw.flash * 20, low);
+  ctx.beginPath();
+  ctx.arc(sw.x, sw.y, sw.r * (0.55 + 0.2 * sw.flash), 0, TAU);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = withAlpha('#ffffff', 0.5);
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(sw.x, sw.y, sw.r, 0, TAU);
+  ctx.stroke();
+  if (on && sw.hold) {
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(sw.x, sw.y, sw.r + 12, -Math.PI / 2, -Math.PI / 2 + TAU * Math.max(0, sw.t / sw.hold));
+    ctx.stroke();
+  }
 }
 
 function drawPortal(ctx, p, game, t, low) {

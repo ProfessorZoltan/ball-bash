@@ -72,7 +72,8 @@ Defector is the sequel, in `sequel/` (its README section is "Defector (the
 sequel)"). The tests hold its levels and bosses to these rules:
 
 - **Every level can be crossed.** `sequel/tools/reach.mjs` flies the robot's own physics over everything it can stand on. A level that fails it has a jump nobody can make.
-- **A wormhole puzzle is a link.** A section that only wormholes get past records itself in `bp.portalLinks`; `sequel/tools/solve.mjs` must solve every one in the real game, and the level must not be crossable without it.
+- **A puzzle is a link.** A section that only a wormhole or a switch gets you past records itself in `bp.portalLinks`; `sequel/tools/solve.mjs` must solve every one in the real game, and the level must not be crossable without it. A new kind of puzzle needs its answer in `solve.mjs`, and a switch meant to take a bank or a curve must be out of every straight line (or every shot without its black hole).
+- **Blinking platforms keep time.** `reach.mjs` takes a blinking platform as always there; `sequel/tools/timed.mjs` must cross every blinking stretch with the clock running.
 - **Every boss can be beaten.** `sequel/tools/fight.mjs` fights it in the real game. A wormhole-only boss must also lose to it only with wormholes.
 - **Lengths stay in their bands.** `estimateSeconds` in `sequel/src/build.js`: early levels 3 to 5 minutes, middle 4 to 8, late 8 to 15. Tune a level's `count`, not the estimate.
 - **Levels are seeded.** Changing a level's `seed`, `count` or palette rebuilds its run; check it with the tools above and `node sequel/tools/shots.mjs level <id> out/`.

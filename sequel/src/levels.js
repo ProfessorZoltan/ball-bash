@@ -145,6 +145,26 @@ const pickW = (rng, weights) => {
   return entries[entries.length - 1][0];
 };
 
+/** One of the level's fliers (flying, zig-zagging or swooping), or a drifter if it has none. */
+function flierOf(rng, L) {
+  const air = Object.fromEntries(Object.entries(L.roster).filter(([k]) => ['fly', 'zigzag', 'swoop'].includes(KINDS[k].move)));
+  return Object.keys(air).length ? pickW(rng, air) : 'drifter';
+}
+
+/** Fliers up a tower or down a shaft `height` tiles tall and `width` wide: one every five tiles or so, more when it is hard. */
+function heightFoes(rng, L, width, height, d) {
+  const out = [];
+  const n = Math.max(1, Math.round((height / 5) * (0.6 + d * 0.6)));
+  for (let i = 0; i < n; i++) {
+    const kind = flierOf(rng, L);
+    const up = 3 + ((height - 5) * (i + 0.5)) / n;
+    const opts = KINDS[kind].move === 'fly' ? { axis: 'x', range: (width / 2 - 1.5) * 40 } : {};
+    if (rng() < L.dropRate) opts.drop = 'random';
+    out.push([kind, width / 2, Math.round(up * 2) / 2, opts]);
+  }
+  return out;
+}
+
 /** A few enemies from the level's roster for a stretch `len` tiles long. */
 function foes(rng, L, len, n) {
   const out = [];
@@ -173,9 +193,13 @@ const PIECES = {
   hop: (rng, d, L) => {
     const up = [0, 0, 1, -1, -2][ri(rng, 0, 4)];
     const w = Math.min(up > 0 ? 3 : LIMITS.gapWalk, 2 + Math.round(d * 2 + rng()));
-    return ['gap', { w, up, run: 2, land: 4, e: rng() < 0.4 + d * 0.3 ? foes(rng, L, 6, 1) : [] }];
+    return ['gap', { w, up, run: 2, land: 4, e: rng() < 0.55 + d * 0.35 ? foes(rng, L, 6, 1) : [] }];
   },
-  long: (rng, d) => ['gap', { w: Math.min(LIMITS.gapRun, 5 + Math.round(d * 3) * 0.5), run: 7, land: 4, runUp: true }],
+  long: (rng, d, L) => {
+    // A long jump with something over it to make you time it.
+    const w = Math.min(LIMITS.gapRun, 5 + Math.round(d * 3) * 0.5);
+    return ['gap', { w, run: 7, land: 4, runUp: true, e: rng() < 0.5 + d * 0.4 ? [[flierOf(rng, L), 7 + w / 2, 4, { range: 120 }]] : [] }];
+  },
   stairs: (rng, d, L) => {
     const down = rng() < 0.4;
     return ['stairs', { n: ri(rng, 3, 5), rise: down ? -1 : ri(rng, 1, 2), tread: 2, after: 4, e: rng() < 0.5 ? foes(rng, L, 8, 1) : [] }];
@@ -196,23 +220,43 @@ const PIECES = {
     if (rng() < 0.5) list.push([start + 2, 8, 2 * (n - 2), 1, 'thin']);
     return ['blocks', { len: start + n * 2 + 4, list, e: foes(rng, L, n * 2 + 6, 1) }];
   },
-  plats: (rng, d) => {
+  plats: (rng, d, L) => {
     const w = ri(rng, 8, 11);
     const n = w > 9 ? 3 : 2;
     const list = [];
     for (let i = 0; i < n; i++) list.push([(w / (n + 1)) * (i + 1) - 1, ri(rng, 1, 3), 2.5, rng() < 0.5]);
-    return ['plats', { w, list, land: 4 }];
+    return ['plats', { w, list, land: 4, e: rng() < 0.6 + d * 0.3 ? [[flierOf(rng, L), w / 2, 4.5, { range: 110 }]] : [] }];
   },
   mover: (rng, d, L) => {
     const path = L.movers[ri(rng, 0, L.movers.length - 1)];
-    if (path === 'v') return ['mover', { path, w: 8, len: 3, rise: 4, up: ri(rng, 2, 4), period: 4.5 }];
-    if (path === 'fall') return ['mover', { path, w: ri(rng, 9, 12), n: 3, len: 2.4 }];
-    if (path === 'circle') return ['mover', { path, w: 9, len: 3, R: 2.2, period: 6 }];
-    return ['mover', { path: 'h', w: ri(rng, 8, 12), len: 3, period: 4 + rng() * 2, thin: rng() < 0.5 }];
+    const e = rng() < 0.45 + d * 0.3 ? [[flierOf(rng, L), 4.5, 5, { range: 100 }]] : [];
+    if (path === 'v') return ['mover', { path, w: 8, len: 3, rise: 4, up: ri(rng, 2, 4), period: 4.5, e }];
+    if (path === 'fall') return ['mover', { path, w: ri(rng, 9, 12), n: 3, len: 2.4, e }];
+    if (path === 'circle') return ['mover', { path, w: 9, len: 3, R: 2.2, period: 6, e }];
+    return ['mover', { path: 'h', w: ri(rng, 8, 12), len: 3, period: 4 + rng() * 2, thin: rng() < 0.5, e }];
   },
-  climb: (rng) => ['climb', { up: 3 * ri(rng, 2, 4), width: 8, after: 4 }],
-  drop: (rng) => ['drop', { down: ri(rng, 4, 8), after: 5 }],
-  spikes: (rng, d) => (rng() < 0.5 ? ['spikes', { len: ri(rng, 2, 4) }] : ['spikes', { len: 8, list: [[2.5, 1.5, 3]] }]),
+  climb: (rng, d, L) => {
+    const up = 3 * ri(rng, 2, 4);
+    return ['climb', { up, width: 8, after: 4, e: heightFoes(rng, L, 8, up, d) }];
+  },
+  drop: (rng, d, L) => ['drop', { down: ri(rng, 4, 8), after: 5, e: rng() < 0.7 ? foes(rng, { ...L, roster: L.ground }, 7, 1).map(([k, dx, up, o]) => [k, dx + 2, up, o]) : [] }],
+  spikes: (rng, d, L) => {
+    const e = rng() < 0.4 + d * 0.3 ? [[flierOf(rng, L), 5, 3.5, { range: 90 }]] : [];
+    return rng() < 0.5 ? ['spikes', { len: ri(rng, 2, 4), e }] : ['spikes', { len: 8, list: [[2.5, 1.5, 3]], e }];
+  },
+  tower: (rng, d, L) => {
+    const up = ri(rng, 12, 16 + Math.round(d * 6));
+    return ['tower', { up, width: 9, lift: rng() < 0.35 ? 5 : 0, e: heightFoes(rng, L, 9, up, d) }];
+  },
+  shaft: (rng, d, L) => {
+    const down = ri(rng, 10, 14 + Math.round(d * 6));
+    return ['shaft', { down, width: 8, e: heightFoes(rng, L, 8, down, d) }];
+  },
+  skylight: (rng, d, L) => ['skylight', { e: rng() < 0.6 ? [[flierOf(rng, L), 8, 3.5, { range: 120 }]] : [] }],
+  vault: (rng, d, L) => ['vault', { e: rng() < 0.6 ? foes(rng, { ...L, roster: L.ground }, 6, 1) : [] }],
+  chimney: (rng, d, L) => ['chimney', { e: rng() < 0.5 ? [[flierOf(rng, L), 9, 2.5, { range: 80 }]] : [] }],
+  orbit: (rng, d, L) => ['orbit', { e: rng() < 0.5 ? foes(rng, { ...L, roster: L.ground }, 8, 1) : [] }],
+  switchdoor: (rng, d, L) => ['switchdoor', { hold: rng() < 0.4 ? 5 : undefined, e: foes(rng, L, 8, 1) }],
   tunnel: (rng, d, L) => ['tunnel', { len: ri(rng, 10, 16), h: 3.5, e: foes(rng, { ...L, roster: L.ground }, 12, 1 + (rng() < d ? 1 : 0)) }],
   crushers: (rng, d) => ['crushers', { n: ri(rng, 2, 4), space: 5, period: 3.2 - d * 0.6, roof: 5 }],
   laser: (rng, d) => ['laser', { len: ri(rng, 8, 12), n: ri(rng, 1, 2), period: 3, on: 1.2 + d * 0.4, roof: 5 }],
@@ -233,9 +277,12 @@ const PIECES = {
     }
     return ['well', { w, depth: 2.5, range: 9, pull: 330000 + d * 120000, list: [[w / 2 - 1, 0.5, 2]], moons }];
   },
-  fount: (rng) => ['fount', { w: ri(rng, 9, 11), push: 900000, depth: 2, range: 10 }],
-  phase: (rng, d) => ['phase', { w: 11, n: 3, on: 2.6 - d * 0.4, off: 1.2, up: 1 }],
-  spring: (rng) => ['spring', { up: ri(rng, 6, 8), run: 5, after: 4 }],
+  fount: (rng, d, L) => {
+    const w = ri(rng, 9, 11);
+    return ['fount', { w, push: 900000, depth: 2, range: 10, e: rng() < 0.5 ? [[flierOf(rng, L), 3 + w / 2, 6, { range: 90 }]] : [] }];
+  },
+  phase: (rng, d, L) => ['phase', { w: 11, n: 3, on: 2.6 - d * 0.4, off: 1.2, up: 1, e: rng() < 0.4 + d * 0.3 ? [[flierOf(rng, L), 5.5, 4, { range: 120 }]] : [] }],
+  spring: (rng, d, L) => ['spring', { up: ri(rng, 6, 8), run: 5, after: 4, e: rng() < 0.5 ? [[flierOf(rng, L), 5, 9, { range: 100 }]] : [] }],
   slope: (rng, d, L) => ['slope', { len: ri(rng, 4, 8), up: [2, 1, -1, -2, 3][ri(rng, 0, 4)], after: 3, e: rng() < 0.5 ? foes(rng, L, 8, 1) : [] }],
   bulkhead: (rng, d, L) => ['bulkhead', { run: 6, room: ri(rng, 5, 7), pillar: 3, e: rng() < 0.5 ? [['skitter', 9]] : [] }],
   chasm: (rng, d, L) => ['chasm', { w: ri(rng, 13, 16), land: ri(rng, 6, 8), up: ri(rng, 3, 4), e: rng() < 0.5 ? foes(rng, { ...L, roster: L.air || L.roster }, 12, 1) : [] }],
@@ -253,7 +300,7 @@ const PIECES = {
   },
 };
 
-const PUZZLES = ['bulkhead', 'chasm', 'foldroom'];
+const PUZZLES = ['bulkhead', 'chasm', 'foldroom', 'skylight', 'vault', 'chimney', 'orbit', 'switchdoor'];
 
 /**
  * A level's seeded run: `count` pieces from its palette, harder toward the
@@ -265,7 +312,9 @@ function compose(L) {
   const out = [];
   let since = 0;
   const secrets = [...(L.secretsAt || [])];
+  const features = [...(L.features || [])];
   let puzzles = 0;
+  const kinds = {}; // puzzles of each kind so far: no more than two of one kind from the run
   let prev = null;
   for (let i = 0; i < L.count; i++) {
     const u = i / Math.max(1, L.count - 1);
@@ -274,15 +323,24 @@ function compose(L) {
       const s = secrets.shift();
       out.push(['secret', { kind: s.kind, reward: s.reward, up: s.up }]);
     }
+    // The level's own set pieces, where it puts them.
+    while (features.length && u >= features[0].at) {
+      out.push(...features.shift().sections);
+      out.push(['flat', { len: 3 }]);
+    }
     // No piece twice running, and only so many wormhole puzzles a level.
     let kind = pickW(rng, L.pieces);
-    for (let tries = 0; tries < 20 && (kind === prev || (PUZZLES.includes(kind) && puzzles >= (L.puzzles ?? 2))); tries++) kind = pickW(rng, L.pieces);
-    if (PUZZLES.includes(kind) && puzzles >= (L.puzzles ?? 2)) kind = 'run';
-    if (PUZZLES.includes(kind)) puzzles++;
+    const spent = (k) => PUZZLES.includes(k) && (puzzles >= (L.puzzles ?? 2) || (kinds[k] || 0) >= 2);
+    for (let tries = 0; tries < 20 && (kind === prev || spent(kind)); tries++) kind = pickW(rng, L.pieces);
+    if (spent(kind)) kind = 'run';
+    if (PUZZLES.includes(kind)) {
+      puzzles++;
+      kinds[kind] = (kinds[kind] || 0) + 1;
+    }
     prev = kind;
     out.push(PIECES[kind](rng, d, L));
     // Breathing room: a stretch of floor after anything with a pit in it.
-    if (['hop', 'long', 'plats', 'mover', 'well', 'fount', 'phase', 'spikes', 'chasm', 'bulkhead'].includes(kind)) out.push(['flat', { len: ri(rng, 3, 5) }]);
+    if (['hop', 'long', 'plats', 'mover', 'well', 'fount', 'phase', 'spikes', 'chasm', 'bulkhead', 'shaft', 'skylight', 'orbit'].includes(kind)) out.push(['flat', { len: ri(rng, 3, 5) }]);
     since++;
     if (since >= L.every && i < L.count - 2) {
       out.push(['checkpoint', {}]);
@@ -310,15 +368,16 @@ export const LEVEL_DEFS = [
     seed: 101,
     base: 0.05,
     top: 0.45,
-    count: 26,
+    count: 22,
     every: 9,
-    puzzles: 0, // wormhole puzzles in the seeded run
+    puzzles: 1, // puzzles in the seeded run: wormholes and switches
     dropRate: 0.18,
     roster: { skitter: 5, hopper: 2, flitter: 2, drifter: 1 },
     ground: { skitter: 4, hopper: 1 },
     movers: ['h'],
-    pieces: { run: 5, hop: 4, stairs: 2, pillars: 3, bricks: 3, slope: 2, plats: 1, long: 1, drop: 1, climb: 1 },
+    pieces: { run: 3, hop: 4, stairs: 2, pillars: 3, bricks: 3, slope: 2, plats: 2, long: 1, drop: 1, climb: 1, switchdoor: 1 },
     secretsAt: [{ at: 0.3, kind: 'cellar', reward: ['big', 'strong'] }, { at: 0.7, kind: 'sky', reward: ['triple', 'shield'] }],
+    features: [{ at: 0.5, sections: [['tower', { up: 12, width: 9, e: [['flitter', 4.5, 5], ['drifter', 4.5, 9, { axis: 'x', range: 100 }]] }]] }],
     opening: [
       ['sign', { text: say('A D move · SPACE jumps: hold it to go higher', 'LEFT STICK moves · A jumps: hold it to go higher') }],
       ['flat', { len: 6 }],
@@ -332,6 +391,8 @@ export const LEVEL_DEFS = [
       ['blocks', { len: 14, list: [[3, 4, 2, 1, 'crate', 'triple', 1], [5, 4, 2, 1, 'block'], [7, 4, 2, 1, 'crate', null, 1]], e: [['hopper', 10]] }],
       ['sign', { text: say('Crates break, and some hold power-ups · 1 changes what the blaster fires', 'Crates break, and some hold power-ups · LT changes what the blaster fires') }],
       ['flat', { len: 8, e: [['flitter', 5, 3]] }],
+      ['sign', { text: say('A door with a lamp over it opens to a switch: shoot the switch', 'A door with a lamp over it opens to a switch: shoot the switch') }],
+      ['switchdoor', { stand: 8 }],
       ['sign', { text: say('Q and E open wormhole ends where the aim line meets a wall · walk into one, out of the other', 'LB and RB open wormhole ends where the aim line meets a wall · walk into one, out of the other') }],
       ['secret', { kind: 'loft', up: 8, reward: ['freeze', 'durable'] }],
       ['checkpoint', {}],
@@ -349,15 +410,19 @@ export const LEVEL_DEFS = [
     seed: 202,
     base: 0.2,
     top: 0.55,
-    count: 26,
+    count: 20,
     every: 9,
-    puzzles: 1, // wormhole puzzles in the seeded run
+    puzzles: 2, // puzzles in the seeded run: wormholes and switches
     dropRate: 0.18,
     roster: { skitter: 3, drifter: 3, flitter: 3, dasher: 2, hopper: 2, sentry: 1, moth: 1 },
     ground: { skitter: 3, dasher: 2, hopper: 1 },
     movers: ['h', 'v'],
-    pieces: { run: 4, hop: 3, plats: 3, mover: 3, tunnel: 2, bricks: 2, stairs: 2, slope: 1, climb: 2, drop: 1, pillars: 1, bulkhead: 1 },
+    pieces: { run: 3, hop: 3, plats: 3, mover: 3, tunnel: 2, bricks: 2, stairs: 1, slope: 1, climb: 1, drop: 1, pillars: 1, bulkhead: 1, shaft: 1, switchdoor: 1 },
     secretsAt: [{ at: 0.4, kind: 'loft', reward: ['strong', 'big'], up: 8 }, { at: 0.8, kind: 'cellar', reward: ['shield', 'freeze'] }],
+    features: [
+      { at: 0.4, sections: [['shaft', { down: 12, e: [['drifter', 4, 6, { axis: 'x', range: 90 }]] }]] },
+      { at: 0.75, sections: [['sign', { text: say('The shutter only stays up a few seconds: shoot its switch, then run', 'The shutter only stays up a few seconds: shoot its switch, then run') }], ['switchdoor', { hold: 4, at: 13, stand: 16, e: [['skitter', 8]] }]] },
+    ],
     opening: [
       ['sign', { text: say('Thin awnings: jump up through them · hold S to drop down through', 'Thin awnings: jump up through them · hold DOWN to drop through') }],
       ['plats', { w: 9, list: [[2, 2, 3, true], [5.5, 3, 3, true]], land: 4 }],
@@ -379,15 +444,16 @@ export const LEVEL_DEFS = [
     seed: 303,
     base: 0.3,
     top: 0.65,
-    count: 24,
+    count: 17,
     every: 9,
-    puzzles: 1, // wormhole puzzles in the seeded run
+    puzzles: 2, // puzzles in the seeded run: wormholes and switches
     dropRate: 0.2,
     roster: { dasher: 3, lancer: 2, sentry: 2, swooper: 2, skitter: 2, flitter: 1 },
     ground: { dasher: 3, lancer: 2, skitter: 2 },
     movers: ['h', 'fall'],
-    pieces: { run: 4, hop: 3, crushers: 3, laser: 2, mover: 2, tunnel: 2, pillars: 2, stairs: 1, bricks: 2, climb: 1, long: 1, chasm: 1, bulkhead: 1 },
+    pieces: { run: 3, hop: 3, crushers: 3, laser: 2, mover: 2, tunnel: 2, pillars: 2, stairs: 1, bricks: 2, climb: 1, long: 1, chasm: 1, bulkhead: 1, chimney: 1, tower: 1 },
     secretsAt: [{ at: 0.35, kind: 'sky', reward: ['triple', 'strong'] }, { at: 0.75, kind: 'loft', reward: ['shield', 'durable'], up: 8 }],
+    features: [{ at: 0.45, sections: [['tower', { up: 16, width: 9, lift: 5, e: [['swooper', 4.5, 8], ['flitter', 4.5, 12]] }]] }],
     opening: [
       ['sign', { text: say('A shield turns your charge away: bank it off a wall into their back', 'A shield turns your charge away: bank it off a wall into their back') }],
       ['flat', { len: 14, e: [['lancer', 10]] }],
@@ -395,6 +461,8 @@ export const LEVEL_DEFS = [
       ['laser', { len: 8, n: 1, period: 3, on: 1.2 }],
       ['sign', { text: say('Too far to jump. Put one end on the far wall, the other at your feet', 'Too far to jump. Put one end on the far wall, the other at your feet') }],
       ['chasm', { w: 14, land: 7, up: 4 }],
+      ['sign', { text: say('Out of sight is not out of reach: bank a charge up the chimney', 'Out of sight is not out of reach: bank a charge up the chimney') }],
+      ['chimney', {}],
     ],
   },
   {
@@ -409,20 +477,26 @@ export const LEVEL_DEFS = [
     seed: 404,
     base: 0.3,
     top: 0.7,
-    count: 40,
+    count: 32,
     every: 10,
-    puzzles: 2, // wormhole puzzles in the seeded run
+    puzzles: 3, // puzzles in the seeded run: wormholes and switches
     dropRate: 0.2,
     roster: { crab: 3, drifter: 3, hopper: 2, urchin: 2, gunner: 2, swooper: 1 },
     ground: { crab: 3, hopper: 1 },
     movers: ['h', 'circle', 'v'],
-    pieces: { run: 4, hop: 3, pulse: 3, spikes: 3, mover: 3, plats: 2, stairs: 1, bricks: 2, climb: 2, drop: 1, slope: 1, long: 1, chasm: 1, bulkhead: 1 },
+    pieces: { run: 3, hop: 3, pulse: 3, spikes: 3, mover: 3, plats: 2, stairs: 1, bricks: 2, climb: 1, drop: 1, slope: 1, long: 1, chasm: 1, bulkhead: 1, skylight: 1, shaft: 2, tower: 1 },
     secretsAt: [{ at: 0.25, kind: 'cellar', reward: ['big', 'triple'] }, { at: 0.6, kind: 'loft', reward: ['strong', 'shield'], up: 8 }, { at: 0.85, kind: 'sky', reward: ['freeze', 'durable'] }],
+    features: [
+      { at: 0.35, sections: [['shaft', { down: 16, e: [['drifter', 4, 6, { axis: 'x', range: 90 }], ['urchin', 4, 11, { axis: 'x', range: 90 }]] }]] },
+      { at: 0.7, sections: [['tower', { up: 18, width: 9, e: [['gunner', 4.5, 7, { axis: 'x', range: 110 }], ['swooper', 4.5, 13]] }]] },
+    ],
     opening: [
       ['sign', { text: say('Pulses throw you outward: ride one across, or wait for it to pass', 'Pulses throw you outward: ride one across, or wait for it to pass') }],
       ['pulse', { len: 14, period: 3.4 }],
       ['spikes', { len: 3 }],
       ['mover', { path: 'circle', w: 9, len: 3, R: 2.2, period: 6 }],
+      ['sign', { text: say('Shut in a sea cave? Look up through the hole in its roof: a wall up there takes a wormhole', 'Shut in a sea cave? Look up through the hole in its roof: a wall up there takes a wormhole') }],
+      ['skylight', {}],
     ],
   },
   {
@@ -437,21 +511,24 @@ export const LEVEL_DEFS = [
     seed: 505,
     base: 0.35,
     top: 0.75,
-    count: 42,
+    count: 36,
     every: 10,
-    puzzles: 2, // wormhole puzzles in the seeded run
+    puzzles: 3, // puzzles in the seeded run: wormholes and switches
     dropRate: 0.2,
     roster: { hopper: 3, boing: 1, flitter: 3, moth: 2, burr: 2, trundle: 1, lancer: 2, echo: 1 },
     ground: { hopper: 2, burr: 2, trundle: 1, lancer: 1 },
     movers: ['v', 'h', 'fall'],
-    pieces: { run: 4, hop: 3, spring: 3, glass: 3, mover: 2, plats: 2, bricks: 2, climb: 2, pillars: 2, slope: 1, stairs: 1, drop: 1, spikes: 1, bulkhead: 1, chasm: 1 },
+    pieces: { run: 3, hop: 3, spring: 3, glass: 3, mover: 2, plats: 2, bricks: 2, climb: 1, pillars: 2, slope: 1, stairs: 1, drop: 1, spikes: 1, bulkhead: 1, chasm: 1, vault: 2, tower: 2 },
     secretsAt: [{ at: 0.2, kind: 'sky', reward: ['strong', 'big'] }, { at: 0.55, kind: 'cellar', reward: ['shield', 'triple'] }, { at: 0.85, kind: 'loft', reward: ['freeze', 'durable'], up: 8 }],
+    features: [{ at: 0.45, sections: [['tower', { up: 20, width: 9, lift: 6, e: [['moth', 4.5, 6], ['flitter', 4.5, 11], ['moth', 4.5, 16]] }]] }],
     opening: [
       ['sign', { text: say('Springs throw you high · hold jump for higher still', 'Springs throw you high · hold A for higher still') }],
       ['spring', { up: 7, run: 5, after: 5 }],
       ['glass', { n: 2, len: 10, hp: 2 }],
       ['sign', { text: say('A folded thing is only half here: your charge passes through it, unless the charge has been through a wormhole first', 'A folded thing is only half here: your charge passes through it, unless the charge has been through a wormhole first') }],
       ['flat', { len: 16, e: [['echo', 12]] }],
+      ['sign', { text: say('Armoured glass: you can see through it and aim a wormhole through it, but nothing solid gets in', 'Armoured glass: you can see through it and aim a wormhole through it, but nothing solid gets in') }],
+      ['vault', {}],
     ],
   },
   {
@@ -466,21 +543,27 @@ export const LEVEL_DEFS = [
     seed: 606,
     base: 0.4,
     top: 0.8,
-    count: 44,
+    count: 34,
     every: 10,
-    puzzles: 2, // wormhole puzzles in the seeded run
+    puzzles: 3, // puzzles in the seeded run: wormholes and switches
     dropRate: 0.2,
     roster: { wisp: 2, swooper: 2, gunner: 2, lancer: 2, drifter: 2, hopper: 1, sentry: 1, wraith: 1 },
     ground: { lancer: 2, hopper: 1, sentry: 1 },
     movers: ['h', 'v', 'circle'],
-    pieces: { run: 4, hop: 3, well: 3, fount: 2, mover: 2, plats: 2, climb: 2, stairs: 1, bricks: 2, spikes: 1, drop: 1, long: 1, slope: 1, chasm: 1, bulkhead: 1 },
+    pieces: { run: 3, hop: 3, well: 3, fount: 2, mover: 2, plats: 2, climb: 1, stairs: 1, bricks: 2, spikes: 1, drop: 1, long: 1, slope: 1, chasm: 1, bulkhead: 1, orbit: 2, tower: 2, skylight: 1 },
     secretsAt: [{ at: 0.3, kind: 'loft', reward: ['durable', 'strong'], up: 8 }, { at: 0.6, kind: 'sky', reward: ['shield', 'big'] }, { at: 0.9, kind: 'cellar', reward: ['triple', 'freeze'] }],
+    features: [
+      { at: 0.4, sections: [['tower', { up: 20, width: 9, e: [['wisp', 4.5, 6], ['gunner', 4.5, 11, { axis: 'x', range: 110 }], ['swooper', 4.5, 16]] }]] },
+      { at: 0.78, sections: [['chimney', { e: [['wisp', 9, 2.5]] }]] },
+    ],
     opening: [
       ['sign', { text: say('A black hole pulls you and your charges · the aim line bends with it · cross its horizon and it takes a shield', 'A black hole pulls you and your charges · the aim line bends with it · cross its horizon and it takes a shield') }],
       ['well', { w: 6, depth: 2.5, range: 8, pull: 300000, list: [[2, 0.5, 2]], moons: [['drifter']] }],
       ['flat', { len: 4 }],
       ['sign', { text: say('A white hole pushes: let it carry you over', 'A white hole pushes: let it carry you over') }],
       ['fount', { w: 9, push: 900000, depth: 2, range: 10 }],
+      ['sign', { text: say('A black hole bends a charge as it bends the aim line: curve a shot over the wall onto the switch', 'A black hole bends a charge as it bends the aim line: curve a shot over the wall onto the switch') }],
+      ['orbit', {}],
     ],
   },
   {
@@ -495,15 +578,19 @@ export const LEVEL_DEFS = [
     seed: 707,
     base: 0.45,
     top: 0.85,
-    count: 40,
+    count: 30,
     every: 11,
-    puzzles: 3, // wormhole puzzles in the seeded run
+    puzzles: 4, // puzzles in the seeded run: wormholes and switches
     dropRate: 0.22,
     roster: { boing: 1, flitter: 3, dasher: 2, gunner: 2, moth: 2, trundle: 1, hopper: 2, swooper: 1, shade: 1 },
     ground: { dasher: 2, trundle: 1, hopper: 2 },
     movers: ['circle', 'h', 'v', 'fall'],
-    pieces: { run: 4, hop: 3, mover: 4, pulse: 2, spring: 2, ambush: 2, plats: 2, bricks: 2, climb: 2, pillars: 2, glass: 1, stairs: 1, spikes: 1, long: 1, foldroom: 1, chasm: 1, bulkhead: 1 },
+    pieces: { run: 3, hop: 3, mover: 4, pulse: 2, spring: 2, ambush: 2, plats: 2, bricks: 2, climb: 1, pillars: 2, glass: 1, stairs: 1, spikes: 1, long: 1, foldroom: 1, chasm: 1, bulkhead: 1, tower: 2, shaft: 1, chimney: 1, vault: 1, switchdoor: 1 },
     secretsAt: [{ at: 0.2, kind: 'cellar', reward: ['big', 'strong'] }, { at: 0.5, kind: 'sky', reward: ['shield', 'triple'] }, { at: 0.8, kind: 'loft', reward: ['freeze', 'durable'], up: 8 }],
+    features: [
+      { at: 0.35, sections: [['tower', { up: 18, width: 9, lift: 5, e: [['flitter', 4.5, 6], ['gunner', 4.5, 12, { axis: 'x', range: 110 }]] }]] },
+      { at: 0.7, sections: [['switchdoor', { hold: 5, at: 16, stand: 18, e: [['dasher', 10], ['hopper', 6]] }]] },
+    ],
     opening: [
       ['sign', { text: say('The doors lock until the room is clear', 'The doors lock until the room is clear') }],
       ['ambush', { len: 22, roof: 8, list: [[4, 3, 4], [14, 3, 4], [9, 5.5, 4]], waves: [[['hopper', 16], ['flitter', 12, 4]], [['dasher', 18], ['gunner', 6, 5]]], drop: 'random' }],
@@ -522,15 +609,21 @@ export const LEVEL_DEFS = [
     seed: 808,
     base: 0.5,
     top: 0.9,
-    count: 74,
+    count: 66,
     every: 12,
-    puzzles: 3, // wormhole puzzles in the seeded run
+    puzzles: 5, // puzzles in the seeded run: wormholes and switches
     dropRate: 0.22,
     roster: { wisp: 2, urchin: 2, drifter: 3, gunner: 2, crab: 2, lancer: 1, flitter: 1, wraith: 1 },
     ground: { crab: 3, lancer: 1 },
     movers: ['v', 'h', 'circle', 'fall'],
-    pieces: { run: 4, hop: 3, fount: 3, well: 2, crushers: 2, mover: 3, plats: 2, climb: 2, drop: 2, tunnel: 2, spikes: 2, bricks: 2, stairs: 1, pulse: 1, long: 1, chasm: 1, bulkhead: 1, foldroom: 1 },
+    pieces: { run: 3, hop: 3, fount: 3, well: 2, crushers: 2, mover: 3, plats: 2, climb: 1, drop: 2, tunnel: 2, spikes: 2, bricks: 2, stairs: 1, pulse: 1, long: 1, chasm: 1, bulkhead: 1, foldroom: 1, shaft: 3, skylight: 1, vault: 1, orbit: 1 },
     secretsAt: [{ at: 0.15, kind: 'loft', reward: ['durable', 'big'], up: 8 }, { at: 0.4, kind: 'cellar', reward: ['shield', 'strong'] }, { at: 0.65, kind: 'sky', reward: ['triple', 'freeze'] }, { at: 0.9, kind: 'cellar', reward: ['shield', 'big'] }],
+    features: [
+      { at: 0.3, sections: [['shaft', { down: 20, e: [['wisp', 4, 6], ['urchin', 4, 11, { axis: 'x', range: 90 }], ['drifter', 4, 16, { axis: 'x', range: 90 }]] }]] },
+      { at: 0.45, sections: [['vault', { e: [['crab', 3]] }]] },
+      { at: 0.62, sections: [['shaft', { down: 18, e: [['gunner', 4, 7, { axis: 'x', range: 90 }], ['wisp', 4, 13]] }]] },
+      { at: 0.85, sections: [['chimney', {}]] },
+    ],
     opening: [
       ['sign', { text: say('Dark water: your charges light the way', 'Dark water: your charges light the way') }],
       ['flat', { len: 10, e: [['drifter', 7, 3]] }],
@@ -548,15 +641,19 @@ export const LEVEL_DEFS = [
     seed: 909,
     base: 0.55,
     top: 0.95,
-    count: 80,
+    count: 58,
     every: 12,
-    puzzles: 4, // wormhole puzzles in the seeded run
+    puzzles: 6, // puzzles in the seeded run: wormholes and switches
     dropRate: 0.22,
     roster: { lancer: 2, gunner: 2, sentry: 2, dasher: 2, swooper: 2, wisp: 2, trundle: 1, wraith: 1, echo: 1, shade: 1 },
     ground: { lancer: 2, dasher: 2, sentry: 1, trundle: 1 },
     movers: ['h', 'v', 'fall', 'circle'],
-    pieces: { run: 4, hop: 3, phase: 3, well: 2, laser: 2, ambush: 1, glass: 2, mover: 2, crushers: 2, plats: 2, climb: 2, bricks: 2, drop: 1, stairs: 1, long: 1, spring: 1, foldroom: 2, chasm: 2, bulkhead: 2 },
+    pieces: { run: 3, hop: 3, phase: 3, well: 2, laser: 2, ambush: 1, glass: 2, mover: 2, crushers: 2, plats: 2, climb: 1, bricks: 2, drop: 1, stairs: 1, long: 1, spring: 1, foldroom: 2, chasm: 2, bulkhead: 2, tower: 2, vault: 1, chimney: 1, skylight: 1 },
     secretsAt: [{ at: 0.15, kind: 'sky', reward: ['strong', 'triple'] }, { at: 0.4, kind: 'loft', reward: ['shield', 'freeze'], up: 8 }, { at: 0.65, kind: 'cellar', reward: ['durable', 'big'] }, { at: 0.9, kind: 'sky', reward: ['shield', 'strong'] }],
+    features: [
+      { at: 0.3, sections: [['sign', { text: say('A long run of the fold: watch its whole pattern before you go', 'A long run of the fold: watch its whole pattern before you go') }], ['phaseRun', { wave: 7, pairs: 7, e: [['wisp', 11, 5], ['swooper', 32, 6]] }]] },
+      { at: 0.6, sections: [['tower', { up: 22, width: 9, lift: 6, e: [['wisp', 4.5, 6], ['gunner', 4.5, 11, { axis: 'x', range: 110 }], ['swooper', 4.5, 17]] }]] },
+    ],
     opening: [
       ['sign', { text: say('Blinking platforms: watch their rhythm before you trust them', 'Blinking platforms: watch their rhythm before you trust them') }],
       ['phase', { w: 11, n: 3, on: 2.6, off: 1.2, up: 1 }],
@@ -576,15 +673,21 @@ export const LEVEL_DEFS = [
     seed: 1010,
     base: 0.6,
     top: 1,
-    count: 80,
+    count: 58,
     every: 12,
-    puzzles: 4, // wormhole puzzles in the seeded run
+    puzzles: 6, // puzzles in the seeded run: wormholes and switches
     dropRate: 0.24,
     roster: { lancer: 2, gunner: 2, dasher: 2, swooper: 2, wisp: 2, boing: 1, moth: 1, urchin: 1, crab: 1, sentry: 1, wraith: 1, shade: 1 },
     ground: { lancer: 2, dasher: 2, crab: 1, sentry: 1 },
     movers: ['h', 'v', 'circle', 'fall'],
-    pieces: { run: 3, hop: 3, well: 2, fount: 2, phase: 2, pulse: 2, crushers: 2, laser: 2, ambush: 1, glass: 1, spring: 2, mover: 3, plats: 2, climb: 2, spikes: 2, bricks: 2, drop: 1, long: 1, tunnel: 1, foldroom: 2, chasm: 2, bulkhead: 2 },
+    pieces: { run: 3, hop: 3, well: 2, fount: 2, phase: 2, pulse: 2, crushers: 2, laser: 2, ambush: 1, glass: 1, spring: 2, mover: 3, plats: 2, climb: 1, spikes: 2, bricks: 2, drop: 1, long: 1, tunnel: 1, foldroom: 2, chasm: 2, bulkhead: 2, tower: 2, shaft: 2, skylight: 1, vault: 1, chimney: 1, orbit: 1 },
     secretsAt: [{ at: 0.12, kind: 'cellar', reward: ['big', 'strong'] }, { at: 0.35, kind: 'sky', reward: ['shield', 'triple'] }, { at: 0.6, kind: 'loft', reward: ['freeze', 'durable'], up: 8 }, { at: 0.85, kind: 'cellar', reward: ['shield', 'strong'] }],
+    features: [
+      { at: 0.3, sections: [['tower', { up: 22, width: 9, lift: 5, e: [['wisp', 4.5, 6], ['gunner', 4.5, 12, { axis: 'x', range: 110 }], ['moth', 4.5, 17]] }]] },
+      { at: 0.5, sections: [['phaseRun', { wave: 6, pairs: 6, on: 2.2, e: [['wisp', 10, 5], ['swooper', 28, 6]] }]] },
+      { at: 0.62, sections: [['orbit', { e: [['lancer', 4]] }]] },
+      { at: 0.75, sections: [['shaft', { down: 20, e: [['urchin', 4, 6, { axis: 'x', range: 90 }], ['wisp', 4, 12], ['gunner', 4, 17, { axis: 'x', range: 90 }]] }]] },
+    ],
     opening: [
       ['sign', { text: say('The last level. Everything you know, all at once', 'The last level. Everything you know, all at once') }],
       ['flat', { len: 10, e: [['lancer', 8]] }],

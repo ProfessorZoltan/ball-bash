@@ -72,7 +72,9 @@ class Builder {
       spikes: [],
       signs: [],
       sections: [],
-      portalLinks: [], // where only a wormhole gets you across: { from, to, kind }
+      portalLinks: [], // the puzzles, where only a wormhole or a switch gets you across: { from, to, kind }
+      doors: [], // shut until a switch opens them: { id, x, y0, y1 }
+      switches: [], // a charge flips one: { x, y, doors: [id], hold? }
     };
     this.minY = this.y;
     this.maxY = this.y;
@@ -141,6 +143,23 @@ class Builder {
     this.bp.solids.push(s);
     this.minY = Math.min(this.minY, y);
     return s;
+  }
+
+  /** A door from y0 to y1 at x, shut until a switch opens it. Returns its id. */
+  door(x, y0, y1) {
+    const id = this.bp.doors.length;
+    this.bp.doors.push({ id, x, y0, y1 });
+    return id;
+  }
+
+  /** A bed of spikes `len` tiles long sunk a tile into the floor, from here. */
+  spikeBed(len) {
+    const x0 = this.x;
+    this.rise(-1);
+    this.flat(len);
+    this.rise(1);
+    this.solid(x0, this.y + T * 0.55, len * T, T * 0.45, 'spikes');
+    this.bp.spikes.push({ x0, x1: x0 + len * T, y: this.y + T * 0.55 });
   }
 
   thin(x0, x1, y) {
@@ -702,6 +721,218 @@ export const SECTIONS = {
     b.enemies(p.e, x0, floorY);
   },
 
+  /**
+   * A tower: an enclosed shaft `up` tiles high, entered through a doorway at
+   * its foot and left at the top to the right. Thin ledges zig-zag up it at
+   * the robot's jump spacing, the last one by the top; a lift rides up the
+   * middle if `lift`. What lives in it is placed by height (`e`: [kind, dx, up]).
+   */
+  tower(b, p) {
+    const x0 = b.x;
+    const up = p.up ?? 16;
+    const width = p.width ?? 9;
+    const floorY = b.y;
+    b.flat(width);
+    const top = floorY - up * T;
+    // The wall on the left, over the doorway and on up past the top: the only way on is up.
+    b.solid(x0 - T, top - 6 * T, T, (up + 2.5) * T, 'block');
+    const n = Math.ceil(up / LIMITS.platGap) - 1;
+    for (let i = 1; i <= n; i++) {
+      const y = floorY - i * (up / (n + 1)) * T;
+      const col = (n - i) % 3; // counted from the top: right, middle, left, right...
+      const lx = col === 0 ? x0 + (width - 3.5) * T : col === 1 ? x0 + (width / 2 - 1.5) * T : x0 + T * 0.5;
+      b.thin(lx, lx + 3 * T, y);
+    }
+    if (p.lift) b.bp.movers.push({ x: x0 + (width / 2 - 1.25) * T, y: top + 2 * T, w: 2.5 * T, h: 18, oneWay: true, path: { type: 'line', dx: 0, dy: (up - 4) * T, period: p.lift, phase: 0 } });
+    b.rise(up);
+    b.flat(p.after ?? 4);
+    b.enemies(p.e, x0, floorY);
+  },
+
+  /**
+   * A shaft: the floor gives way to a drop `down` tiles deep between two
+   * walls, past ledges on alternate sides, and out at the foot to the right.
+   * The far wall stands high over the lip, so the only way on is down.
+   * What lives in it is placed by height above the foot.
+   */
+  shaft(b, p) {
+    b.flat(p.run ?? 3);
+    const x0 = b.x;
+    const floorY = b.y;
+    const down = p.down ?? 14;
+    const width = p.width ?? 8;
+    b.rise(-down);
+    const foot = b.y;
+    b.flat(width);
+    const wx = b.x;
+    b.solid(wx, floorY - 8 * T, 2 * T, (down + 4.5) * T, 'block');
+    const n = Math.floor(down / 4);
+    for (let i = 1; i <= n; i++) {
+      const y = floorY + i * (down / (n + 1)) * T;
+      const lx = i % 2 ? x0 : x0 + (width - 3) * T;
+      b.thin(lx, lx + 3 * T, y);
+    }
+    b.flat(2 + (p.after ?? 4));
+    b.enemies(p.e, x0, foot);
+  },
+
+  /**
+   * A skylight: a cave whose far wall is a cliff no jump climbs, with a hole
+   * in its roof at the far end. Through the hole, from the cave floor, a
+   * step's face is in sight on the level above: a wormhole end on it, the
+   * other in the floor at your feet, and you come out up there. A wall over
+   * the cave's mouth keeps that face out of sight from outside.
+   */
+  skylight(b, p) {
+    b.flat(p.run ?? 4);
+    const xc = b.x;
+    const floorY = b.y;
+    const cave = p.cave ?? 16;
+    const hole = p.hole ?? 3;
+    const up = p.up ?? 7;
+    b.flat(cave);
+    b.solid(xc, floorY - up * T, (cave - hole) * T, T, 'block'); // the roof, flush with the floor above
+    b.solid(xc, floorY - (up + 6) * T, T, 6 * T, 'block'); // the wall over the mouth
+    b.rise(up);
+    b.flat(p.land ?? 3);
+    const face = b.x;
+    b.rise(p.step ?? 3);
+    b.flat(p.after ?? 4);
+    b.bp.portalLinks.push({ kind: 'skylight', from: { x: xc + 3 * T, y: floorY }, to: { x: face - 40, y: floorY - up * T }, stand: xc + 3 * T, wall: face });
+    b.enemies(p.e, xc, floorY);
+  },
+
+  /**
+   * A vault: a door shut across a corridor under a low roof, and the switch
+   * that opens it sealed in a glass box on the floor before it. You can see
+   * in; no charge can get in. One wormhole end on the vault's back wall, seen
+   * through the glass, the other on the roof over your head: fire up into it,
+   * and the charge comes out in the vault, straight at the switch.
+   */
+  vault(b, p) {
+    b.flat(p.run ?? 2);
+    const x0 = b.x;
+    const floorY = b.y;
+    const roof = 5.5 * T;
+    b.flat(p.stand ?? 6);
+    const vx = b.x; // the glass front
+    b.flat(5); // half a tile of glass, three and a half inside, a tile of back wall
+    const dx = b.x + T;
+    b.flat(3 + (p.after ?? 4));
+    b.solid(x0, floorY - roof - T, dx + 2 * T - x0, T, 'block');
+    b.solid(vx, floorY - 3.5 * T, 0.5 * T, 3.5 * T, 'window');
+    b.solid(vx + 0.5 * T, floorY - 3.5 * T, 4.5 * T, 0.5 * T, 'block'); // the lid, over the back wall too
+    b.solid(vx + 4 * T, floorY - 3 * T, T, 3 * T, 'block'); // the back wall: its face is the vault's inside, no more
+    const id = b.door(dx, floorY - roof, floorY);
+    b.bp.switches.push({ x: vx + 2.25 * T, y: floorY - 1.5 * T, doors: [id] });
+    b.bp.portalLinks.push({ kind: 'vault', from: { x: vx - 2 * T, y: floorY }, to: { x: dx + 2 * T, y: floorY }, stand: vx - 2 * T, wall: vx + 4 * T, door: id });
+    b.enemies(p.e, x0);
+  },
+
+  /**
+   * A chimney: a door across a corridor under a low roof, and its switch at
+   * the top of a narrow chimney in the roof, over a bed of spikes. No straight
+   * line from anywhere you can stand reaches it; a charge banked into the
+   * chimney bounces up it to the switch.
+   */
+  chimney(b, p) {
+    b.flat(p.run ?? 2);
+    const x0 = b.x;
+    const floorY = b.y;
+    const roof = 5 * T;
+    b.flat(p.stand ?? 5);
+    const sx = b.x;
+    b.spikeBed(4);
+    const cx = sx + 2 * T;
+    b.flat(4);
+    const dx = b.x;
+    b.flat(2 + (p.after ?? 4));
+    const half = 0.75 * T;
+    b.solid(x0, floorY - roof - T, cx - half - x0, T, 'block');
+    b.solid(cx + half, floorY - roof - T, dx + 2 * T - cx - half, T, 'block');
+    b.solid(cx - half - 0.5 * T, floorY - roof - 5 * T, 0.5 * T, 4 * T, 'block');
+    b.solid(cx + half, floorY - roof - 5 * T, 0.5 * T, 4 * T, 'block');
+    b.solid(cx - half - 0.5 * T, floorY - roof - 5.5 * T, 2 * half + T, 0.5 * T, 'block');
+    const id = b.door(dx, floorY - roof, floorY);
+    b.bp.switches.push({ x: cx, y: floorY - roof - 5 * T + 20, doors: [id] });
+    b.bp.portalLinks.push({ kind: 'chimney', from: { x: sx - 2 * T, y: floorY }, to: { x: dx + 2 * T, y: floorY }, stands: [sx - 2 * T, sx - T, sx, sx + 4 * T, sx + 5 * T, sx + 6 * T], aim: [-Math.PI + 0.2, -0.2], door: id });
+    b.enemies(p.e, x0);
+  },
+
+  /**
+   * An orbit: a wall too tall to jump with a door at its foot, the door's
+   * switch on the floor of a pocket behind it, and a black hole hanging high
+   * over the pocket. The pocket is walled on both sides and open only to the
+   * sky, so no straight shot reaches the switch, and no bank either (a wall
+   * never turns a rising charge downward); a charge fired up past the hole
+   * comes round it and down into the pocket.
+   */
+  orbit(b, p) {
+    b.flat(p.run ?? 10);
+    const floorY = b.y;
+    const wx = b.x;
+    const behind = p.behind ?? 8;
+    b.flat(behind);
+    b.flat(p.after ?? 4);
+    b.solid(wx - 0.5 * T, floorY - 8 * T, T, 4.5 * T, 'block'); // the wall over the doorway
+    b.solid(wx + behind * T, floorY - 12 * T, T, 8.5 * T, 'block'); // the pocket's far wall, hung over the way on
+    const id = b.door(wx, floorY - 3.5 * T, floorY);
+    const w = p.hole || { dx: 2, up: 9, range: 5, pull: 700000 };
+    b.bp.wells.push({ x: wx + w.dx * T, y: floorY - w.up * T, r: 22, range: w.range * T, pull: w.pull });
+    b.bp.switches.push({ x: wx + (p.at ?? 4) * T, y: floorY - 18, doors: [id] });
+    b.bp.portalLinks.push({ kind: 'orbit', from: { x: wx - 3 * T, y: floorY }, to: { x: wx + 2 * T, y: floorY }, stands: [wx - 9 * T, wx - 7 * T, wx - 5 * T, wx - 3 * T, wx - 1.5 * T], aim: [-Math.PI / 2 - 0.2, -0.15], door: id });
+    b.enemies(p.e, wx - (p.run ?? 10) * T, floorY);
+  },
+
+  /**
+   * A door across the way under a low roof, and its switch in plain sight on
+   * the roof `at` tiles before it: shoot it. With `hold`, the door only stays
+   * open that many seconds: shoot, then run.
+   */
+  switchdoor(b, p) {
+    b.flat(p.run ?? 2);
+    const x0 = b.x;
+    const floorY = b.y;
+    const roof = 5 * T;
+    b.flat(p.stand ?? 8);
+    const dx = b.x;
+    b.flat(2 + (p.after ?? 4));
+    b.solid(x0, floorY - roof - T, dx + 2 * T - x0, T, 'block');
+    const id = b.door(dx, floorY - roof, floorY);
+    const at = p.at ?? 3;
+    b.bp.switches.push({ x: dx - at * T, y: floorY - roof + 22, doors: [id], hold: p.hold });
+    const near = [dx - (at + 4) * T, dx - (at + 2) * T].filter((x) => x > x0 + T);
+    b.bp.portalLinks.push({ kind: 'switch', from: { x: dx - 5 * T, y: floorY }, to: { x: dx + 2 * T, y: floorY }, stands: near.length ? near : [x0 + 2 * T], aim: [-Math.PI + 0.1, -0.1], door: id });
+    b.enemies(p.e, x0);
+  },
+
+  /**
+   * A long run of blinking platforms over a pit, in patterns: first a wave
+   * that travels across (each appears a beat after the one before), then a
+   * rest on a pillar, then pairs that trade places, each lighting as the
+   * other is about to go.
+   */
+  phaseRun(b, p) {
+    b.flat(p.run ?? 3);
+    const x0 = b.x;
+    const floorY = b.y;
+    const step = 3 * T;
+    const wave = p.wave ?? 6;
+    const pairs = p.pairs ?? 6;
+    const on = p.on ?? 2.4;
+    const off = p.off ?? 1.2;
+    const plat = (x, up, offset) => b.bp.movers.push({ x, y: floorY - up * T, w: 2.5 * T, h: 18, kind: 'phase', path: { type: 'phase', on, off, offset } });
+    let x = x0 + T;
+    for (let i = 0; i < wave; i++, x += step) plat(x, i % 2 ? 1.5 : 0.5, -i * (p.beat ?? 0.5));
+    const pillar = x;
+    b.solid(pillar, floorY, 2.5 * T, 14 * T, 'block');
+    x += step;
+    for (let i = 0; i < pairs; i++, x += step) plat(x, 0.5 + (i % 3) * 0.5, i % 2 ? -(on + off) / 2 : 0);
+    b.gap((x - x0) / T + 0.5, 0);
+    b.flat(p.land ?? 4);
+    b.enemies(p.e, x0, floorY);
+  },
+
   /** A sign: a line of text on a post, for the early levels to teach with. */
   sign(b, p) {
     b.flat(p.len ?? 3);
@@ -791,6 +1022,13 @@ export function estimateSeconds(bp) {
     if (sec.type === 'crushers' || sec.type === 'laser') s += 4;
     if (sec.type === 'ambush') s += (sec.p.waves || []).reduce((n, w) => n + w.length * 2.2, 3);
     if (sec.type === 'glass') s += 2;
+    if (sec.type === 'tower') s += (sec.p.up ?? 16) * 0.35; // ledge by ledge
+    if (sec.type === 'shaft') s += 3;
+    if (sec.type === 'phaseRun') s += 14;
+    // Working a puzzle out, and then doing it.
+    if (sec.type === 'skylight' || sec.type === 'vault') s += 14;
+    if (sec.type === 'chimney' || sec.type === 'orbit') s += 10;
+    if (sec.type === 'switchdoor') s += 4;
   }
   return s;
 }

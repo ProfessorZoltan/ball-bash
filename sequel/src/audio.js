@@ -169,6 +169,10 @@ export class DefectorAudio extends AudioEngine {
       case 'lock':
         this.blip(160, 90, 0.4, 0.3, 'sawtooth');
         break;
+      case 'switch':
+        this.blip(520, 1040, 0.12, 0.16, 'square');
+        this.chime([72, 79], 0.06, 0.5, 0.12);
+        break;
       case 'unlock':
         this.chime([67, 71, 74, 79], 0.07, 0.7, 0.14);
         break;

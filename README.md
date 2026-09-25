@@ -1056,7 +1056,9 @@ The camera rides a damped spring, so it eases in and out and never jerks.
 It leads a little toward the side the robot faces, drifting there at about
 walking pace, so stopping or turning never swings the view back at once;
 and it holds the height of the ground the robot last stood on, not every
-jump, until the robot climbs or drops well away from it. The robot never
+jump, until the robot climbs or drops well away from it. Falling, it leads
+downward with the speed of the fall (up to 240 px), so a long drop down a
+shaft shows where it will land. The robot never
 leaves the screen, and a wormhole that carries it more than a screen away
 cuts there rather than sweeping across the level. In a boss arena the view
 holds the whole room (`updateCamera` and `CAM` in `sequel/src/render.js`).
@@ -1125,20 +1127,44 @@ Some things only a wormhole gets you past, on purpose:
 | --- | --- | --- |
 | A bulkhead | a wall from the floor to far above any jump, with a 52 px gap under it: too low for the 60 px robot, tall enough to see and shoot under, level or a few degrees either side. Aim an end under it at the pillar beyond, the other at your feet, and step in | `SECTIONS.bulkhead` in `sequel/src/build.js` |
 | A chasm | too wide for any jump, with a wall facing back across it. One end on that wall, the other at your feet | `SECTIONS.chasm`, same file |
+| A skylight | a sea cave (or a sunken room) with a cliff no jump climbs at its far end, and a hole in its roof. Through the hole, from the cave floor, a step's face is in sight on the level above; a wall over the cave's mouth keeps it out of sight from outside. One end on the face, the other at your feet | `SECTIONS.skylight`, same file |
+| A vault | a door across the way that only a switch opens, and the switch sealed in a box of armoured glass. You can see in and aim through the glass; nothing solid gets in. One end on the vault's back wall, the other on the roof over your head: fire up into it, and the charge comes out in the vault, straight at the switch | `SECTIONS.vault`, same file |
 | A folded enemy (Wraith, Echo, Shade, or any enemy placed folded) | it is only half here: a charge passes straight through it unless the charge has itself been through a wormhole (anyone's). Drawn doubled and flickering | `folded` in `sequel/src/enemies.js`, `stepCharges` in `sequel/src/game.js` |
 | A folded room | an ambush room that locks until its folded waves are beaten | `PIECES.foldroom` in `sequel/src/levels.js` |
-
-A locked room left through a wormhole while its waves are unbeaten stays
-locked as long as one of your ends is inside it, the way back. With none,
-it would be shut for good, so its doors open and it starts over: what was
-left of its wave goes, and it locks again from the first wave when you walk
-back in (`stepAmbushes` in `sequel/src/game.js`).
 | The Conductor | its underside and ends are armoured and its back is pressed to the station roof: a wormhole in the roof is the only way to its core | `BOSSES.conductor` in `sequel/src/bosses.js` |
 | The Cartographer | folded: only a charge that has been through a wormhole, yours or one of its own, touches it | `BOSSES.cartographer`, same file |
 
 Level 1 teaches wormholes with an optional secret up on a loft; every level
 after it has at least one of these on the main path, taught by a sign the
 first time.
+
+A locked room left through a wormhole while its waves are unbeaten stays
+locked as long as one of your ends is inside it, the way back. With none,
+it would be shut for good, so its doors open and it starts over: what was
+left of its wave goes, and it locks again from the first wave when you walk
+back in (`stepAmbushes` in `sequel/src/game.js`).
+
+### Switches and doors
+
+A door with a lamp over it is shut until its switch is flipped, and a
+switch is flipped by a charge of yours: an enemy's shot is no key, and the
+charge is spent. Lamp and switch are amber while shut and green once open.
+Some switches are on a timer: the door stays open that many seconds, a ring
+round the switch counting down, then shuts again (never on the robot). A
+door takes no wormhole. **Armoured glass** is the other new thing: solid to
+the robot, its charges and enemies alike, but the line of sight goes
+through it, so a wormhole end can open on whatever is behind it.
+
+| Puzzle | How it is beaten | Source |
+| --- | --- | --- |
+| A switch door | the switch is in plain sight on the roof before the door: shoot it. Timed ones put the switch well back, so you shoot, then run | `SECTIONS.switchdoor` in `sequel/src/build.js` |
+| A chimney | the switch is at the top of a narrow chimney in the roof, over a bed of spikes, and no straight line from anywhere you can stand reaches it: bank a charge into the chimney and it bounces up it | `SECTIONS.chimney`, same file |
+| An orbit | the switch is on the floor of a pocket behind a wall too tall to jump, walled on both sides and open only to the sky, with a black hole hanging over it. No straight shot reaches it, and no bank (a wall never turns a rising charge downward): fire up past the hole and it brings the charge round and down | `SECTIONS.orbit`, same file |
+| A vault | sealed in glass: only through a wormhole (above) | `SECTIONS.vault`, same file |
+
+Each of these records itself in `bp.portalLinks` like a wormhole puzzle,
+and the same rules hold: it is solved in the real game, and the level
+cannot be crossed without solving it.
 
 ### Enemies
 
@@ -1185,7 +1211,7 @@ that the robot can walk to from the door, never inside a rock or a wall
 
 | Level | Boss | Toughness | How it fights | Its arena | Source |
 | --- | --- | --- | --- | --- | --- |
-| 1 | The Gardener | 14 | a huge mower: patrols, lobs seed pods that burst, revs and charges the length of the lawn | a flat lawn under three hedges | `BOSSES` in `sequel/src/bosses.js` |
+| 1 | The Gardener | 14 | a huge mower behind a grass-box: a plate on its front, facing where it drives, that swings over its top when it turns at a wall (the front is open for that moment). Patrols, lobs seed pods that burst, revs and charges the length of the lawn. Hit it from behind, from above, or as it turns | a flat lawn under three hedges | `BOSSES` in `sequel/src/bosses.js` |
 | 2 | The Lantern Moth | 18 | a figure of eight over the market, dropping lanterns that burst into embers, five-way fans, a dive through where you stood | three awnings and a drifting cart | same |
 | 3 | The Conductor | 20 | a train car flush under the roof: shots from its windows as it passes over, a volley of ricochets at each stop. Wormhole only | a station with two platforms | same |
 | 4 | The Keeper | 22 | a lighthouse: two plates turn round its lamp, pulses roll out over the pools, a beam sweeps (rock stops it), crabs come | rocks to shelter behind | same |
@@ -1206,23 +1232,37 @@ Conductor does not without wormholes.
 A level is written as a list of sections laid end to end (a gap, a climb, a
 pit with a black hole in it, a bulkhead), each a few numbers in tiles: an
 opening written by hand that teaches what is new, then a seeded run of set
-pieces from the level's own palette that gets harder toward the end, then
-the arena. The seed makes the run the same every time. Checkpoints come
-every ten or so pieces; secrets are a loft only a wormhole reaches, a cellar
-under a crate in the floor, or a ledge above an unneeded spring.
+pieces from the level's own palette that gets harder toward the end, with
+the level's own set pieces (a tall tower, a deep shaft, a long blinking
+run) placed where it puts them, then the arena. The seed makes the run the
+same every time. Checkpoints come every ten or so pieces; secrets are a
+loft only a wormhole reaches, a cellar under a crate in the floor, or a
+ledge above an unneeded spring.
+
+Each palette leans on the level's own pieces, and every level from the
+second holds three to five puzzles of at least two kinds (no more than two
+of one kind from the seeded run). A jump over a pit is rarely a jump with
+nothing in it: fliers from the level's roster hang over most pits, gaps and
+moving platforms, fly up climbs and towers, and walk the foot of drops.
+
+| Vertical piece | What it is | Source |
+| --- | --- | --- |
+| A tower | an enclosed shaft 12 to 22 tiles high (up to three screens), entered through a doorway at its foot; thin ledges zig-zag up it at the robot's jump spacing, sometimes a lift up the middle, fliers at every height. Its left wall stands over the doorway past the top, so the only way on is up | `SECTIONS.tower` in `sequel/src/build.js` |
+| A shaft | the floor gives way to a drop 10 to 20 tiles deep between two walls, past ledges on alternate sides, and out at the foot; the far wall stands high over the lip, so the only way on is down | `SECTIONS.shaft`, same file |
+| A long blinking run | the Folded City's (and the Source's): a pit 40-odd tiles across of blinking platforms in patterns, first a wave that travels across, each appearing half a beat after the one before, then a pillar to rest on, then pairs that trade places, each lighting 0.6 s before the other goes | `SECTIONS.phaseRun`, same file |
 
 | # | Level | Estimated minutes before the boss | New | Source |
 | --- | --- | --- | --- | --- |
-| 1 | Neon Orchard | 4.3 | running, jumping, stomping, the blaster, crates, wormholes (a secret) | `LEVEL_DEFS` in `sequel/src/levels.js` |
-| 2 | Rain Market | 4.3 | thin awnings, moving carts, the bulkhead | same |
-| 3 | Transit Loop | 4.5 | shielded Lancers, crushers, lasers, the chasm | same |
-| 4 | Tidepool Light | 6.4 | pulse emitters, spikes, platforms on a wheel | same |
-| 5 | Greenhouse Arcology | 6.3 | springs, glass, folded enemies | same |
-| 6 | Observatory Heights | 7.3 | black holes over pits, with moons circling them; white holes that lift | same |
-| 7 | Carnival of Echoes | 7.4 | ambush rooms that lock until cleared | same |
-| 8 | Deep Relay | 11.6 | darkness: only the robot, its charges and what glows are lit | same |
-| 9 | Folded City | 14.1 | blinking platforms, folded rooms | same |
-| 10 | The Source | 13.5 | everything | same |
+| 1 | Neon Orchard | 4.6 | running, jumping, stomping, the blaster, crates, switch doors, a tower, wormholes (a secret) | `LEVEL_DEFS` in `sequel/src/levels.js` |
+| 2 | Rain Market | 4.5 | thin awnings, moving carts, the bulkhead, drains down, a timed shutter | same |
+| 3 | Transit Loop | 4.4 | shielded Lancers, crushers, lasers, the chasm, the chimney, a lift tower | same |
+| 4 | Tidepool Light | 7.3 | pulse emitters, spikes, platforms on a wheel, the skylight, cliff dives | same |
+| 5 | Greenhouse Arcology | 7.3 | springs, glass, folded enemies, armoured glass and the vault, vine towers | same |
+| 6 | Observatory Heights | 7.6 | black holes over pits, with moons circling them; white holes that lift; the orbit; observatory towers | same |
+| 7 | Carnival of Echoes | 7.4 | ambush rooms that lock until cleared, a long timed door | same |
+| 8 | Deep Relay | 13.3 | darkness: only the robot, its charges and what glows are lit; deep shafts | same |
+| 9 | Folded City | 13.8 | blinking platforms and a long blinking run, folded rooms | same |
+| 10 | The Source | 14.0 | everything | same |
 
 The design asks for 3 to 5 minutes on an early level, 4 to 8 on a middle one
 and 8 to 15 on a late one. The estimate is the level's length at Super Mario
@@ -1290,8 +1330,9 @@ moving, the burst, the boss fights, and every level:
 
 | Check | What it proves | Source |
 | --- | --- | --- |
-| Crossing | a search over everything the robot can stand on, flown with its own physics (hops and leaps at walking and running speed, walking off ends), reaches the boss's arena. Moving platforms are somewhere to stand along their path, crates are shot, and a wormhole puzzle is a link | `sequel/tools/reach.mjs` |
-| Puzzles | every bulkhead and chasm in every level is solved in the real game by aiming the ends and stepping through, and no level with one can be crossed without wormholes | `sequel/tools/solve.mjs` |
+| Crossing | a search over everything the robot can stand on, flown with its own physics (hops and leaps at walking and running speed, walking off ends), reaches the boss's arena. Moving platforms are somewhere to stand along their path, crates are shot, a wormhole puzzle is a link, and a switch's door is open (the next row proves it can be) | `sequel/tools/reach.mjs` |
+| Puzzles | every puzzle in every level is solved in the real game: wormhole ends aimed and stepped through, a vault's switch hit through a wormhole, and every other switch hit by a shot found by flying the charge's own physics (banks and black holes included), a timed door run through before it shuts. No level with a puzzle can be crossed without solving it; a chimney's switch is out of every straight line, and an orbit's out of every shot without its black hole | `sequel/tools/solve.mjs` |
+| Timing | every blinking stretch is crossed with the clock running: from each place it stands, the robot waits a beat at a time and jumps, while the platforms blink | `sequel/tools/timed.mjs` |
 | Bosses | every boss is beaten in the real game by a robot that aims well | `sequel/tools/fight.mjs` |
 | Lengths | each level's estimate sits in its band | `sequel/test/levels.test.js` |
 

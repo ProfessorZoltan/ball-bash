@@ -158,7 +158,7 @@ test('a folded enemy is touched only by a charge that has been through a wormhol
   assert.equal(e.hp, e.maxHp - 1, 'a charge that has been through a wormhole hits it');
 });
 
-test('every bulkhead and chasm in every level is solved by wormholes, and by nothing else', () => {
+test('every puzzle in every level, wormhole or switch, is solved in the real game, and nothing else gets past it', () => {
   let solved = 0;
   for (const L of LEVEL_DEFS) {
     const bp = level(L.id);
@@ -169,11 +169,11 @@ test('every bulkhead and chasm in every level is solved by wormholes, and by not
     }
     if (bp.portalLinks.length) {
       const r = reachability(bp, { links: false });
-      assert.ok(!r.ok, `level ${L.id} can be crossed without a wormhole`);
+      assert.ok(!r.ok, `level ${L.id} can be crossed without solving its puzzles`);
       assert.ok(r.furthest < bp.portalLinks[0].to.x, `level ${L.id}: its first puzzle can be walked round`);
     }
   }
-  assert.ok(solved >= 10, `${solved} puzzles in the game`);
+  assert.ok(solved >= 35, `${solved} puzzles in the game`);
 });
 
 test('pressing an end\'s button opens it where the aim line meets a surface', () => {

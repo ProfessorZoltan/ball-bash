@@ -173,7 +173,8 @@ test('every black hole in a pit has moons: fliers that circle it deep in its pul
   for (const L of LEVEL_DEFS) {
     const bp = level(L.id);
     const g = new Game(bp, { shields: Infinity });
-    for (const hole of g.world.wells.filter((w) => w.pull > 0 && w.x < bp.arena.x0)) {
+    const pitSections = bp.sections.filter((sec) => sec.type === 'well');
+    for (const hole of g.world.wells.filter((w) => w.pull > 0 && pitSections.some((sec) => w.x > sec.x0 && w.x < sec.x1))) {
       pits++;
       const moons = g.enemies.filter((e) => e.orbit && e.orbit.cx === hole.x && e.orbit.cy === hole.y);
       assert.ok(moons.length >= 1 && moons.length <= 2, `level ${L.id}: the hole at x ${Math.round(hole.x)} has ${moons.length} moons`);

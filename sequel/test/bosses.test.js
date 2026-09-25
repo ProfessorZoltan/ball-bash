@@ -37,7 +37,29 @@ test('some bosses carry shields: Deflector plates that turn a charge away', () =
     for (let i = 0; i < 240 * 3; i++) gg.step(DT, { mx: 0 });
     return gg.boss.parts.some((p) => p.type === 'plate');
   });
-  assert.ok(shielded.length >= 5 && shielded.length < 10, `${shielded.length} of ten carry shields`);
+  assert.ok(shielded.length >= 5, `${shielded.length} of ten carry shields`);
+});
+
+test('the Gardener\'s grass-box turns a charge away from its front, and its back is open', () => {
+  const g = new Game(level(1), { shields: Infinity });
+  const A = g.arena;
+  g.bot.spawn(A.x0 + 160, A.floor - 31);
+  for (let i = 0; i < 240 * 4 && g.phase !== 'boss'; i++) {
+    g.bot.invuln = 1e9;
+    g.step(DT, { mx: 0 });
+  }
+  const b = g.boss;
+  for (let i = 0; i < 240 && Math.abs(b.guard + Math.PI) > 0.01; i++) g.step(DT, { mx: 0 });
+  assert.ok(b.dir < 0 && Math.abs(b.guard + Math.PI) < 0.01, 'driving left, the box on its left');
+  const hp = b.hp;
+  const front = new Charge({ x: b.x - 200, y: b.y, vx: BLASTER.speed, vy: 0, born: g.time });
+  g.charges.push(front);
+  for (let i = 0; i < 120; i++) g.step(DT, { mx: 0 });
+  assert.equal(b.hp, hp, 'a charge at its front is turned away');
+  const back = new Charge({ x: b.x + 150, y: b.y, vx: -BLASTER.speed, vy: 0, born: g.time });
+  g.charges.push(back);
+  for (let i = 0; i < 120 && b.hp === hp; i++) g.step(DT, { mx: 0 });
+  assert.equal(b.hp, hp - 1, 'a charge at its back lands');
 });
 
 for (const L of LEVEL_DEFS) {

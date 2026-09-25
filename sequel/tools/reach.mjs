@@ -14,11 +14,14 @@
 //    open wormholes itself, so each puzzle is a link from its near floor to
 //    its far one (bp.portalLinks), and the wormhole tests fly every kind of
 //    puzzle for real. With `links: false` the search has no wormholes at all,
-//    which is how a test proves a puzzle cannot be walked round.
+//    which is how a test proves a puzzle cannot be walked round;
+//  - a door a switch opens is open when the puzzles are taken as solved
+//    (solve.mjs proves every switch can be flipped from before its door),
+//    and shut with `links: false`.
 // Wells, white holes and springs are flown for real.
 //
 // Usage: node sequel/tools/reach.mjs [level id]
-import { createWorld, Platform, segmentsNear } from '../src/world.js';
+import { createWorld, Platform, segmentsNear, setGate } from '../src/world.js';
 import { capsuleVsCapsule } from '../../src/physics.js';
 import { Robot, stepRobot } from '../src/player.js';
 import { level, LEVEL_DEFS } from '../src/levels.js';
@@ -26,9 +29,10 @@ import { MOVE } from '../src/config.js';
 
 const DT = 1 / 120;
 
-/** The world as the search sees it: movers turned into ghost thin tops, crates gone. */
-export function searchWorld(bp) {
+/** The world as the search sees it: movers turned into ghost thin tops, crates gone, doors open or shut. */
+export function searchWorld(bp, openDoors = true) {
   const w = createWorld({ ...bp, crates: [], movers: [] });
+  if (openDoors) for (const d of w.doors) setGate(d, false);
   const extra = [];
   for (const m of bp.movers || []) {
     const p = new Platform(m);
@@ -144,7 +148,7 @@ function pieceAt(ps, x, y, tol = 60) {
 
 /** The search. Returns { ok, reached, furthest } where furthest is the rightmost x it stood. */
 export function reachability(bp, { log = false, links = true } = {}) {
-  const w = searchWorld(bp);
+  const w = searchWorld(bp, links);
   const surfs = surfaces(w);
   const ps = pieces(w, surfs);
   const bySeg = new Map();

@@ -210,6 +210,7 @@ export class Game {
     if (it.cycle) this.cycle();
 
     this.stepCharges(dt);
+    this.stepSwitches(dt);
     this.stepShots(dt);
     this.stepEnemies(dt);
     this.stepPickups(dt);
@@ -302,6 +303,46 @@ export class Game {
     return closed;
   }
 
+  /** A charge of yours that touches a switch flips it, and is spent. */
+  chargeVsSwitches(c) {
+    for (const sw of this.world.switches) {
+      if (sw.on || Math.hypot(c.x - sw.x, c.y - sw.y) > sw.r + c.r) continue;
+      c.dead = true;
+      this.fx.sparks(sw.x, sw.y, 0, -1, '#9dff5c', 10, 200);
+      this.flipSwitch(sw);
+      return;
+    }
+  }
+
+  /** A switch goes on: its doors open (for `hold` seconds, if it has one). */
+  flipSwitch(sw) {
+    sw.on = true;
+    sw.flash = 1;
+    sw.t = sw.hold || 0;
+    for (const d of this.world.doors) if (sw.doors.includes(d.id)) setGate(d, false);
+    this.fx.ring(sw.x, sw.y, '#9dff5c', 60, 0.4);
+    this.emit('switch');
+  }
+
+  /** A timed switch runs down and shuts its doors again, never on the robot. */
+  stepSwitches(dt) {
+    const bot = this.bot;
+    for (const sw of this.world.switches) {
+      sw.flash = Math.max(0, sw.flash - dt * 2);
+      if (!sw.on || !sw.hold) continue;
+      sw.t -= dt;
+      if (sw.t > 0) continue;
+      const doors = this.world.doors.filter((d) => sw.doors.includes(d.id));
+      if (doors.some((d) => Math.abs(bot.x - d.x) < bot.r + 12 && bot.bottom > d.y0 && bot.top < d.y1)) {
+        sw.t = 0.05;
+        continue;
+      }
+      sw.on = false;
+      for (const d of doors) setGate(d, true);
+      this.emit('lock');
+    }
+  }
+
   /** An end is going: the robot and any enemy sunk in its mouth are put back in front of its surface. */
   ejectAll(p) {
     ejectFrom(p, this.bot);
@@ -331,6 +372,7 @@ export class Game {
           return true;
         },
       });
+      if (alive && !c.dead) this.chargeVsSwitches(c);
       if (!alive || c.dead) {
         if (alive === false) this.fx.sparks(c.x, c.y, 0, -1, c.color, 4, 80, 3, 0.25);
         this.charges.splice(i, 1);
