@@ -1040,7 +1040,12 @@ that pressed Start) does nothing until it is let go.
 The robot is an upright capsule 60 px tall and 30 wide on a 40 px tile. It
 stands on anything whose surface faces up by at least 0.6 (so on slopes and
 on the lip of a ledge until its middle is past it), jumps up through thin
-platforms and lands on them, and is carried by moving ones.
+platforms and lands on them, and is carried by moving ones. It is drawn
+hovering a few pixels off the ground on jets under its feet, its legs a
+little bent and still: the jets burn blue walking and orange running, and a
+jump throws a flare down from the pack, with a ring spreading over the
+ground it left (`drawRobot` in `sequel/src/art.js`; the colours are
+`ROBOT.walkJet` and `ROBOT.runJet`).
 
 | Figure | Value | Source |
 | --- | --- | --- |
@@ -1061,7 +1066,9 @@ downward with the speed of the fall (up to 240 px), so a long drop down a
 shaft shows where it will land. The robot never
 leaves the screen, and a wormhole that carries it more than a screen away
 cuts there rather than sweeping across the level. In a boss arena the view
-holds the whole room (`updateCamera` and `CAM` in `sequel/src/render.js`).
+holds the whole room, with 150 px of ground shown under its floor, so a
+taskbar laid over the bottom of the window never hides where the robot
+stands (`updateCamera` and `CAM` in `sequel/src/render.js`).
 
 ### The blaster
 

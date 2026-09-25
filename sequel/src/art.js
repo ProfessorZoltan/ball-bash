@@ -1,7 +1,7 @@
 // Everything in Defector with a shape of its own, drawn in code: the robot,
 // the enemies, the bosses, the scenery, the pickups and the signs. Each is a
 // neon outline over a dark body, so it reads against any sky.
-import { ROBOT, POWERUPS, PICKUP } from './config.js';
+import { ROBOT, MOVE, POWERUPS, PICKUP } from './config.js';
 
 const TAU = Math.PI * 2;
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -38,9 +38,32 @@ function rr(ctx, x, y, w, h, r) {
 // ------------------------------------------------------------------ robot
 
 /**
- * The Defector: a boxy robot fighter, visor lit, legs striding, its blaster
- * on an arm that turns all the way round. Flickers while a lost shield's
- * grace runs.
+ * A hover jet: a tapered flame from a nozzle at (x, y), `len` long, burning
+ * `color` at `a`, bent `lean` px at its tip (it trails the way it is going).
+ */
+function jet(ctx, x, y, len, width, lean, color, a, low) {
+  if (a <= 0.01) return;
+  glow(ctx, withAlpha(color, a), 10, low);
+  const g = ctx.createLinearGradient(x, y, x + lean, y + len);
+  g.addColorStop(0, withAlpha('#ffffff', a));
+  g.addColorStop(0.25, withAlpha(color, a));
+  g.addColorStop(1, withAlpha(color, 0));
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.moveTo(x - width, y);
+  ctx.quadraticCurveTo(x - width * 0.6 + lean * 0.5, y + len * 0.6, x + lean, y + len);
+  ctx.quadraticCurveTo(x + width * 0.6 + lean * 0.5, y + len * 0.6, x + width, y);
+  ctx.closePath();
+  ctx.fill();
+  ctx.shadowBlur = 0;
+}
+
+/**
+ * The Defector: a boxy robot fighter, visor lit, hovering a few px off the
+ * ground on jets under its feet, legs a little bent; its blaster is on an
+ * arm that turns all the way round. The jets burn one colour walking and
+ * another running, and a jump throws a flare down from the pack. Flickers
+ * while a lost shield's grace runs.
  */
 export function drawRobot(ctx, b, t, alpha, o = {}) {
   const x = b.warped ? b.x : lerp(b.prevX, b.x, alpha);
@@ -51,52 +74,89 @@ export function drawRobot(ctx, b, t, alpha, o = {}) {
   const low = o.low;
   const face = Math.cos(b.aim) >= 0 ? 1 : -1;
   const squash = b.landed * 0.12;
+  const onG = b.onGround;
+  const speed = Math.abs(b.vx);
+  const dir = Math.sign(b.vx) || b.facing;
+  const walkK = Math.min(1, Math.max(0, (speed - 20) / 60));
+  const runK = onG ? Math.min(1, Math.max(0, (speed - MOVE.walk - 5) / 40)) : 0;
+  const bob = Math.sin(t * 3.4) * 1.2;
+  // The jump's ring, spreading flat over the ground it left.
+  if (b.flare > 0 && b.takeoff) {
+    const k = 1 - b.flare;
+    ctx.strokeStyle = withAlpha(trim, b.flare * 0.8);
+    ctx.lineWidth = 2;
+    glow(ctx, trim, 10, low);
+    ctx.beginPath();
+    ctx.ellipse(b.takeoff.x, b.takeoff.y, 10 + k * 40, 2 + k * 7, 0, 0, TAU);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
   ctx.save();
   ctx.translate(x, y + 30);
   ctx.scale(1 + squash, 1 - squash);
-  ctx.translate(0, -30);
-  // Legs: a stride on the ground, tucked in the air.
-  const onG = b.onGround;
-  const st = b.stride;
-  const moving = Math.abs(b.vx) > 20;
+  ctx.translate(0, -30 + bob);
+  // Legs: a little bent, the feet a few px off the ground over their jets; tucked up in the air.
   ctx.strokeStyle = col;
   ctx.lineWidth = 5;
   ctx.lineCap = 'round';
-  glow(ctx, col, 8, low);
+  ctx.lineJoin = 'round';
+  const feet = [];
   for (const side of [-1, 1]) {
-    const ph = st * TAU + (side > 0 ? Math.PI : 0);
-    let fx = side * 6;
-    let fy = 30;
-    let kx = side * 5;
-    let ky = 18;
+    const trail = -dir * 2 * runK;
+    let kx = side * 5 + face * 3 + trail * 0.5;
+    let ky = 15.5;
+    let fx = side * 5 + trail;
+    let fy = 23;
     if (!onG) {
-      fx = side * 8 - face * 4;
-      fy = 24 + (side > 0 ? -3 : 3);
-      kx = side * 9 + face * 3;
-      ky = 16;
-    } else if (moving) {
-      fx = side * 3 + Math.sin(ph) * 11 * Math.sign(b.vx || 1);
-      fy = 30 - Math.max(0, Math.cos(ph)) * 6;
-      kx = fx * 0.5 + face * 3;
-      ky = 18 - Math.max(0, Math.cos(ph)) * 3;
+      kx = side * 6 + face * 4;
+      ky = 14;
+      fx = side * 6 - face;
+      fy = b.vy > 0 ? 23 : 20;
     }
+    glow(ctx, col, 8, low);
     ctx.beginPath();
     ctx.moveTo(side * 5, 8);
     ctx.lineTo(kx, ky);
     ctx.lineTo(fx, fy);
     ctx.stroke();
-    ctx.fillStyle = trim;
-    ctx.fillRect(fx - 5, fy - 2, 10, 4);
+    ctx.shadowBlur = 0;
+    feet.push([fx, fy, side]);
   }
-  ctx.shadowBlur = 0;
-  // A jet flicker under the pack while rising.
-  if (!onG && b.vy < -100) {
-    ctx.fillStyle = withAlpha(trim, 0.7);
-    ctx.beginPath();
-    ctx.moveTo(-face * 12, 4);
-    ctx.lineTo(-face * 12 - 4, 14 + Math.random() * 10);
-    ctx.lineTo(-face * 12 + 4, 4);
+  // The jets: a low idle at a standstill, one colour walking, another running. In the air they only flicker.
+  for (const [fx, fy, side] of feet) {
+    const flick = 0.85 + 0.15 * Math.sin(t * 43 + side * 1.7);
+    const a = onG ? 0.5 + 0.4 * Math.max(walkK, runK) : 0.3;
+    const len = (onG ? 7 + 3 * walkK + 5 * runK : 6) * flick;
+    const lean = -dir * (2 * walkK + 4 * runK);
+    jet(ctx, fx, fy + 2, len, 3.2, lean, ROBOT.walkJet, a * (1 - runK), low);
+    jet(ctx, fx, fy + 2, len, 3.6, lean, ROBOT.runJet, a * runK, low);
+    if (onG) {
+      // Their light on the floor under the robot.
+      ctx.fillStyle = withAlpha(runK > 0.5 ? ROBOT.runJet : ROBOT.walkJet, a * 0.45);
+      ctx.beginPath();
+      ctx.ellipse(fx + lean, 30 - bob, 7 + 2 * runK, 1.6, 0, 0, TAU);
+      ctx.fill();
+    }
+    ctx.fillStyle = trim;
+    rr(ctx, fx - 5, fy - 1, 10, 4, 1.5);
     ctx.fill();
+  }
+  // The pack's flare: thrown down hard on a jump, and a flicker while it keeps rising.
+  const px = -face * 20;
+  const f = Math.max(b.flare, !onG && b.vy < -100 ? 0.18 : 0);
+  if (f > 0) {
+    const k = 1 - b.flare;
+    jet(ctx, px, 5, (10 + 30 * f) * (0.9 + 0.1 * Math.sin(t * 50)), 2 + 3 * f, 0, trim, Math.min(1, f * 1.3), low);
+    if (b.flare > 0) {
+      // And a pulse off the nozzle, spreading as it drops away.
+      ctx.strokeStyle = withAlpha(trim, b.flare);
+      ctx.lineWidth = 1.5;
+      glow(ctx, trim, 8, low);
+      ctx.beginPath();
+      ctx.ellipse(px, 8 + k * 16, 4 + k * 12, 1.5 + k * 3.5, 0, 0, TAU);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
   }
   // Body.
   rr(ctx, -14, -22, 28, 32, 6);
@@ -149,7 +209,7 @@ export function drawRobot(ctx, b, t, alpha, o = {}) {
   ctx.restore();
   // Arm and blaster, drawn unsquashed from the shoulder along the aim.
   ctx.save();
-  ctx.translate(x, y + ROBOT.shoulder);
+  ctx.translate(x, y + ROBOT.shoulder + bob);
   ctx.rotate(b.aim);
   ctx.strokeStyle = col;
   ctx.lineWidth = 5;

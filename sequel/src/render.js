@@ -29,6 +29,8 @@ const CAM = {
   dropLead: 240, // px the view leads downward in a long fall, so a shaft shows where it lands
   dropRate: 520, // px/s that lead grows and eases back
   smoothArena: 0.6,
+  arenaAbove: 70, // px of a boss arena's frame shown over its ceiling, where the HUD sits
+  arenaBelow: 150, // and under its floor: ground under the robot, clear of a taskbar laid over the window
 };
 
 /**
@@ -189,8 +191,8 @@ export class Renderer {
     const inArena = A && ['intro', 'boss', 'bossDown', 'exit'].includes(game.phase) && bx > A.x0 - 40 && bx < A.x1 && by > A.top - 100 && by < A.floor + 60;
     if (inArena) {
       tx = (A.x0 + A.x1) / 2;
-      ty = (A.top + A.floor) / 2 - 10;
-      scale = Math.min(this.h / (A.h + 110), this.w / (A.w + 80));
+      ty = (A.top - CAM.arenaAbove + A.floor + CAM.arenaBelow) / 2;
+      scale = Math.min(this.h / (A.h + CAM.arenaAbove + CAM.arenaBelow), this.w / (A.w + 80));
       smoothX = smoothY = CAM.smoothArena;
     }
     // The level's edges bound where it heads, not where it is: it eases up to an edge instead of stopping dead on it.

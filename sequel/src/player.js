@@ -46,9 +46,9 @@ export class Robot {
     this.safe = { x, y };
     this.safeT = 0;
     this.airT = 0;
-    this.runT = 0; // how long it has been running at speed (the animation's stride)
-    this.stride = 0;
     this.landed = 0; // the landing squash, 1 down to 0
+    this.flare = 0; // the pack's flare from a jump, 1 down to 0
+    this.takeoff = null; // where the last jump left the ground: its flare's ring spreads there
     this.pulseSeen = new Set();
   }
 
@@ -87,6 +87,7 @@ export function stepRobot(bot, it, world, dt, hooks = {}) {
   bot.portalGrace -= dt;
   bot.dropping -= dt;
   bot.landed = Math.max(0, bot.landed - dt * 5);
+  bot.flare = Math.max(0, bot.flare - dt * 2.5);
   if (it.jumpPressed) bot.buffer = MOVE.buffer;
 
   // A platform carries what stands on it: its whole motion this step.
@@ -145,6 +146,8 @@ export function stepRobot(bot, it, world, dt, hooks = {}) {
     bot.buffer = 0;
     bot.rising = true;
     bot.airT = 0;
+    bot.flare = 1;
+    bot.takeoff = { x: bot.x, y: bot.bottom };
     if (hooks.jump) hooks.jump();
   }
 
@@ -203,9 +206,6 @@ export function stepRobot(bot, it, world, dt, hooks = {}) {
     bot.safeT += dt;
     if (bot.safeT > 0.25) bot.safe = { x: bot.x, y: bot.y };
   } else bot.safeT = 0;
-
-  // Stride for the run cycle.
-  if (bot.onGround) bot.stride += Math.abs(bot.vx) * dt * 0.045;
 
   portalStep(bot, world, hooks);
 

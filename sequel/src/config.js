@@ -34,6 +34,8 @@ export const ROBOT = {
   half: 15,
   color: '#7fe9ff',
   trim: '#ffb347',
+  walkJet: '#4fb8ff', // the hover jets under its feet, walking
+  runJet: '#ff8a3d', // and running
   shoulder: -8, // px from the body's centre to the pivot the blaster turns on
   invuln: 1.6, // seconds of flicker after losing a shield
   knock: 320, // px/s the robot is thrown back by a hit
