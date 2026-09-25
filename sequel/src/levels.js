@@ -321,7 +321,7 @@ function compose(L) {
     const d = Math.min(1, L.base + (L.top - L.base) * u);
     if (secrets.length && u >= secrets[0].at) {
       const s = secrets.shift();
-      out.push(['secret', { kind: s.kind, reward: s.reward, up: s.up }]);
+      out.push(['secret', { kind: s.kind, reward: s.reward, up: s.up, hide: L.hide }]);
     }
     // The level's own set pieces, where it puts them.
     while (features.length && u >= features[0].at) {
@@ -376,6 +376,7 @@ export const LEVEL_DEFS = [
     ground: { skitter: 4, hopper: 1 },
     movers: ['h'],
     pieces: { run: 3, hop: 4, stairs: 2, pillars: 3, bricks: 3, slope: 2, plats: 2, long: 1, drop: 1, climb: 1, switchdoor: 1 },
+    hide: 0, // how well its secrets are hidden: 0 in plain sight, to 3, a hairline crack
     secretsAt: [{ at: 0.3, kind: 'cellar', reward: ['big', 'strong'] }, { at: 0.7, kind: 'sky', reward: ['triple', 'shield'] }],
     features: [{ at: 0.5, sections: [['tower', { up: 12, width: 9, e: [['flitter', 4.5, 5], ['drifter', 4.5, 9, { axis: 'x', range: 100 }]] }]] }],
     opening: [
@@ -418,6 +419,7 @@ export const LEVEL_DEFS = [
     ground: { skitter: 3, dasher: 2, hopper: 1 },
     movers: ['h', 'v'],
     pieces: { run: 3, hop: 3, plats: 3, mover: 3, tunnel: 2, bricks: 2, stairs: 1, slope: 1, climb: 1, drop: 1, pillars: 1, bulkhead: 1, shaft: 1, switchdoor: 1 },
+    hide: 0, // how well its secrets are hidden: 0 in plain sight, to 3, a hairline crack
     secretsAt: [{ at: 0.4, kind: 'loft', reward: ['strong', 'big'], up: 8 }, { at: 0.8, kind: 'cellar', reward: ['shield', 'freeze'] }],
     features: [
       { at: 0.4, sections: [['shaft', { down: 12, e: [['drifter', 4, 6, { axis: 'x', range: 90 }]] }]] },
@@ -452,7 +454,8 @@ export const LEVEL_DEFS = [
     ground: { dasher: 3, lancer: 2, skitter: 2 },
     movers: ['h', 'fall'],
     pieces: { run: 3, hop: 3, crushers: 3, laser: 2, mover: 2, tunnel: 2, pillars: 2, stairs: 1, bricks: 2, climb: 1, long: 1, chasm: 1, bulkhead: 1, chimney: 1, tower: 1 },
-    secretsAt: [{ at: 0.35, kind: 'sky', reward: ['triple', 'strong'] }, { at: 0.75, kind: 'loft', reward: ['shield', 'durable'], up: 8 }],
+    hide: 1, // how well its secrets are hidden: 0 in plain sight, to 3, a hairline crack
+    secretsAt: [{ at: 0.35, kind: 'cellar', reward: ['triple', 'strong'] }, { at: 0.75, kind: 'loft', reward: ['shield', 'durable'], up: 8 }],
     features: [{ at: 0.45, sections: [['tower', { up: 16, width: 9, lift: 5, e: [['swooper', 4.5, 8], ['flitter', 4.5, 12]] }]] }],
     opening: [
       ['sign', { text: say('A shield turns your charge away: bank it off a wall into their back', 'A shield turns your charge away: bank it off a wall into their back') }],
@@ -485,7 +488,8 @@ export const LEVEL_DEFS = [
     ground: { crab: 3, hopper: 1 },
     movers: ['h', 'circle', 'v'],
     pieces: { run: 3, hop: 3, pulse: 3, spikes: 3, mover: 3, plats: 2, stairs: 1, bricks: 2, climb: 1, drop: 1, slope: 1, long: 1, chasm: 1, bulkhead: 1, skylight: 1, shaft: 2, tower: 1 },
-    secretsAt: [{ at: 0.25, kind: 'cellar', reward: ['big', 'triple'] }, { at: 0.6, kind: 'loft', reward: ['strong', 'shield'], up: 8 }, { at: 0.85, kind: 'sky', reward: ['freeze', 'durable'] }],
+    hide: 1, // how well its secrets are hidden: 0 in plain sight, to 3, a hairline crack
+    secretsAt: [{ at: 0.25, kind: 'cellar', reward: ['big', 'triple'] }, { at: 0.6, kind: 'loft', reward: ['strong', 'shield'], up: 8 }, { at: 0.85, kind: 'cache', reward: ['freeze', 'durable'] }],
     features: [
       { at: 0.35, sections: [['shaft', { down: 16, e: [['drifter', 4, 6, { axis: 'x', range: 90 }], ['urchin', 4, 11, { axis: 'x', range: 90 }]] }]] },
       { at: 0.7, sections: [['tower', { up: 18, width: 9, e: [['gunner', 4.5, 7, { axis: 'x', range: 110 }], ['swooper', 4.5, 13]] }]] },
@@ -519,7 +523,8 @@ export const LEVEL_DEFS = [
     ground: { hopper: 2, burr: 2, trundle: 1, lancer: 1 },
     movers: ['v', 'h', 'fall'],
     pieces: { run: 3, hop: 3, spring: 3, glass: 3, mover: 2, plats: 2, bricks: 2, climb: 1, pillars: 2, slope: 1, stairs: 1, drop: 1, spikes: 1, bulkhead: 1, chasm: 1, vault: 2, tower: 2 },
-    secretsAt: [{ at: 0.2, kind: 'sky', reward: ['strong', 'big'] }, { at: 0.55, kind: 'cellar', reward: ['shield', 'triple'] }, { at: 0.85, kind: 'loft', reward: ['freeze', 'durable'], up: 8 }],
+    hide: 2, // how well its secrets are hidden: 0 in plain sight, to 3, a hairline crack
+    secretsAt: [{ at: 0.2, kind: 'cache', reward: ['strong', 'big'] }, { at: 0.55, kind: 'cellar', reward: ['shield', 'triple'] }, { at: 0.85, kind: 'loft', reward: ['freeze', 'durable'], up: 8 }],
     features: [{ at: 0.45, sections: [['tower', { up: 20, width: 9, lift: 6, e: [['moth', 4.5, 6], ['flitter', 4.5, 11], ['moth', 4.5, 16]] }]] }],
     opening: [
       ['sign', { text: say('Springs throw you high · hold jump for higher still', 'Springs throw you high · hold A for higher still') }],
@@ -551,7 +556,8 @@ export const LEVEL_DEFS = [
     ground: { lancer: 2, hopper: 1, sentry: 1 },
     movers: ['h', 'v', 'circle'],
     pieces: { run: 3, hop: 3, well: 3, fount: 2, mover: 2, plats: 2, climb: 1, stairs: 1, bricks: 2, spikes: 1, drop: 1, long: 1, slope: 1, chasm: 1, bulkhead: 1, orbit: 2, tower: 2, skylight: 1 },
-    secretsAt: [{ at: 0.3, kind: 'loft', reward: ['durable', 'strong'], up: 8 }, { at: 0.6, kind: 'sky', reward: ['shield', 'big'] }, { at: 0.9, kind: 'cellar', reward: ['triple', 'freeze'] }],
+    hide: 2, // how well its secrets are hidden: 0 in plain sight, to 3, a hairline crack
+    secretsAt: [{ at: 0.3, kind: 'loft', reward: ['durable', 'strong'], up: 8 }, { at: 0.6, kind: 'cache', reward: ['shield', 'big'] }, { at: 0.9, kind: 'cellar', reward: ['triple', 'freeze'] }],
     features: [
       { at: 0.4, sections: [['tower', { up: 20, width: 9, e: [['wisp', 4.5, 6], ['gunner', 4.5, 11, { axis: 'x', range: 110 }], ['swooper', 4.5, 16]] }]] },
       { at: 0.78, sections: [['chimney', { e: [['wisp', 9, 2.5]] }]] },
@@ -586,7 +592,8 @@ export const LEVEL_DEFS = [
     ground: { dasher: 2, trundle: 1, hopper: 2 },
     movers: ['circle', 'h', 'v', 'fall'],
     pieces: { run: 3, hop: 3, mover: 4, pulse: 2, spring: 2, ambush: 2, plats: 2, bricks: 2, climb: 1, pillars: 2, glass: 1, stairs: 1, spikes: 1, long: 1, foldroom: 1, chasm: 1, bulkhead: 1, tower: 2, shaft: 1, chimney: 1, vault: 1, switchdoor: 1 },
-    secretsAt: [{ at: 0.2, kind: 'cellar', reward: ['big', 'strong'] }, { at: 0.5, kind: 'sky', reward: ['shield', 'triple'] }, { at: 0.8, kind: 'loft', reward: ['freeze', 'durable'], up: 8 }],
+    hide: 2, // how well its secrets are hidden: 0 in plain sight, to 3, a hairline crack
+    secretsAt: [{ at: 0.2, kind: 'cellar', reward: ['big', 'strong'] }, { at: 0.5, kind: 'cache', reward: ['shield', 'triple'] }, { at: 0.8, kind: 'loft', reward: ['freeze', 'durable'], up: 8 }],
     features: [
       { at: 0.35, sections: [['tower', { up: 18, width: 9, lift: 5, e: [['flitter', 4.5, 6], ['gunner', 4.5, 12, { axis: 'x', range: 110 }]] }]] },
       { at: 0.7, sections: [['switchdoor', { hold: 5, at: 16, stand: 18, e: [['dasher', 10], ['hopper', 6]] }]] },
@@ -617,7 +624,8 @@ export const LEVEL_DEFS = [
     ground: { crab: 3, lancer: 1 },
     movers: ['v', 'h', 'circle', 'fall'],
     pieces: { run: 3, hop: 3, fount: 3, well: 2, crushers: 2, mover: 3, plats: 2, climb: 1, drop: 2, tunnel: 2, spikes: 2, bricks: 2, stairs: 1, pulse: 1, long: 1, chasm: 1, bulkhead: 1, foldroom: 1, shaft: 3, skylight: 1, vault: 1, orbit: 1 },
-    secretsAt: [{ at: 0.15, kind: 'loft', reward: ['durable', 'big'], up: 8 }, { at: 0.4, kind: 'cellar', reward: ['shield', 'strong'] }, { at: 0.65, kind: 'sky', reward: ['triple', 'freeze'] }, { at: 0.9, kind: 'cellar', reward: ['shield', 'big'] }],
+    hide: 3, // how well its secrets are hidden: 0 in plain sight, to 3, a hairline crack
+    secretsAt: [{ at: 0.15, kind: 'loft', reward: ['durable', 'big'], up: 8 }, { at: 0.4, kind: 'cache', reward: ['shield', 'strong'] }, { at: 0.65, kind: 'sky', reward: ['triple', 'freeze'] }, { at: 0.9, kind: 'cellar', reward: ['shield', 'big'] }],
     features: [
       { at: 0.3, sections: [['shaft', { down: 20, e: [['wisp', 4, 6], ['urchin', 4, 11, { axis: 'x', range: 90 }], ['drifter', 4, 16, { axis: 'x', range: 90 }]] }]] },
       { at: 0.45, sections: [['vault', { e: [['crab', 3]] }]] },
@@ -649,7 +657,8 @@ export const LEVEL_DEFS = [
     ground: { lancer: 2, dasher: 2, sentry: 1, trundle: 1 },
     movers: ['h', 'v', 'fall', 'circle'],
     pieces: { run: 3, hop: 3, phase: 3, well: 2, laser: 2, ambush: 1, glass: 2, mover: 2, crushers: 2, plats: 2, climb: 1, bricks: 2, drop: 1, stairs: 1, long: 1, spring: 1, foldroom: 2, chasm: 2, bulkhead: 2, tower: 2, vault: 1, chimney: 1, skylight: 1 },
-    secretsAt: [{ at: 0.15, kind: 'sky', reward: ['strong', 'triple'] }, { at: 0.4, kind: 'loft', reward: ['shield', 'freeze'], up: 8 }, { at: 0.65, kind: 'cellar', reward: ['durable', 'big'] }, { at: 0.9, kind: 'sky', reward: ['shield', 'strong'] }],
+    hide: 3, // how well its secrets are hidden: 0 in plain sight, to 3, a hairline crack
+    secretsAt: [{ at: 0.15, kind: 'cache', reward: ['strong', 'triple'] }, { at: 0.4, kind: 'loft', reward: ['shield', 'freeze'], up: 8 }, { at: 0.65, kind: 'cellar', reward: ['durable', 'big'] }, { at: 0.9, kind: 'sky', reward: ['shield', 'strong'] }],
     features: [
       { at: 0.3, sections: [['sign', { text: say('A long run of the fold: watch its whole pattern before you go', 'A long run of the fold: watch its whole pattern before you go') }], ['phaseRun', { wave: 7, pairs: 7, e: [['wisp', 11, 5], ['swooper', 32, 6]] }]] },
       { at: 0.6, sections: [['tower', { up: 22, width: 9, lift: 6, e: [['wisp', 4.5, 6], ['gunner', 4.5, 11, { axis: 'x', range: 110 }], ['swooper', 4.5, 17]] }]] },
@@ -681,7 +690,8 @@ export const LEVEL_DEFS = [
     ground: { lancer: 2, dasher: 2, crab: 1, sentry: 1 },
     movers: ['h', 'v', 'circle', 'fall'],
     pieces: { run: 3, hop: 3, well: 2, fount: 2, phase: 2, pulse: 2, crushers: 2, laser: 2, ambush: 1, glass: 1, spring: 2, mover: 3, plats: 2, climb: 1, spikes: 2, bricks: 2, drop: 1, long: 1, tunnel: 1, foldroom: 2, chasm: 2, bulkhead: 2, tower: 2, shaft: 2, skylight: 1, vault: 1, chimney: 1, orbit: 1 },
-    secretsAt: [{ at: 0.12, kind: 'cellar', reward: ['big', 'strong'] }, { at: 0.35, kind: 'sky', reward: ['shield', 'triple'] }, { at: 0.6, kind: 'loft', reward: ['freeze', 'durable'], up: 8 }, { at: 0.85, kind: 'cellar', reward: ['shield', 'strong'] }],
+    hide: 3, // how well its secrets are hidden: 0 in plain sight, to 3, a hairline crack
+    secretsAt: [{ at: 0.12, kind: 'cellar', reward: ['big', 'strong'] }, { at: 0.35, kind: 'cache', reward: ['shield', 'triple'] }, { at: 0.6, kind: 'loft', reward: ['freeze', 'durable'], up: 8 }, { at: 0.85, kind: 'cache', reward: ['shield', 'strong'] }],
     features: [
       { at: 0.3, sections: [['tower', { up: 22, width: 9, lift: 5, e: [['wisp', 4.5, 6], ['gunner', 4.5, 12, { axis: 'x', range: 110 }], ['moth', 4.5, 17]] }]] },
       { at: 0.5, sections: [['phaseRun', { wave: 6, pairs: 6, on: 2.2, e: [['wisp', 10, 5], ['swooper', 28, 6]] }]] },

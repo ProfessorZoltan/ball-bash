@@ -1236,8 +1236,26 @@ pieces from the level's own palette that gets harder toward the end, with
 the level's own set pieces (a tall tower, a deep shaft, a long blinking
 run) placed where it puts them, then the arena. The seed makes the run the
 same every time. Checkpoints come every ten or so pieces; secrets are a
-loft only a wormhole reaches, a cellar under a crate in the floor, or a
-ledge above an unneeded spring.
+loft only a wormhole reaches, a cellar in the floor under a cover, a cache
+in the foot of a step behind a cover in its face, or a ledge above an
+unneeded spring.
+
+Secrets hide better the further into the game. A cover is a breakable
+section; a charge that hits it thunks, and a few more break it. From the
+third level it is cracked ground (or block), painted exactly as the ground
+round it is, down to the grid and the glow under the surface, and the
+hollow behind it is painted over as solid, prize and all, until it breaks.
+The cracks are the tell, and they fade:
+
+| Levels | How a secret is hidden | Source |
+| --- | --- | --- |
+| 1, 2 | in plain sight: a cellar's cover is a crate, the hollow shows through, and a loft's prize sits on its ledge | `hide` in `LEVEL_DEFS`, `sequel/src/levels.js` |
+| 3, 4 | a cellar's (and a cache's) cover is cracked ground with plain cracks | same; `cover` and `veil` in `sequel/src/build.js` |
+| 5 to 7 | fainter cracks, and a glint where one meets the face every six seconds or so; a loft's prize is in a cache in the foot of its wall, so from below it is an empty ledge; a sky ledge is 11 tiles up, above the top of the screen | same; `drawCracked` in `sequel/src/render.js` |
+| 8 to 10 | a hairline, and the glint | same |
+
+Every loft brings ten tiles of open floor in front of it, so its wall is in
+sight (and on screen) from somewhere on the loft's own floor.
 
 Each palette leans on the level's own pieces, and every level from the
 second holds three to five puzzles of at least two kinds (no more than two
@@ -1333,6 +1351,7 @@ moving, the burst, the boss fights, and every level:
 | Crossing | a search over everything the robot can stand on, flown with its own physics (hops and leaps at walking and running speed, walking off ends), reaches the boss's arena. Moving platforms are somewhere to stand along their path, crates are shot, a wormhole puzzle is a link, and a switch's door is open (the next row proves it can be) | `sequel/tools/reach.mjs` |
 | Puzzles | every puzzle in every level is solved in the real game: wormhole ends aimed and stepped through, a vault's switch hit through a wormhole, and every other switch hit by a shot found by flying the charge's own physics (banks and black holes included), a timed door run through before it shuts. No level with a puzzle can be crossed without solving it; a chimney's switch is out of every straight line, and an orbit's out of every shot without its black hole | `sequel/tools/solve.mjs` |
 | Timing | every blinking stretch is crossed with the clock running: from each place it stands, the robot waits a beat at a time and jumps, while the platforms blink | `sequel/tools/timed.mjs` |
+| Secrets | each level hides its secrets no more plainly than the one before; every cover breaks under fire and its prize is out of sight until then, then found and taken; every loft's wall is in sight from its own floor and a wormhole puts the robot up; a hidden sky ledge is off the top of the screen and its spring still reaches it | `sequel/test/secrets.test.js` |
 | Bosses | every boss is beaten in the real game by a robot that aims well | `sequel/tools/fight.mjs` |
 | Lengths | each level's estimate sits in its band | `sequel/test/levels.test.js` |
 

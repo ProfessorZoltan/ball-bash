@@ -74,6 +74,7 @@ class Builder {
       sections: [],
       portalLinks: [], // the puzzles, where only a wormhole or a switch gets you across: { from, to, kind }
       doors: [], // shut until a switch opens them: { id, x, y0, y1 }
+      veils: [], // paint over a secret's hollow as solid until its cover (a crate) breaks: { x, y, w, h, probe, until, style }
       switches: [], // a charge flips one: { x, y, doors: [id], hold? }
     };
     this.minY = this.y;
@@ -143,6 +144,29 @@ class Builder {
     this.bp.solids.push(s);
     this.minY = Math.min(this.minY, y);
     return s;
+  }
+
+  /**
+   * A breakable cover over a secret's hollow. With nothing to hide (`hide`
+   * 0) it is a plain crate; otherwise cracked ground (or block) that looks
+   * like the rest, its cracks fainter the higher `hide`. `face` is the side
+   * that shows: 'top' for a floor, 'left' for a wall. `probe` is a point
+   * inside the solid it passes for (so it is painted just as that is), and
+   * `below` one in the floor under a wall's cover. Returns its crate index.
+   */
+  cover(x, y, w, h, hide, face, style, probe, below = probe) {
+    const i = this.bp.crates.length;
+    this.bp.crates.push({ x, y, w, h, drop: null, hp: hide ? 3 : 2, kind: hide ? 'cracked' : 'crate', subtle: hide, face, style, probe, below });
+    return i;
+  }
+
+  /**
+   * Paint a stretch over as the solid round `probe` (ground or block), until
+   * crate `until` breaks, or for good with none. `line` ([x0, y0, x1, y1]) is
+   * an edge of the terrain's that crosses it, drawn again over the paint.
+   */
+  veil(x, y, w, h, probe, until = null, style = 'ground', line = null) {
+    this.bp.veils.push({ x, y, w, h, probe, until, style, line });
   }
 
   /** A door from y0 to y1 at x, shut until a switch opens it. Returns its id. */
@@ -631,36 +655,78 @@ export const SECTIONS = {
 
   /**
    * A secret. 'loft': a ledge out of jumping reach with a wall behind it, got
-   * to by wormhole. 'cellar': a room under a crate in the floor. 'sky': a
-   * run of thin ledges above a spring nobody needs to use.
+   * to by wormhole. 'cellar': a hollow in the floor under a cover. 'sky': a
+   * thin ledge above a spring nobody needs to use. 'cache': a hollow in the
+   * foot of a step, behind a cover in its face. `hide` (the level's, 0 to 3)
+   * is how well it is hidden. At 0 a cover is a crate and the hollow shows;
+   * from 1 it is cracked ground, painted like the rest, and the hollow is
+   * painted over as solid until the cover breaks, the cracks fainter the
+   * higher the level; from 2 a loft's prize is in a cache in its wall (from
+   * below, an empty ledge) and a sky ledge is above the top of the screen.
    */
   secret(b, p) {
     const x0 = b.x;
     const kind = p.kind || 'loft';
     const reward = p.reward || ['random'];
+    const hide = p.hide ?? 0;
     if (kind === 'loft') {
-      b.flat(12);
+      // The wall over the ledge is only in sight from some way back: a loft brings its own open floor for that.
+      const lead = 10;
+      b.flat(lead + (hide >= 2 ? 12 : 9));
       const up = p.up ?? 8;
-      const lx = x0 + 3 * T;
+      const lx = x0 + lead * T;
       const ly = b.y - up * T;
       b.solid(lx, ly, 6 * T, T, 'block');
-      b.solid(lx + 6 * T, ly - 5 * T, T, 6 * T, 'block');
-      reward.forEach((k, i) => b.pickup(k, lx + (1.5 + i * 1.5) * T, ly - T * 0.8));
-      b.bp.secrets.push({ x0: lx, x1: lx + 6 * T, y0: ly - 3 * T, y1: ly });
+      if (hide >= 2) {
+        // A broad wall with the cache in its foot: from below, an empty ledge. Every part of the
+        // wall is painted as the part over the cache is, so it reads as one block, as a plain loft's does.
+        const wall = [lx + 8 * T, ly - 4 * T];
+        b.solid(lx + 6 * T, ly - 7 * T, 4 * T, 5 * T, 'block'); // over the cache
+        b.solid(lx + 6 * T, ly, 4 * T, T, 'block', { probe: wall }); // under it
+        b.solid(lx + 9 * T, ly - 2 * T, T, 2 * T, 'block', { probe: wall }); // behind it
+        const ci = b.cover(lx + 6 * T, ly - 2 * T, 0.5 * T, 2 * T, hide, 'left', 'block', wall, wall);
+        b.veil(lx + 6.5 * T - 2, ly - 2 * T - 14, 2.5 * T + 16, 2 * T + 28, wall, ci, 'block'); // the cache, and its lines' glow
+        const face = (y) => [lx + 10 * T, y - 14, lx + 10 * T, y + 14]; // the wall's far face, crossing both
+        b.veil(lx + 9 * T + 3, ly - 2 * T - 14, T - 3, 28, wall, null, 'block', face(ly - 2 * T)); // where the wall meets its back, over the cache
+        b.veil(lx + 9 * T + 3, ly - 14, T - 3, 28, wall, null, 'block', face(ly)); // and under it
+        reward.forEach((k, i) => b.pickup(k, lx + (7 + i * 0.8) * T, ly - T * 0.8));
+        b.bp.secrets.push({ x0: lx + 6.5 * T, x1: lx + 9 * T, y0: ly - 2 * T, y1: ly });
+      } else {
+        b.solid(lx + 6 * T, ly - 5 * T, T, 6 * T, 'block');
+        reward.forEach((k, i) => b.pickup(k, lx + (1.5 + i * 1.5) * T, ly - T * 0.8));
+        b.bp.secrets.push({ x0: lx, x1: lx + 6 * T, y0: ly - 3 * T, y1: ly });
+      }
     } else if (kind === 'cellar') {
       b.flat(4);
       const cx = b.x;
       const floorY = b.y;
-      b.endRun();
-      b.x += 3 * T;
-      b.startRun();
-      b.crate(cx, floorY, 3 * T, T, null, 2, 'crate');
-      // The room below: its floor, and room to walk sideways under the ground.
       const depth = 3.5 * T;
-      b.solid(cx, floorY + depth, 3 * T, 900, 'ground');
+      // A notch in the floor itself, so no seam runs down into the ground below it.
+      b.rise(-3.5);
+      b.flat(3);
+      b.rise(3.5);
+      const ground = [cx - T, floorY + T];
+      const ci = b.cover(cx, floorY, 3 * T, T, hide, 'top', 'ground', ground);
+      if (hide) b.veil(cx - 14, floorY + T, 3 * T + 28, depth - T + 14, ground, ci); // 14 px past the hollow's lines: their glow too
       reward.forEach((k, i) => b.pickup(k, cx + (0.7 + i * 0.8) * T, floorY + depth - T * 0.7));
       b.bp.secrets.push({ x0: cx, x1: cx + 3 * T, y0: floorY + T, y1: floorY + depth });
       b.flat(5);
+    } else if (kind === 'cache') {
+      b.flat(5);
+      const x = b.x;
+      const floorY = b.y;
+      const up = 4;
+      b.flat(3); // the hollow's floor, under the step
+      b.rise(up); // the step's face, at the back of the hollow
+      b.flat(p.after ?? 4);
+      const top = floorY - up * T;
+      const step = [x + 4 * T, top + T]; // the ground of the step behind, which all of this passes for
+      b.solid(x, top, 3 * T, (up - 2) * T, 'ground', { probe: step }); // the step over the hollow
+      const ci = b.cover(x, floorY - 2 * T, 0.5 * T, 2 * T, hide, 'left', 'ground', step, [x - T, floorY + T]);
+      b.veil(x + 3 * T - 14, top, 28, (up - 2) * T, step, null, 'ground', [x + 3 * T - 14, top, x + 3 * T + 14, top]); // where the step over it meets the step behind, for good
+      if (hide) b.veil(x + 0.5 * T - 2, floorY - 2 * T - 14, 2.5 * T + 16, 2 * T + 28, step, ci);
+      reward.forEach((k, i) => b.pickup(k, x + (1.2 + i * 0.8) * T, floorY - T * 0.7));
+      b.bp.secrets.push({ x0: x + 0.5 * T, x1: x + 3 * T, y0: floorY - 2 * T, y1: floorY });
     } else if (kind === 'sky') {
       b.flat(3);
       const sx = b.x;
@@ -669,7 +735,7 @@ export const SECTIONS = {
       s.spring = rec;
       b.bp.springs.push(rec);
       b.flat(10);
-      const hy = b.y - 9 * T;
+      const hy = b.y - (hide >= 2 ? 11 : 9) * T; // at 11 tiles it is above the top of the screen
       b.thin(sx + 3 * T, sx + 9 * T, hy);
       reward.forEach((k, i) => b.pickup(k, sx + (4 + i * 1.5) * T, hy - T * 0.8));
       b.bp.secrets.push({ x0: sx + 3 * T, x1: sx + 9 * T, y0: hy - 3 * T, y1: hy });

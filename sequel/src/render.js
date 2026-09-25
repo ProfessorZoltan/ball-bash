@@ -3,6 +3,7 @@
 // that moves drawn over it. Neon on dark, like Deflector, with more of the
 // real world (and some whimsy) behind it.
 import { portalHue, mix } from '../../src/color.js';
+import { pointInPolygon } from '../../src/physics.js';
 import { openPortals } from '../../src/portals.js';
 import { ROBOT, SCREEN } from './config.js';
 import { seeded } from './build.js';
@@ -87,6 +88,22 @@ export class Renderer {
     if (this.bp) this.buildStrips();
   }
 
+  /**
+   * Where the band of colour under the surface starts for the solid at (x, y):
+   * the top of that solid, as drawSolid bands it. A patch painted to pass for
+   * it (a secret's cover or hollow) is banded the same, and so has no seam.
+   */
+  bandTopAt(x, y, skip = null) {
+    const list = this.solidIndex.get(`${Math.floor(x / TILE_PX)},${Math.floor(y / TILE_PX)}`) || [];
+    for (const s of list) {
+      if (s === skip || s.kind === 'spring' || s.kind === 'window' || s.kind === 'spikes') continue;
+      const b = s.bbox;
+      if (x < b.x0 || x > b.x1 || y < b.y0 || y > b.y1 || !pointInPolygon(x, y, s.pts)) continue;
+      return s.bandTop ?? b.y0;
+    }
+    return y;
+  }
+
   /** A new level: its solids indexed for the tiles, and its skyline drawn into strips. */
   setLevel(bp) {
     this.bp = bp;
@@ -113,6 +130,8 @@ export class Renderer {
         }
       }
     });
+    // A solid that stands in for part of another (a step over a secret's hollow) is banded as that one is.
+    for (const s of bp.solids) if (s.probe) s.bandTop = this.bandTopAt(s.probe[0], s.probe[1], s);
     this.thinIndex = bp.oneWays;
     const rng = seeded((bp.id || 1) * 131);
     this.stars = Array.from({ length: 140 }, () => ({ x: rng(), y: rng() * 0.6, r: 0.5 + rng() * 1.4, tw: rng() * TAU }));
@@ -528,7 +547,11 @@ export class Renderer {
     // Crates and glass.
     for (const c of w.crates) {
       if (c.broken || !within(c.x, c.y)) continue;
-      drawCrate(ctx, c, th, this.low);
+      if (c.kind === 'cracked' && c.band == null) {
+        c.band = this.bandTopAt(c.probe[0], c.probe[1]);
+        c.bandBelow = this.bandTopAt(c.below[0], c.below[1]);
+      }
+      drawCrate(ctx, c, th, this.low, t);
     }
     // Switches: amber until a charge flips them, then green (a ring counts down a timed one).
     for (const sw of w.switches) if (within(sw.x, sw.y)) drawSwitch(ctx, sw, t, this.low);
@@ -565,6 +588,31 @@ export class Renderer {
     for (const p of openPortals(w).concat(Object.values(w.portals).flatMap((pair) => (pair && !(pair[0] && pair[1]) ? pair.filter(Boolean) : [])))) drawPortal(ctx, p, game, t, this.low);
     // Pickups.
     for (const p of game.pickups) if (within(p.x, p.y)) drawPickup(ctx, p, t, this.low);
+    // A secret's hollow is painted over as solid, prize and all, until its cover breaks.
+    for (const v of w.veils) {
+      if (v.until != null && w.crates[v.until].broken) continue;
+      if (v.band == null) v.band = this.bandTopAt(v.probe[0], v.probe[1]);
+      if (!within(v.x + v.w / 2, v.y + v.h / 2, v.w + v.h)) continue;
+      paintSolid(ctx, v.x, v.y, v.w, v.h, v.band, v.style, th);
+      if (v.line) {
+        // An edge crossing the patch: again, glow and all, as the terrain draws it (and a surface its highlight).
+        const [lx0, ly0, lx1, ly1] = v.line;
+        const edge = v.style === 'block' ? th.edge2 : th.edge;
+        ctx.strokeStyle = edge;
+        ctx.lineWidth = 2.5;
+        glow(ctx, edge, 12, this.low);
+        ctx.beginPath();
+        ctx.moveTo(lx0, ly0);
+        ctx.lineTo(lx1, ly1);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+        if (ly0 === ly1) {
+          ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+          ctx.lineWidth = 1.2;
+          ctx.stroke();
+        }
+      }
+    }
     // The exit beacon.
     if (game.exit) drawExit(ctx, game.exit, t);
     // Boss hazards.
@@ -795,7 +843,7 @@ function drawSolid(g, sd, th, low) {
   }
   g.stroke();
   // A band of colour just under the surface, fading down.
-  const top = b.y0;
+  const top = sd.bandTop ?? b.y0;
   const grad = g.createLinearGradient(0, top, 0, top + 160);
   grad.addColorStop(0, withAlpha(th.edge, 0.16));
   grad.addColorStop(1, withAlpha(th.edge, 0));
@@ -931,7 +979,135 @@ function drawMover(ctx, m, th, t, low) {
   if (shaking) ctx.restore();
 }
 
-function drawCrate(ctx, c, th, low) {
+/**
+ * Paint a patch the way drawSolid paints the ground (or a block): the fill,
+ * the faint grid on the world's 40 px lines, and the band of colour under the
+ * surface at `surface`. It lines up with the ground round it, with no seam.
+ */
+function paintSolid(ctx, x, y, w, h, surface, style, th) {
+  const block = style === 'block';
+  ctx.fillStyle = block ? mix(th.ground, th.edge2, 0.12) : th.ground;
+  ctx.fillRect(x, y, w, h);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x, y, w, h);
+  ctx.clip();
+  ctx.strokeStyle = withAlpha(block ? th.edge2 : th.edge, 0.07);
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let gx = Math.floor(x / 40) * 40; gx < x + w; gx += 40) {
+    ctx.moveTo(gx, y);
+    ctx.lineTo(gx, y + h);
+  }
+  for (let gy = Math.floor(y / 40) * 40; gy < y + h; gy += 40) {
+    ctx.moveTo(x, gy);
+    ctx.lineTo(x + w, gy);
+  }
+  ctx.stroke();
+  const grad = ctx.createLinearGradient(0, surface, 0, surface + 160);
+  grad.addColorStop(0, withAlpha(th.edge, 0.16));
+  grad.addColorStop(1, withAlpha(th.edge, 0));
+  ctx.fillStyle = grad;
+  ctx.fillRect(x, y, w, h);
+  ctx.restore();
+}
+
+/** How plain a secret's cracks are, by how well the level hides it: faint, fainter, a hairline. */
+const CRACKS = [
+  { alpha: 0.9, width: 1.5 },
+  { alpha: 0.5, width: 1.4 },
+  { alpha: 0.28, width: 1.1 },
+  { alpha: 0.14, width: 0.9 },
+];
+
+/**
+ * Cracked ground over a secret: painted like the ground (or block) round it,
+ * its showing face lined like any other, and a few cracks running in from
+ * that face. Hit, the cracks show plainly; in the later levels a glint now
+ * and then is the only other tell.
+ */
+function drawCracked(ctx, c, th, t, low) {
+  const top = c.face === 'top';
+  const m = 14; // past the lines it covers, glow and all
+  const edge = c.style === 'block' ? th.edge2 : th.edge;
+  // Covering the lines of the hollow's own walls where they meet the face, as the ground would.
+  if (top) paintSolid(ctx, c.x - m, c.y - 1, c.w + 2 * m, c.h + 2, c.band, c.style, th);
+  else {
+    // A wall's cover: the wall's own look above the floor, the floor's below its line (which stops at the face, as at any wall).
+    paintSolid(ctx, c.x, c.y - m, c.w + 2, c.h + m, c.band, c.style, th);
+    paintSolid(ctx, c.x, c.y + c.h, c.w + 2, m, c.bandBelow, c.style, th);
+  }
+  if (c.flash > 0) {
+    ctx.fillStyle = withAlpha('#ffffff', c.flash * 3);
+    ctx.fillRect(c.x, c.y, c.w, c.h);
+  }
+  // The face, lined as the terrain's is.
+  ctx.strokeStyle = edge;
+  ctx.lineWidth = 2.5;
+  glow(ctx, edge, 12, low);
+  ctx.beginPath();
+  if (top) {
+    ctx.moveTo(c.x - m, c.y);
+    ctx.lineTo(c.x + c.w + m, c.y);
+  } else {
+    // A block's face goes on down past the floor (blocks meeting show their seam); the ground's stops at it.
+    ctx.moveTo(c.x, c.y - m);
+    ctx.lineTo(c.x, c.y + c.h + (c.style === 'block' ? m : 0));
+  }
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+  if (top) {
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(c.x - m, c.y);
+    ctx.lineTo(c.x + c.w + m, c.y);
+    ctx.stroke();
+  }
+  // The cracks: a few, from the face inward, the same for this cover every time.
+  let s = (c.id + 1) * 9301;
+  const r = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+  const look = CRACKS[Math.min(3, c.subtle)];
+  const hurt = c.hp < c.maxHp;
+  ctx.strokeStyle = withAlpha('#ffffff', hurt ? 0.85 : look.alpha);
+  ctx.lineWidth = hurt ? 1.6 : look.width;
+  ctx.beginPath();
+  const starts = [];
+  const n = hurt ? 5 : 3;
+  for (let k = 0; k < n; k++) {
+    let x = top ? c.x + c.w * (0.15 + 0.7 * r()) : c.x;
+    let y = top ? c.y : c.y + c.h * (0.15 + 0.7 * r());
+    starts.push([x, y]);
+    ctx.moveTo(x, y);
+    for (let j = 0; j < 3 + Math.floor(r() * 2); j++) {
+      const len = 5 + r() * 7;
+      const a = (top ? Math.PI / 2 : 0) + (r() - 0.5) * 1.6;
+      x = Math.min(c.x + c.w - 1, Math.max(c.x + 1, x + Math.cos(a) * len));
+      y = Math.min(c.y + c.h - 1, Math.max(c.y + 1, y + Math.sin(a) * len));
+      ctx.lineTo(x, y);
+    }
+  }
+  ctx.stroke();
+  // Later on, a glint every few seconds where a crack meets the face.
+  if (c.subtle >= 2 && !hurt) {
+    const ph = (t + c.id * 1.7) % 6;
+    if (ph < 0.4) {
+      const [gx, gy] = starts[0];
+      const a = Math.sin((ph / 0.4) * Math.PI) * 0.8;
+      ctx.strokeStyle = withAlpha('#ffffff', a);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(gx - 4, gy);
+      ctx.lineTo(gx + 4, gy);
+      ctx.moveTo(gx, gy - 4);
+      ctx.lineTo(gx, gy + 4);
+      ctx.stroke();
+    }
+  }
+}
+
+function drawCrate(ctx, c, th, low, t = 0) {
+  if (c.kind === 'cracked') return drawCracked(ctx, c, th, t, low);
   const flash = c.flash > 0;
   if (c.kind === 'glass') {
     ctx.fillStyle = flash ? 'rgba(255,255,255,0.6)' : 'rgba(160, 220, 255, 0.18)';

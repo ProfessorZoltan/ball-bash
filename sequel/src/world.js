@@ -296,7 +296,7 @@ export function tickWells(wells, t) {
 /** A breakable crate: a few hits and it bursts, maybe dropping something. */
 function makeBreakable(b, i) {
   const pts = box(b.x, b.y, b.w, b.h);
-  const crate = { id: i, x: b.x, y: b.y, w: b.w, h: b.h, hp: b.hp ?? 2, maxHp: b.hp ?? 2, drop: b.drop || null, kind: b.kind || 'crate', broken: false, flash: 0, segs: null };
+  const crate = { id: i, x: b.x, y: b.y, w: b.w, h: b.h, hp: b.hp ?? 2, maxHp: b.hp ?? 2, drop: b.drop || null, kind: b.kind || 'crate', subtle: b.subtle || 0, face: b.face || 'top', style: b.style || 'ground', probe: b.probe || null, below: b.below || null, broken: false, flash: 0, segs: null };
   crate.segs = solidEdges(pts, { kind: 'crate', portal: false, crate });
   return crate;
 }
@@ -357,6 +357,7 @@ export function createWorld(bp) {
     return g;
   });
   w.switches = (bp.switches || []).map((s) => ({ ...s, r: s.r ?? 16, on: false, t: 0, flash: 0 }));
+  w.veils = (bp.veils || []).map((v) => ({ ...v }));
   return w;
 }
 
