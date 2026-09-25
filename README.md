@@ -1024,21 +1024,34 @@ cross where none can sit). A press fires, or opens that end, at once. A
 press made while the blaster is still cooling fires the moment it can. The
 line can be turned off under **Aim line** on the title screen.
 
-| Action | Controller | Keyboard and mouse | Source |
-| --- | --- | --- | --- |
-| Move | left stick or d-pad | A, D (W, S) | `Input.intent` in `sequel/src/input.js` |
-| Jump (hold for higher) | A | Space | same |
-| Run | hold X while moving | hold 2 while moving | same |
-| Aim the blaster | right stick points it | mouse points it; the arrow keys swing it toward where they point | same |
-| Fire | RT | left click or / | same |
-| Open the light wormhole end | LB | Q | same |
-| Open the dark wormhole end | RB | E | same |
-| Cycle power-ups | LT | 1 | same |
-| Drop through a thin platform | hold down | hold S | `stepRobot` in `sequel/src/player.js` |
-| Pause, mute, fullscreen | Start | Esc or P, M, F | `frame` in `sequel/src/main.js` |
+There are two ways to play on a keyboard, set under **Controls** on the
+title screen. **Mouse and keyboard** (the default) aims with the mouse.
+**Keyboard only** gives the left hand everything but the aim, and the right
+hand aims with I J K L: an aim key swings the blaster toward where it points,
+slowly for its first moment so a tap nudges it a degree or two for a careful
+bank shot, then at full speed. **Run** on the title screen is *Hold to run*
+or *Run by default*, with which the run button walks instead. Play keys go by
+where they are on the keyboard, not the letter on them, so W A S D sit under
+the hand on any layout (Z Q S D on a French keyboard); the menu shortcuts go
+by letter.
 
-With nothing aiming (no stick, no mouse), the blaster turns round with the
-robot when it turns round. A button that was held when play began (the one
+| Action | Controller | Mouse and keyboard | Keyboard only | Source |
+| --- | --- | --- | --- | --- |
+| Move | left stick or d-pad | A, D | A, D | `Input.intent` in `sequel/src/input.js` |
+| Jump (hold for higher) | A | Space or W | W | same |
+| Run | hold X while moving | hold Shift while moving | hold Shift while moving | same |
+| Aim the blaster | right stick points it | mouse points it; the arrow keys swing it toward where they point | I J K L (or the arrows) swing it: tap to nudge, hold to swing | same |
+| Fire | RT | left click | Space | same |
+| Open the light wormhole end | LB | right click or Q | Q | same |
+| Open the dark wormhole end | RB | E | E | same |
+| Cycle power-ups | LT | mouse wheel (down for the next, up for the one before) or R | R | same |
+| Load one straight away | | 1 to 6 (1 is the standard charge; the HUD's slots are numbered) | 1 to 6 | `load` in `sequel/src/game.js` |
+| Drop through a thin platform | hold down | hold S | hold S | `stepRobot` in `sequel/src/player.js` |
+| Pause, mute, fullscreen | Start | Esc or P, M, F | Esc or P, M, F | `frame` in `sequel/src/main.js` |
+
+With nothing aiming (no stick, no mouse, no aim key), the blaster turns
+round with the robot when it turns round. The tutorial signs in the first
+level name the keys of whichever way you play. A button that was held when play began (the one
 that pressed Start) does nothing until it is let go.
 
 ### Movement
@@ -1095,10 +1108,10 @@ out of the air.
 
 Power-ups drop from some enemies, some crates and every secret. Each pickup
 loads 15 charges of its kind (up to 45); the first of a kind is loaded at
-once, LT or 1 cycles through the kinds you hold and the standard charge,
-and an empty kind falls back to the standard one. In co-op every drop is
-one pickup per player that only that player can take (`drop` in
-`sequel/src/game.js`). What you gather stays in its level: the next one
+once, LT, the wheel or R cycles through the kinds you hold and the standard
+charge (1 to 6 on a keyboard load one straight away), and an empty kind
+falls back to the standard one. In co-op every drop is one pickup per player
+that only that player can take (`drop` in `sequel/src/game.js`). What you gather stays in its level: the next one
 starts you on the standard charge again.
 
 | Power-up | What it does | Source |

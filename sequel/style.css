@@ -71,7 +71,9 @@ html, body {
 }
 .ammo .slot.has { opacity: 0.85; }
 .ammo .slot.on { opacity: 1; border-color: currentColor; box-shadow: 0 0 10px currentColor; }
+.ammo .slot { position: relative; }
 .ammo .slot b { display: block; font-size: 14px; }
+.ammo .slot i { position: absolute; top: 1px; left: 4px; font-style: normal; font-size: 8px; opacity: 0.7; }
 .hud-btn {
   pointer-events: auto;
   font-size: 13px;

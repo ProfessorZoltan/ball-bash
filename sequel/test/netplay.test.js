@@ -16,15 +16,19 @@ import { drawBoss, drawEnemy, drawRobot } from '../src/art.js';
 const DT = 1 / 240;
 
 test('an intent packs into three numbers and back, and a press is only on the first step of a record', () => {
-  const it = { mx: -0.5, run: true, jump: true, jumpPressed: true, down: false, fire: true, cycle: false, worm: [false, true], aim: -1.23456 };
+  const it = { mx: -0.5, run: true, jump: true, jumpPressed: true, down: false, fire: true, cycle: -1, pick: 'freeze', worm: [false, true], aim: -1.23456 };
   const [mx, bits, aim] = packIntent(it);
   const back = unpackIntent(mx, bits, aim);
   assert.deepEqual(back, { ...it, aim: -1.2346 });
+  for (const pick of ['std', 'big', 'triple', 'freeze', 'durable', 'strong', null]) for (const cycle of [1, 0, -1]) {
+    const b = unpackIntent(...packIntent({ mx: 0, cycle, pick, aim: 0 }));
+    assert.ok(b.pick === pick && b.cycle === cycle, `a pick of ${pick} and a cycle of ${cycle} come through`);
+  }
   const rec = [7, 3, mx, bits, aim];
   assert.ok(recordStep(rec, 0).fire && recordStep(rec, 0).jumpPressed && recordStep(rec, 0).worm[1]);
   for (const i of [1, 2]) {
     const s = recordStep(rec, i);
-    assert.ok(!s.fire && !s.jumpPressed && !s.worm[1], 'no presses after the first step');
+    assert.ok(!s.fire && !s.jumpPressed && !s.worm[1] && !s.cycle && !s.pick, 'no presses after the first step');
     assert.ok(s.jump && s.run && s.mx === -0.5, 'but held buttons stay held');
   }
   assert.equal(bits & PRESSES, bits & ~(1 | 2 | 8));
@@ -119,7 +123,7 @@ function play(bp, seconds, guestPlays, hostPlays = () => IDLE, opts = {}) {
     if (rec) mirror.predict(rec);
     up.send(inputs.message(null), now);
     for (const m of up.take(now)) hl.input(1, m);
-    for (let k = 0; k < 4; k++) host.step(DT, hl.intents(k === 0 ? hit : { ...hit, jumpPressed: false, fire: false, worm: [false, false], cycle: false }));
+    for (let k = 0; k < 4; k++) host.step(DT, hl.intents(k === 0 ? hit : { ...hit, jumpPressed: false, fire: false, worm: [false, false], cycle: 0, pick: null }));
     hl.events(host.events);
     host.events.length = 0;
     if (frame % 2 === 0) {

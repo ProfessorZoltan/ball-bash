@@ -311,11 +311,25 @@ export class Game {
     return ['std', ...POWERUPS.map((p) => p.id).filter((id) => pl.ammo[id] > 0)];
   }
 
-  cycle(pl = this.me) {
+  /** The next kind held (`dir` -1: the one before), round to the standard charge and on. */
+  cycle(pl = this.me, dir = 1) {
     const list = this.loadable(pl);
     const i = list.indexOf(pl.loaded);
-    pl.loaded = list[(i + 1) % list.length];
+    pl.loaded = list[(i + (dir < 0 ? -1 : 1) + list.length) % list.length];
     this.emit('cycle', { kind: pl.loaded, slot: pl.slot });
+  }
+
+  /** Load one kind straight away (1 to 6 on the keyboard): the standard charge, or a power-up with charges left. */
+  load(kind, pl = this.me) {
+    if (kind !== 'std' && !(pl.ammo[kind] > 0)) {
+      this.emit('dry', { slot: pl.slot });
+      return false;
+    }
+    if (pl.loaded !== kind) {
+      pl.loaded = kind;
+      this.emit('cycle', { kind, slot: pl.slot });
+    }
+    return true;
   }
 
   // ------------------------------------------------------------------ step
@@ -329,7 +343,8 @@ export class Game {
    * One physics step. `it` is the intent of the one player, or a list with
    * one for each player in slot order. An intent: mx, run, jump, jumpPressed,
    * down, aim (radians, or null to keep), fire (pressed this step), worm
-   * [light end pressed, dark end pressed], cycle (pressed). In a list, a
+   * [light end pressed, dark end pressed], cycle (1 for the next power-up,
+   * -1 for the one before), pick (a kind to load straight away). In a list, a
    * missing intent is a robot with nothing pressed; null holds the robot
    * where it is for this step (a guest whose inputs are late); and a list of
    * intents plays each in turn (a guest catching up).
@@ -433,7 +448,8 @@ export class Game {
       else pl.firePending -= dt;
     }
     if (it.worm) for (let k = 0; k < 2; k++) if (it.worm[k]) this.deploy(k, pl);
-    if (it.cycle) this.cycle(pl);
+    if (it.cycle) this.cycle(pl, it.cycle);
+    if (it.pick) this.load(it.pick, pl);
   }
 
   // ------------------------------------------------------------ the blaster

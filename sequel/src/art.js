@@ -1409,7 +1409,7 @@ export function drawCheckpoint(ctx, c, th, t) {
 
 /** A sign on a post: the keyboard's words, or the controller's. */
 export function drawSign(ctx, sg, th, device, bot) {
-  const text = typeof sg.text === 'string' ? sg.text : device === 'pad' ? sg.text.pad : sg.text.kb;
+  const text = typeof sg.text === 'string' ? sg.text : device === 'pad' ? sg.text.pad : device === 'keys' ? sg.text.keys || sg.text.kb : sg.text.kb;
   const near = Math.abs(bot.x - sg.x) < 420;
   ctx.font = '600 14px Inter, sans-serif';
   const lines = wrap(ctx, text, 250);

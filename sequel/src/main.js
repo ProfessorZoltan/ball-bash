@@ -41,7 +41,7 @@ function save(key, value) {
   }
 }
 
-const settings = { difficulty: DEFAULT_DIFFICULTY, muted: false, quality: 'high', aimLine: true, ...load(STORE.settings, {}) };
+const settings = { difficulty: DEFAULT_DIFFICULTY, muted: false, quality: 'high', aimLine: true, controls: 'mouse', autoRun: false, ...load(STORE.settings, {}) };
 let run = load(STORE.run, null); // the campaign in progress, if any
 const cleared = new Set(load(STORE.cleared, []));
 const best = load(STORE.best, {});
@@ -345,6 +345,7 @@ function showTitle(note = '') {
           <div class="field"><label for="diff">Difficulty</label><select id="diff">${DIFFICULTIES.map((x) => `<option value="${x.id}" ${x.id === d.id ? 'selected' : ''}>${x.name} · ${x.blurb}</option>`).join('')}</select></div>
           <div class="field"><label for="snd">Sound</label><select id="snd"><option value="on" ${settings.muted ? '' : 'selected'}>On</option><option value="off" ${settings.muted ? 'selected' : ''}>Off</option></select><label for="q">Quality</label><select id="q"><option value="high" ${settings.quality === 'high' ? 'selected' : ''}>High</option><option value="low" ${settings.quality === 'low' ? 'selected' : ''}>Low</option></select></div>
           <div class="field"><label for="aimline">Aim line</label><select id="aimline"><option value="on" ${settings.aimLine ? 'selected' : ''}>On</option><option value="off" ${settings.aimLine ? '' : 'selected'}>Off</option></select></div>
+          <div class="field"><label for="ctl">Controls</label><select id="ctl"><option value="mouse" ${settings.controls === 'keys' ? '' : 'selected'}>Mouse and keyboard</option><option value="keys" ${settings.controls === 'keys' ? 'selected' : ''}>Keyboard only</option></select><label for="runmode">Run</label><select id="runmode"><option value="hold" ${settings.autoRun ? '' : 'selected'}>Hold to run</option><option value="auto" ${settings.autoRun ? 'selected' : ''}>Run by default</option></select></div>
           <details><summary>Controls</summary>${controlsTable()}</details>
           <div class="mp">
             <h3>Multiplayer</h3>
@@ -388,6 +389,19 @@ function showTitle(note = '') {
   $('aimline').onchange = (e) => {
     settings.aimLine = e.target.value === 'on';
     saveSettings();
+  };
+  $('ctl').onchange = (e) => {
+    settings.controls = e.target.value === 'keys' ? 'keys' : 'mouse';
+    saveSettings();
+    applyControls();
+    // The controls table shows the new keys at once.
+    const d = document.querySelector('#overlay details table.controls');
+    if (d) d.outerHTML = controlsTable();
+  };
+  $('runmode').onchange = (e) => {
+    settings.autoRun = e.target.value === 'auto';
+    saveSettings();
+    applyControls();
   };
   $('q').onchange = (e) => {
     settings.quality = e.target.value;
@@ -439,20 +453,39 @@ function showTitle(note = '') {
   if (audio.ready) playMusic('defector');
 }
 
+/** The keys for each action, on both keyboard layouts and a controller; the one in use first. */
 function controlsTable() {
+  const run = settings.autoRun ? 'Hold Shift to walk (running is on)' : 'Hold Shift while moving';
+  const runPad = settings.autoRun ? 'Hold X to walk' : 'Hold X while moving';
   const rows = [
-    ['Move', 'A D (W S)', 'Left stick or d-pad'],
-    ['Jump (hold for higher)', 'Space', 'A'],
-    ['Run', 'Hold 2 while moving', 'Hold X while moving'],
-    ['Aim the blaster', 'Mouse (point), or the arrow keys', 'Right stick (point)'],
-    ['Fire', 'Left click or /', 'RT'],
-    ['Open the light wormhole end', 'Q', 'LB'],
-    ['Open the dark wormhole end', 'E', 'RB'],
-    ['Cycle power-ups', '1', 'LT'],
-    ['Drop through a thin platform', 'Hold S', 'Hold down'],
-    ['Pause / mute / fullscreen', 'Esc or P / M / F', 'Start'],
+    ['Move', 'A D', 'A D', 'Left stick or d-pad'],
+    ['Jump (hold for higher)', 'Space or W', 'W', 'A'],
+    ['Run', run, run, runPad],
+    ['Aim the blaster', 'Mouse (point), or the arrow keys', 'I J K L or the arrows: tap to nudge, hold to swing', 'Right stick (point)'],
+    ['Fire', 'Left click', 'Space', 'RT'],
+    ['Open the light wormhole end', 'Right click or Q', 'Q', 'LB'],
+    ['Open the dark wormhole end', 'E', 'E', 'RB'],
+    ['Cycle power-ups', 'Mouse wheel or R', 'R', 'LT'],
+    ['Pick one straight away', '1 to 6 (1: standard)', '1 to 6 (1: standard)', ''],
+    ['Drop through a thin platform', 'Hold S', 'Hold S', 'Hold down'],
+    ['Pause / mute / fullscreen', 'Esc or P / M / F', 'Esc or P / M / F', 'Start'],
   ];
-  return `<table class="controls"><thead><tr><th>Action</th><th>Keyboard and mouse</th><th>Controller</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td></tr>`).join('')}</tbody></table>`;
+  const keysFirst = settings.controls === 'keys';
+  const head = keysFirst ? ['Keyboard only', 'Mouse and keyboard'] : ['Mouse and keyboard', 'Keyboard only'];
+  const cells = (r) => (keysFirst ? [r[2], r[1]] : [r[1], r[2]]);
+  return `<table class="controls"><thead><tr><th>Action</th><th>${head[0]}</th><th>${head[1]}</th><th>Controller</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${r[0]}</td><td>${cells(r)[0]}</td><td class="muted">${cells(r)[1]}</td><td>${r[3]}</td></tr>`).join('')}</tbody></table>`;
+}
+
+/** The Controls and Run settings, into the input. */
+function applyControls() {
+  input.scheme = settings.controls === 'keys' ? 'keys' : 'mouse';
+  input.autoRun = !!settings.autoRun;
+}
+
+/** What the signs and the HUD speak to: a controller, the mouse and keyboard, or the keyboard alone. */
+function device() {
+  if (input.device === 'pad') return 'pad';
+  return input.scheme === 'keys' ? 'keys' : 'kb';
 }
 
 function overlay(html, clear = false) {
@@ -806,7 +839,7 @@ function mpFrame(dt) {
   if (mp.host) {
     while (acc >= PHYSICS_DT && steps < 30) {
       game.step(PHYSICS_DT, mp.link.intents(it));
-      it = { ...it, jumpPressed: false, fire: false, worm: [false, false], cycle: false };
+      it = { ...it, jumpPressed: false, fire: false, worm: [false, false], cycle: 0, pick: null };
       acc -= PHYSICS_DT;
       steps++;
     }
@@ -832,7 +865,7 @@ function mpFrame(dt) {
     let first = true;
     while (steps > 0 || first) {
       const n = Math.min(steps, 8);
-      const rec = mp.inputs.record(first ? it : { ...it, jumpPressed: false, fire: false, worm: [false, false], cycle: false }, n);
+      const rec = mp.inputs.record(first ? it : { ...it, jumpPressed: false, fire: false, worm: [false, false], cycle: 0, pick: null }, n);
       if (rec) mp.mirror.predict(rec);
       steps -= n;
       first = false;
@@ -981,13 +1014,15 @@ function hud() {
     $('hud-charges').innerHTML = pips;
     hud.lastPips = pips;
   }
-  const slots = [`<div class="slot has ${h.loaded === 'std' ? 'on' : ''}" style="color:#dffbff"><b>●</b>STD</div>`].concat(POWERUPS.map((p) => `<div class="slot ${h.ammo[p.id] ? 'has' : ''} ${h.loaded === p.id ? 'on' : ''}" style="color:${p.color}"><b>${p.glyph}</b>${h.ammo[p.id] || 0}</div>`));
+  // On a keyboard each slot shows its number: 1 to 6 load it straight away.
+  const num = (i) => (input.device === 'pad' ? '' : `<i>${i}</i>`);
+  const slots = [`<div class="slot has ${h.loaded === 'std' ? 'on' : ''}" style="color:#dffbff">${num(1)}<b>●</b>STD</div>`].concat(POWERUPS.map((p, i) => `<div class="slot ${h.ammo[p.id] ? 'has' : ''} ${h.loaded === p.id ? 'on' : ''}" style="color:${p.color}">${num(i + 2)}<b>${p.glyph}</b>${h.ammo[p.id] || 0}</div>`));
   const html = slots.join('');
   if (html !== hud.lastAmmo) {
     $('hud-ammo').innerHTML = html;
     hud.lastAmmo = html;
   }
-  $('hud-cycle').textContent = input.device === 'pad' ? 'LT cycles' : '1 cycles';
+  $('hud-cycle').textContent = { pad: 'LT cycles', kb: 'WHEEL or R cycles', keys: 'R cycles' }[device()];
   $('hud-mute').textContent = settings.muted ? 'MUTED [M]' : '';
   if (h.boss) {
     $('hud-boss').hidden = false;
@@ -1086,7 +1121,7 @@ function frame(now) {
     while (acc >= PHYSICS_DT && steps < 30) {
       game.step(PHYSICS_DT, it);
       // Presses and releases belong to the first step of the frame only.
-      it = { ...it, jumpPressed: false, fire: false, worm: [false, false], cycle: false };
+      it = { ...it, jumpPressed: false, fire: false, worm: [false, false], cycle: 0, pick: null };
       acc -= PHYSICS_DT;
       steps++;
     }
@@ -1100,7 +1135,7 @@ function frame(now) {
   if (game) {
     renderer.updateCamera(game, alpha, dt);
     game.view = renderer.view();
-    const ui = { device: input.device };
+    const ui = { device: device() };
     if (settings.aimLine && (state === 'play' || state === 'paused') && !game.ended() && !game.me.out) {
       // Always up: where a shot goes, and where a wormhole end would open.
       ui.guide = game.guide();
@@ -1136,6 +1171,7 @@ window.addEventListener('pointerdown', () => unlockAudio().then(() => state === 
 window.addEventListener('keydown', () => unlockAudio().then(() => state === 'title' && playMusic('defector')), { once: true });
 
 renderer.setQuality(settings.quality === 'low');
+applyControls();
 showTitle();
 requestAnimationFrame(frame);
 

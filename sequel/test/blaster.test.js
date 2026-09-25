@@ -125,6 +125,25 @@ test('power-ups load charges, cycle with the standard one, and run out back to i
   assert.equal(g.loaded, 'std', 'the last one fired, it goes back to the standard charge');
 });
 
+test('the wheel cycles back as well as on, and 1 to 6 load a kind straight away, but not one with no charges', () => {
+  const g = field();
+  g.take({ kind: 'strong', x: 0, y: 0 });
+  g.take({ kind: 'freeze', x: 0, y: 0 });
+  g.loaded = 'std';
+  g.step(DT, { mx: 0, cycle: -1 });
+  assert.equal(g.loaded, 'strong', 'back from the standard charge to the last kind held');
+  g.step(DT, { mx: 0, cycle: -1 });
+  assert.equal(g.loaded, 'freeze');
+  g.step(DT, { mx: 0, pick: 'std' });
+  assert.equal(g.loaded, 'std', '1: the standard charge');
+  g.step(DT, { mx: 0, pick: 'strong' });
+  assert.equal(g.loaded, 'strong', '6: the Hammer');
+  g.events.length = 0;
+  g.step(DT, { mx: 0, pick: 'big' });
+  assert.equal(g.loaded, 'strong', 'no Titan charges held: it stays as it was');
+  assert.ok(g.events.some((e) => e.s === 'dry'), 'and says so');
+});
+
 test('a black hole bends a charge, and its horizon takes it', () => {
   const w = room({ wells: [{ x: 2000, y: 700, r: 26, range: 500, pull: 500000 }] });
   const straight = new Charge({ x: 1500, y: 560, vx: BLASTER.speed, vy: 0, born: 0 });

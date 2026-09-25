@@ -90,7 +90,7 @@ export const BLASTER = {
 
 /**
  * Power-ups: alternate charges for the blaster. Each pickup loads `ammo`
- * charges of its kind, up to `maxAmmo`; LT or 1 cycles which is loaded, and
+ * charges of its kind, up to `maxAmmo`; LT, the wheel or R cycles which is loaded (1 to 6 pick one), and
  * an empty one falls back to the standard charge.
  */
 export const POWERUPS = [
@@ -100,6 +100,9 @@ export const POWERUPS = [
   { id: 'durable', name: 'Longwave', blurb: 'lives six seconds instead of three', color: '#c9a2ff', glyph: '∿' },
   { id: 'strong', name: 'Hammer', blurb: 'double damage', color: '#ff5c7a', glyph: '✦' },
 ];
+/** What 1 to 6 load on the keyboard: the standard charge, then each power-up in the order above (the HUD's). */
+export const PICKS = ['std', ...POWERUPS.map((p) => p.id)];
+
 export const POWER = {
   ammo: 15,
   maxAmmo: 45,

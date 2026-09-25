@@ -32,7 +32,7 @@
 //    it is playing: a guest's records start from 1 again, and a host queue
 //    that took an old one numbered in the hundreds would take every new one
 //    as older still, and the robot would never move.
-import { PHYSICS_DT, POWERUPS } from './config.js';
+import { PHYSICS_DT, POWERUPS, PICKS } from './config.js';
 import { MIN_BUFFER, MAX_BUFFER, BUFFER_GROWTH, CALM_STEPS, CATCH_UP_OVER, TRIM_OVER, REDUNDANCY, splitAck } from '../../src/inputqueue.js';
 import { Enemy, iceBlock } from './enemies.js';
 import { Boss } from './bosses.js';
@@ -43,7 +43,7 @@ import { OneRing } from './game.js';
 import { PORTAL } from './wormholes.js';
 
 export const NET = {
-  version: 1, // bumped when a message changes shape: a room refuses a guest from another version
+  version: 2, // bumped when a message changes shape: a room refuses a guest from another version
   snapHz: 30, // snapshots a second
   sendHz: 60, // input messages a second, whatever the display runs at
   interp: 0.1, // seconds behind the newest snapshot that a guest shows everything but its own robot
@@ -80,8 +80,11 @@ const FIRE = 16;
 const CYCLE = 32;
 const WORM0 = 64;
 const WORM1 = 128;
+const CYCLE_BACK = 256;
+const PICK_SHIFT = 9; // three bits from here: 0 for no pick, else 1 + its place in PICKS
+const PICK_MASK = 7 << PICK_SHIFT;
 /** The bits that are presses: they belong to the first step of a record only. */
-export const PRESSES = JUMPED | FIRE | CYCLE | WORM0 | WORM1;
+export const PRESSES = JUMPED | FIRE | CYCLE | WORM0 | WORM1 | CYCLE_BACK | PICK_MASK;
 
 /** An intent as [mx, bits, aim]. */
 export function packIntent(it) {
@@ -91,14 +94,17 @@ export function packIntent(it) {
   if (it.jumpPressed) b |= JUMPED;
   if (it.down) b |= DOWN;
   if (it.fire) b |= FIRE;
-  if (it.cycle) b |= CYCLE;
+  if (it.cycle > 0 || it.cycle === true) b |= CYCLE;
+  if (it.cycle < 0) b |= CYCLE_BACK;
+  if (it.pick && PICKS.includes(it.pick)) b |= (PICKS.indexOf(it.pick) + 1) << PICK_SHIFT;
   if (it.worm && it.worm[0]) b |= WORM0;
   if (it.worm && it.worm[1]) b |= WORM1;
   return [r3(+it.mx || 0), b, it.aim == null || !Number.isFinite(it.aim) ? null : Math.round(it.aim * 1e4) / 1e4];
 }
 
 export function unpackIntent(mx, b, aim) {
-  return { mx, run: !!(b & RUN), jump: !!(b & JUMP), jumpPressed: !!(b & JUMPED), down: !!(b & DOWN), fire: !!(b & FIRE), cycle: !!(b & CYCLE), worm: [!!(b & WORM0), !!(b & WORM1)], aim };
+  const pick = (b & PICK_MASK) >> PICK_SHIFT;
+  return { mx, run: !!(b & RUN), jump: !!(b & JUMP), jumpPressed: !!(b & JUMPED), down: !!(b & DOWN), fire: !!(b & FIRE), cycle: b & CYCLE ? 1 : b & CYCLE_BACK ? -1 : 0, pick: pick ? PICKS[pick - 1] : null, worm: [!!(b & WORM0), !!(b & WORM1)], aim };
 }
 
 /** Step `i` of a record: the presses only on the first. */
@@ -194,6 +200,7 @@ export class HostQueue {
       it.jumpPressed ||= extra.jumpPressed;
       it.fire ||= extra.fire;
       it.cycle ||= extra.cycle;
+      it.pick ||= extra.pick;
       it.worm = [it.worm[0] || extra.worm[0], it.worm[1] || extra.worm[1]];
       this.latch = 0;
     }

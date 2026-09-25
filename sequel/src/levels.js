@@ -351,7 +351,8 @@ function compose(L) {
 }
 
 // A sign's words for each input: the keyboard's and the controller's.
-const say = (kb, pad) => ({ kb, pad });
+// A sign's words for the mouse and keyboard, a controller, and (if they differ) the keyboard alone.
+const say = (kb, pad, keys = kb) => ({ kb, pad, keys });
 
 // ------------------------------------------------------------------ levels
 
@@ -380,21 +381,21 @@ export const LEVEL_DEFS = [
     secretsAt: [{ at: 0.3, kind: 'cellar', reward: ['big', 'strong'] }, { at: 0.7, kind: 'sky', reward: ['triple', 'shield'] }],
     features: [{ at: 0.5, sections: [['tower', { up: 12, width: 9, e: [['flitter', 4.5, 5], ['drifter', 4.5, 9, { axis: 'x', range: 100 }]] }]] }],
     opening: [
-      ['sign', { text: say('A D move · SPACE jumps: hold it to go higher', 'LEFT STICK moves · A jumps: hold it to go higher') }],
+      ['sign', { text: say('A D move · SPACE or W jumps: hold it to go higher', 'LEFT STICK moves · A jumps: hold it to go higher', 'A D move · W jumps: hold it to go higher') }],
       ['flat', { len: 6 }],
       ['gap', { w: 2, land: 3 }],
       ['pillars', { h: [2, 3], space: 3 }],
-      ['sign', { text: say('Hold 2 while moving to run: a running jump goes further', 'Hold X while moving to run: a running jump goes further') }],
+      ['sign', { text: say('Hold SHIFT while moving to run: a running jump goes further (or turn on Run by default)', 'Hold X while moving to run: a running jump goes further') }],
       ['gap', { w: 5, run: 8, land: 4 }],
-      ['sign', { text: say('Aim with the MOUSE or the ARROWS: the dotted line is where a shot goes · LEFT CLICK or / fires', 'Aim with the RIGHT STICK: the dotted line is where a shot goes · RT fires') }],
+      ['sign', { text: say('Aim with the MOUSE: the dotted line is where a shot goes · LEFT CLICK fires', 'Aim with the RIGHT STICK: the dotted line is where a shot goes · RT fires', 'Aim with I J K L: tap to nudge, hold to swing · the dotted line is where a shot goes · SPACE fires') }],
       ['flat', { len: 12, e: [['skitter', 8], ['skitter', 11]] }],
       ['sign', { text: say('Charges bounce off walls, like the ball always did. Stomp the little ones', 'Charges bounce off walls, like the ball always did. Stomp the little ones') }],
       ['blocks', { len: 14, list: [[3, 4, 2, 1, 'crate', 'triple', 1], [5, 4, 2, 1, 'block'], [7, 4, 2, 1, 'crate', null, 1]], e: [['hopper', 10]] }],
-      ['sign', { text: say('Crates break, and some hold power-ups · 1 changes what the blaster fires', 'Crates break, and some hold power-ups · LT changes what the blaster fires') }],
+      ['sign', { text: say('Crates break, and some hold power-ups · the WHEEL or R changes what the blaster fires, 1 to 6 picks one', 'Crates break, and some hold power-ups · LT changes what the blaster fires', 'Crates break, and some hold power-ups · R changes what the blaster fires, 1 to 6 picks one') }],
       ['flat', { len: 8, e: [['flitter', 5, 3]] }],
       ['sign', { text: say('A door with a lamp over it opens to a switch: shoot the switch', 'A door with a lamp over it opens to a switch: shoot the switch') }],
       ['switchdoor', { stand: 8 }],
-      ['sign', { text: say('Q and E open wormhole ends where the aim line meets a wall · walk into one, out of the other', 'LB and RB open wormhole ends where the aim line meets a wall · walk into one, out of the other') }],
+      ['sign', { text: say('RIGHT CLICK or Q, and E, open wormhole ends where the aim line meets a wall · walk into one, out of the other', 'LB and RB open wormhole ends where the aim line meets a wall · walk into one, out of the other', 'Q and E open wormhole ends where the aim line meets a wall · walk into one, out of the other') }],
       ['secret', { kind: 'loft', up: 8, reward: ['freeze', 'durable'] }],
       ['checkpoint', {}],
     ],
