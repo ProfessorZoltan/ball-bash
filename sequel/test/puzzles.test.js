@@ -34,6 +34,33 @@ test('a charge of yours flips a switch and its door opens; an enemy\'s shot does
   assert.ok(g.events.some((e) => e.s === 'switch'));
 });
 
+test('a switch off screen takes no notice of a charge: a stray shot never opens a door far ahead', () => {
+  // Level 1: shooting level at the skitters, a charge can run on down the corridor into the switch.
+  const bp = level(1);
+  const start = () => {
+    const g = new Game(bp, { shields: Infinity });
+    for (const e of g.enemies) e.dead = true;
+    g.bot.spawn(2640, -31);
+    for (let i = 0; i < 30; i++) g.step(DT, { mx: 0 });
+    return g;
+  };
+  const g = start();
+  const sw = g.world.switches[0];
+  assert.ok(sw.x - g.bot.x > 1500, 'the switch is well off screen');
+  let aim = null;
+  for (let a = -0.2; a < 0.2 && aim == null; a += 0.005) if (shotHits(g, a, sw)) aim = a;
+  assert.ok(aim != null, 'a shot from here can reach it');
+  g.step(DT, { mx: 0, aim, fire: true });
+  for (let i = 0; i < 240 * 3.2; i++) g.step(DT, { mx: 0, aim });
+  assert.ok(!sw.on && g.world.doors[0].closed, 'and it goes by untouched');
+  // The same shot with the switch on screen (the camera framing it) flips it.
+  const h = start();
+  h.view = { x: sw.x, y: sw.y, hw: 640, hh: 360 };
+  h.step(DT, { mx: 0, aim, fire: true });
+  for (let i = 0; i < 240 * 3.2; i++) h.step(DT, { mx: 0, aim });
+  assert.ok(h.world.switches[0].on && !h.world.doors[0].closed, 'on screen, it flips');
+});
+
 test('a timed switch shuts its door again when it runs out, but never on the robot', () => {
   const g = new Game(piece(111, ['switchdoor', { stand: 8, hold: 2 }]), { shields: 5 });
   const sw = g.world.switches[0];

@@ -4,7 +4,7 @@
 // the tests drive it directly. It speaks back through `events` (sound cues
 // and state changes for main.js) and `fx` (particles).
 import { circleVsCapsule, circleVsCircle, capsuleVsCapsule, reflect, raycastSegments } from '../../src/physics.js';
-import { ROBOT, MOVE, BLASTER, POWER, POWERUPS, PICKUP, ACTIVE, BOSS_INTRO, SURFACE_VELOCITY_FACTOR } from './config.js';
+import { ROBOT, MOVE, BLASTER, POWER, POWERUPS, PICKUP, ACTIVE, BOSS_INTRO, SURFACE_VELOCITY_FACTOR, SCREEN } from './config.js';
 import { createWorld, stepWorld, segmentsNear, addGate, setGate, makeWell } from './world.js';
 import { Robot, stepRobot, firmGround } from './player.js';
 import { Charge, chargeSpec, stepCharge, clampCharge, muzzle, guideLine } from './blaster.js';
@@ -70,6 +70,8 @@ export class Game {
     this.world = createWorld(bp);
     this.world.ice = [];
     this.fx = new Fx();
+    // Where the screen is: its centre and half its size, in world px. main.js sets it from the camera each frame.
+    this.view = null;
     this.events = [];
     this.rng = opts.rng || Math.random;
     this.time = opts.stats ? opts.stats.time : 0;
@@ -303,10 +305,23 @@ export class Game {
     return closed;
   }
 
-  /** A charge of yours that touches a switch flips it, and is spent. */
+  /**
+   * Is (x, y) on screen? Without a camera (the tests and tools) the screen is
+   * one round the robot, framed as the camera frames it.
+   */
+  inView(x, y) {
+    const v = this.view ?? { x: this.bot.x + this.bot.facing * 60, y: this.bot.y - 50, hw: SCREEN.w / 2, hh: SCREEN.h / 2 };
+    return Math.abs(x - v.x) <= v.hw && Math.abs(y - v.y) <= v.hh;
+  }
+
+  /**
+   * A charge of yours that touches a switch flips it, and is spent. Only a
+   * switch on screen, though: a stray shot at something else must not open a
+   * door far ahead that the player never saw open.
+   */
   chargeVsSwitches(c) {
     for (const sw of this.world.switches) {
-      if (sw.on || Math.hypot(c.x - sw.x, c.y - sw.y) > sw.r + c.r) continue;
+      if (sw.on || Math.hypot(c.x - sw.x, c.y - sw.y) > sw.r + c.r || !this.inView(sw.x, sw.y)) continue;
       c.dead = true;
       this.fx.sparks(sw.x, sw.y, 0, -1, '#9dff5c', 10, 200);
       this.flipSwitch(sw);

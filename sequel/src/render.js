@@ -230,6 +230,11 @@ export class Renderer {
     c.y = y;
   }
 
+  /** What is on screen: its centre and half its size, in world px (what the game takes as seen). */
+  view() {
+    return { x: this.cam.x, y: this.cam.y, hw: this.w / 2 / this.scale, hh: this.h / 2 / this.scale };
+  }
+
   /** Point the camera somewhere directly (the title screen's slow pan). */
   lookAt(x, y) {
     this.cam.x = x;

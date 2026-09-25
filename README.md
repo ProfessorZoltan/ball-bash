@@ -1149,7 +1149,9 @@ back in (`stepAmbushes` in `sequel/src/game.js`).
 A door with a lamp over it is shut until its switch is flipped, and a
 switch is flipped by a charge of yours: an enemy's shot is no key, and the
 charge is spent. Lamp and switch are amber while shut and green once open.
-Some switches are on a timer: the door stays open that many seconds, a ring
+Only a switch on screen takes a charge: a stray shot at something else that
+runs on down a corridor goes straight past one you haven't reached, so you
+never arrive to find its door already open. Some switches are on a timer: the door stays open that many seconds, a ring
 round the switch counting down, then shuts again (never on the robot). A
 door takes no wormhole. **Armoured glass** is the other new thing: solid to
 the robot, its charges and enemies alike, but the line of sight goes

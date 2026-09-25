@@ -567,6 +567,7 @@ function frame(now) {
   const alpha = state === 'play' ? acc / PHYSICS_DT : 1;
   if (game) {
     renderer.updateCamera(game, alpha, dt);
+    game.view = renderer.view();
     const ui = { device: input.device };
     if (settings.aimLine && (state === 'play' || state === 'paused') && game.phase !== 'down' && game.phase !== 'cleared') {
       // Always up: where a shot goes, and where a wormhole end would open.
