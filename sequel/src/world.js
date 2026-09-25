@@ -338,10 +338,16 @@ export function createWorld(bp) {
     w.oneWays.push(s);
   }
   (bp.crates || []).forEach((b, i) => w.crates.push(makeBreakable(b, i)));
+  // Every surface has a name that is the same in every copy of the world built from this blueprint,
+  // so a multiplayer guest can be told which floor a robot stands on, or which wall an end is in.
+  w.walls.forEach((s, i) => (s.sid = `w${i}`));
+  w.oneWays.forEach((s, i) => (s.sid = `o${i}`));
+  for (const c of w.crates) c.segs.forEach((s, k) => (s.sid = `c${c.id}.${k}`));
   for (const s of w.walls) w.grid.insert(s);
   for (const s of w.oneWays) w.grid.insert(s);
   for (const c of w.crates) for (const s of c.segs) w.grid.insert(s);
   for (const m of bp.movers || []) w.movers.push(new Platform(m));
+  w.movers.forEach((m, i) => (m.index = i));
   for (const p of bp.pulses || []) {
     const pu = new Pulser({ period: p.period ?? 4, speed: p.speed ?? 320, maxRadius: p.maxRadius ?? 300, warn: p.warn ?? 0.8, delay: p.delay ?? 1.5, thick: 8 });
     pu.sx = p.x;
@@ -365,6 +371,7 @@ export function createWorld(bp) {
 export function addGate(world, x, y0, y1) {
   const pts = box(x - 10, y0, 20, y1 - y0);
   const segs = solidEdges(pts, { kind: 'gate', portal: false });
+  segs.forEach((s, k) => (s.sid = `g${world.gates.length}.${k}`));
   const gate = { x, y0, y1, segs, closed: false };
   for (const s of segs) {
     s.broken = true; // open until the boss is met
@@ -418,6 +425,40 @@ export function segmentsNear(world, x0, y0, x1, y1, { oneWay = true, movers = tr
     }
   }
   return out;
+}
+
+/** The name of a surface (see createWorld), whichever kind it is; null for none. */
+export function segId(world, s) {
+  if (!s) return null;
+  if (s.sid) return s.sid;
+  if (s.mover) return `m${s.mover.index}.${s.mover.segs.indexOf(s)}`;
+  if (s.ice) return `i${s.ice.enemy.id}.${s.ice.segs.indexOf(s)}`;
+  return null;
+}
+
+/** The surface with that name in this world, or null. */
+export function segById(world, id) {
+  if (!id) return null;
+  const kind = id[0];
+  const [a, b] = id.slice(1).split('.').map(Number);
+  switch (kind) {
+    case 'w':
+      return world.walls[a] || null;
+    case 'o':
+      return world.oneWays[a] || null;
+    case 'c':
+      return (world.crates[a] && world.crates[a].segs[b]) || null;
+    case 'g':
+      return (world.gates[a] && world.gates[a].segs[b]) || null;
+    case 'm':
+      return (world.movers[a] && world.movers[a].segs[b]) || null;
+    case 'i': {
+      const blk = (world.ice || []).find((k) => k.enemy.id === a);
+      return (blk && blk.segs[b]) || null;
+    }
+    default:
+      return null;
+  }
 }
 
 export { TILE };

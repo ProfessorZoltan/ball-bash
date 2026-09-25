@@ -17,6 +17,8 @@ export const STORE = {
   run: 'defector.run',
   cleared: 'defector.cleared',
   best: 'defector.best',
+  name: 'defector.name', // what you are called in a multiplayer room
+  room: 'defector.room', // the host's last picks in the room
 };
 
 export const TILE = 40; // the grid levels are drafted on, in world px
@@ -128,3 +130,34 @@ export const ROBOT_PULL = 0.5;
 
 /** Seconds the boss is introduced before it moves, and the music doubles. */
 export const BOSS_INTRO = 2.4;
+
+/**
+ * Multiplayer: up to three robots, each in its own colours (the first is the
+ * campaign's own). A standard charge takes its owner's colour, so in versus
+ * you can tell whose is whose, and so do the wormhole ends.
+ */
+export const PLAYERS = [
+  { color: '#7fe9ff', trim: '#ffb347', charge: '#dffbff', name: 'Cyan' },
+  { color: '#ff8ad8', trim: '#ffe066', charge: '#ffd6f3', name: 'Rose' },
+  { color: '#b8ff6a', trim: '#ff9f43', charge: '#ecffcf', name: 'Lime' },
+];
+export const MAX_PLAYERS = PLAYERS.length;
+
+/** Co-op: each player's own pool; one who runs out is out until a teammate reaches a checkpoint or the boss. */
+export const COOP = {
+  revive: 1, // shields a player comes back with
+  spread: 56, // px between robots put down side by side
+  retarget: 2.5, // seconds a boss keeps its eye on one robot before it looks for the nearest again
+};
+
+/** Versus: every robot for itself, on an arena map (maps.js). */
+export const VERSUS = {
+  shields: 5, // each, unless the host picks otherwise
+  shieldChoices: [3, 5, 7],
+  powerMin: 30, // seconds between power-ups appearing: at least
+  powerMax: 60, // and at most
+  powerCap: 3, // lying about at once, and no more
+  fair: 0.5, // a power-up appears where the nearest robot is at least this share as far as the next nearest
+  frozen: 2, // seconds a Frost charge holds a robot
+  ready: 2.4, // seconds of countdown before a match starts, every robot held on its spawn
+};

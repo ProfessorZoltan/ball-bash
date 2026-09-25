@@ -103,7 +103,7 @@ export function canHold(seg) {
  * Centred on the hit and slid along the surface so the whole mouth lies on
  * it, facing back along the line. An end never overlaps the other end.
  */
-export function placeEnd(world, sight, which) {
+export function placeEnd(world, sight, which, slot = 0) {
   if (!sight || !sight.hit || !sight.ok) return null;
   const { hit } = sight;
   const seg = hit.seg;
@@ -120,14 +120,14 @@ export function placeEnd(world, sight, which) {
     nx = -nx;
     ny = -ny;
   }
-  const p = { owner: 0, which, key: `0${which}`, hw, nx, ny, cx: seg.ax + sx * s, cy: seg.ay + sy * s, host: null };
+  const p = { owner: slot, which, key: `${slot}${which}`, hw, nx, ny, cx: seg.ax + sx * s, cy: seg.ay + sy * s, host: null };
   if (seg.mover) {
     const si = seg.mover.segs.indexOf(seg);
     p.host = { kind: 'mover', m: seg.mover, si, s, side: 1 };
   } else {
     p.host = { kind: 'wall', seg };
   }
-  const other = world.portals[0][1 - which];
+  const other = (world.portals[slot] || [])[1 - which];
   if (other && Math.abs(other.nx * nx + other.ny * ny - 1) < 0.01) {
     const { u, v } = portalLocal(other, p.cx, p.cy);
     if (Math.abs(v) < 4 && Math.abs(u) < hw * 2) return null; // on top of its twin
@@ -138,7 +138,11 @@ export function placeEnd(world, sight, which) {
 /** Keep every end on its surface: a moving platform carries its end; one whose surface has gone takes its end with it. Returns the ends that went. */
 export function refreshEnds(world) {
   const gone = [];
-  const pair = world.portals[0];
+  for (const pair of Object.values(world.portals)) if (pair) refreshPair(pair, gone);
+  return gone;
+}
+
+function refreshPair(pair, gone) {
   for (let w = 0; w < 2; w++) {
     const p = pair[w];
     if (!p) continue;
@@ -163,7 +167,6 @@ export function refreshEnds(world) {
     p.nx = seg.nx;
     p.ny = seg.ny;
   }
-  return gone;
 }
 
 /**
@@ -198,9 +201,10 @@ export function exitVelocity(q, vx, vy, min = WORM.minExit) {
  * wormhole, or on foot), so there is still no range; but whatever is behind
  * is tidied away. Returns which ends ([0, 1]) should close.
  */
-export function endsLeftBehind(world, x, y) {
+export function endsLeftBehind(world, x, y, slot = 0) {
   const out = [];
-  const pair = world.portals[0];
+  const pair = world.portals[slot];
+  if (!pair) return out;
   for (let k = 0; k < 2; k++) {
     const p = pair[k];
     if (!p) continue;

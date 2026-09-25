@@ -119,12 +119,15 @@ export function freezeEnemy(e) {
   e.vy = 0;
   e.swoop = null;
   const s = e.r * 2 + 4;
-  const x0 = e.x - s / 2;
-  const y0 = e.y - s / 2;
+  e.ice = iceBlock(e, e.x - s / 2, e.y - s / 2, s);
+}
+
+/** The block of ice an enemy frozen at (x0, y0) is, `s` across: four surfaces to stand on or bank off. */
+export function iceBlock(e, x0, y0, s) {
   const segs = solidEdges(box(x0, y0, s, s), { kind: 'ice', portal: false });
   const blk = { x0, y0, x1: x0 + s, y1: y0 + s, segs, enemy: e };
   for (const sg of segs) sg.ice = blk;
-  e.ice = blk;
+  return blk;
 }
 
 /**

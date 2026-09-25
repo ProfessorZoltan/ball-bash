@@ -1,10 +1,18 @@
-// One level of Defector, start to finish: the robot, its charges and
+// One level of Defector, start to finish: the robots, their charges and
 // wormholes, the enemies, what they drop, the checkpoints and secrets, and
-// the boss at the end. DOM-free: main.js feeds it intents and draws it, and
-// the tests drive it directly. It speaks back through `events` (sound cues
-// and state changes for main.js) and `fx` (particles).
+// the boss at the end; or, in versus, an arena and the robots against each
+// other. DOM-free: main.js feeds it intents and draws it, and the tests drive
+// it directly. It speaks back through `events` (sound cues and state changes
+// for main.js) and `fx` (particles).
+//
+// There are one to three players. Each has a robot, a shield pool, the
+// power-ups they have picked up, a blaster that cools on its own and a
+// wormhole pair of their own (world.portals[slot]); everything else, the
+// level and all that is in it, they share. Alone, the game is exactly the
+// campaign it always was, and `bot`, `pool`, `ammo` and the rest still read
+// the one player.
 import { circleVsCapsule, circleVsCircle, capsuleVsCapsule, reflect, raycastSegments } from '../../src/physics.js';
-import { ROBOT, MOVE, BLASTER, POWER, POWERUPS, PICKUP, ACTIVE, BOSS_INTRO, SURFACE_VELOCITY_FACTOR, SCREEN } from './config.js';
+import { ROBOT, MOVE, BLASTER, POWER, POWERUPS, PICKUP, ACTIVE, BOSS_INTRO, SURFACE_VELOCITY_FACTOR, SCREEN, PLAYERS, COOP, VERSUS } from './config.js';
 import { createWorld, stepWorld, segmentsNear, addGate, setGate, makeWell } from './world.js';
 import { Robot, stepRobot, firmGround } from './player.js';
 import { Charge, chargeSpec, stepCharge, clampCharge, muzzle, guideLine } from './blaster.js';
@@ -16,7 +24,7 @@ import { Fx } from './fx.js';
 const TAU = Math.PI * 2;
 
 /** A single expanding ring a boss sends out: Deflector's pulse, once. */
-class OneRing {
+export class OneRing {
   constructor(x, y, { speed = 320, maxRadius = 600, color = '#ffffff' }, id) {
     this.x = x;
     this.y = y;
@@ -59,49 +67,89 @@ function randomDrop(rng) {
   return POWERUPS[Math.floor(rng() * POWERUPS.length)].id;
 }
 
+/** A robot with nothing pressed. */
+export const IDLE = Object.freeze({ mx: 0 });
+
+/** One player: their robot, and everything that is theirs alone. */
+export class Player {
+  constructor(slot, x, y, o = {}) {
+    this.slot = slot;
+    this.bot = new Robot(x, y);
+    this.bot.slot = slot;
+    this.bot.invuln = 1;
+    this.name = o.name || PLAYERS[slot].name;
+    this.color = PLAYERS[slot].color;
+    this.pool = o.shields ?? 5;
+    this.maxPool = o.maxShields ?? this.pool;
+    this.ammo = { big: 0, triple: 0, freeze: 0, durable: 0, strong: 0, ...(o.ammo || {}) };
+    this.loaded = o.loaded && this.ammo[o.loaded] > 0 ? o.loaded : 'std';
+    this.cool = 0;
+    this.firePending = 0; // a press that came while the blaster was still cooling: it fires the moment it can
+    this.lastJumpHeld = false;
+    this.out = false; // no shields left: out until a teammate brings them back (co-op), or for the match (versus)
+    this.frozen = 0; // versus: seconds a Frost charge still holds the robot
+    this.view = null; // where this player's screen is ({ x, y, hw, hh }), when their client says
+    this.stats = { shieldsLost: 0, hits: 0, falls: 0, powerups: 0 };
+  }
+
+  /** What firing with this player's load makes. A standard charge is in the player's own colour. */
+  get spec() {
+    const s = chargeSpec(this.loaded);
+    if (this.loaded === 'std') s.color = PLAYERS[this.slot].charge;
+    return s;
+  }
+}
+
 export class Game {
   /**
-   * `bp` is a built level (build.js). Options: shields (the pool), maxShields
-   * (what a shield pickup can top it up to), checkpoint (index to start at),
-   * ammo (power-ups held, kept over a continue in the same level), stats (carried over a continue), rng.
+   * `bp` is a built level (build.js), or an arena map (maps.js) for versus.
+   * Options: mode ('solo', 'coop' or 'versus'), players (how many, or a list
+   * of { name }), local (the slot this client plays, whose robot `bot` is),
+   * shields (each player's pool), maxShields (what a shield pickup can top it
+   * up to), checkpoint (index to start at), ammo and loaded (power-ups held
+   * by the first player, kept over a continue in the same level; `kit` gives
+   * each player theirs), stats (carried over a continue), rng.
    */
   constructor(bp, opts = {}) {
     this.bp = bp;
+    this.mode = opts.mode || 'solo';
     this.world = createWorld(bp);
     this.world.ice = [];
     this.fx = new Fx();
-    // Where the screen is: its centre and half its size, in world px. main.js sets it from the camera each frame.
-    this.view = null;
     this.events = [];
     this.rng = opts.rng || Math.random;
     this.time = opts.stats ? opts.stats.time : 0;
-    this.pool = opts.shields ?? 5;
-    this.maxPool = opts.maxShields ?? this.pool;
     this.stats = opts.stats ? { ...opts.stats } : { shieldsLost: 0, defeated: 0, secrets: 0, powerups: 0, continues: 0, time: 0 };
     this.stats.secretsTotal = (bp.secrets || []).length;
-    this.ammo = { big: 0, triple: 0, freeze: 0, durable: 0, strong: 0, ...(opts.ammo || {}) };
-    this.loaded = opts.loaded && this.ammo[opts.loaded] > 0 ? opts.loaded : 'std';
     this.checkpoints = (bp.checkpoints || []).map((c) => ({ ...c, on: false }));
     this.checkpoint = opts.checkpoint ?? -1;
     // A checkpoint this level does not have (a save from an older build of it) starts the level over.
     if (!(this.checkpoint < this.checkpoints.length)) this.checkpoint = -1;
     const at = this.checkpoint >= 0 ? this.checkpoints[this.checkpoint] : bp.spawn;
     for (let i = 0; i <= this.checkpoint; i++) this.checkpoints[i].on = true;
-    this.bot = new Robot(at.x, at.y);
-    this.bot.invuln = 1;
-    this.players = [this.bot]; // one today; a drop makes one pickup for each
+    const roster = Array.isArray(opts.players) ? opts.players : Array.from({ length: opts.players || 1 }, () => ({}));
+    this.players = roster.map((r, slot) => {
+      const kit = (opts.kit && opts.kit[slot]) || (slot === 0 ? { ammo: opts.ammo, loaded: opts.loaded } : {});
+      const spot = this.mode === 'versus' ? bp.spawns[slot % bp.spawns.length] : this.besideSpot(at, slot);
+      const pl = new Player(slot, spot.x, spot.y, { name: r.name, shields: opts.shields, maxShields: opts.maxShields, ammo: kit.ammo, loaded: kit.loaded });
+      this.world.portals[slot] = this.world.portals[slot] || [null, null];
+      return pl;
+    });
+    this.local = Math.min(opts.local ?? 0, this.players.length - 1);
     this.charges = [];
     this.shots = [];
     this.enemies = (bp.enemies || []).map((s, i) => new Enemy(s, i));
     this.nextEnemy = this.enemies.length;
+    this.pickupId = 1;
     this.pickups = (bp.pickups || []).map((p) => this.makePickup(p.kind, p.x, p.y, null, true));
     this.secrets = (bp.secrets || []).map((s) => ({ ...s, found: false }));
     this.hazards = [];
-    this.cool = 0;
     this.ringId = 1e6;
-    this.phase = 'play'; // play, intro, boss, bossDown, exit, cleared, down
+    this.phase = this.mode === 'versus' ? 'ready' : 'play'; // ready (versus), play, intro, boss, bossDown, exit, cleared, down, over (versus)
     this.phaseT = 0;
     this.boss = null;
+    this.bossEye = null; // the robot the boss is watching, and until when
+    this.bossEyeUntil = 0;
     this.exit = null;
     this.arena = bp.arena || null;
     if (this.arena) {
@@ -117,9 +165,108 @@ export class Game {
       live: [],
     }));
     this.pits = bp.pits || [];
-    this.firePending = 0; // a press that came while the blaster was still cooling: it fires the moment it can
     this.tally = { shots: 0, warps: 0 };
-    this.lastJumpHeld = false;
+    this.winner = null; // versus: the slot left standing (null for a draw)
+    this.nextPower = this.mode === 'versus' ? this.powerDelay() : Infinity;
+  }
+
+  // The one player a single-player game, the HUD and the camera mean: this client's own.
+  get me() {
+    return this.players[this.local];
+  }
+  get bot() {
+    return this.me.bot;
+  }
+  get pool() {
+    return this.me.pool;
+  }
+  set pool(v) {
+    this.me.pool = v;
+  }
+  get maxPool() {
+    return this.me.maxPool;
+  }
+  get ammo() {
+    return this.me.ammo;
+  }
+  set ammo(v) {
+    this.me.ammo = v;
+  }
+  get loaded() {
+    return this.me.loaded;
+  }
+  set loaded(v) {
+    this.me.loaded = v;
+  }
+  get cool() {
+    return this.me.cool;
+  }
+  set cool(v) {
+    this.me.cool = v;
+  }
+  get view() {
+    return this.me.view;
+  }
+  set view(v) {
+    this.me.view = v;
+  }
+  get spec() {
+    return this.me.spec;
+  }
+  get multi() {
+    return this.players.length > 1;
+  }
+
+  /** The players still in. */
+  live() {
+    return this.players.filter((p) => !p.out);
+  }
+
+  /** Where the robot of `slot` is put down next to a spot: side by side, on the ground, never over a drop. */
+  besideSpot(at, slot) {
+    const offs = [0, COOP.spread, -COOP.spread];
+    const dx = offs[slot % offs.length];
+    if (!dx) return { x: at.x, y: at.y };
+    const x = at.x + dx;
+    const reach = ROBOT.half + ROBOT.r + 12;
+    const segs = segmentsNear(this.world, x - ROBOT.r, at.y - reach, x + ROBOT.r, at.y + reach, { movers: false });
+    const floor = raycastSegments(x, at.y - 20, 0, 1, segs, reach + 20);
+    const walls = segmentsNear(this.world, Math.min(at.x, x) - ROBOT.r, at.y - ROBOT.half, Math.max(at.x, x) + ROBOT.r, at.y + ROBOT.half, { movers: false, oneWay: false });
+    const blocked = raycastSegments(at.x, at.y, Math.sign(dx), 0, walls, Math.abs(dx) + ROBOT.r);
+    return floor && floor.seg.ny < -0.6 && !blocked ? { x, y: at.y } : { x: at.x, y: at.y };
+  }
+
+  /** The living player nearest (x, y), and how far away across and down; null with nobody in. */
+  nearest(x, y) {
+    let best = null;
+    for (const p of this.players) {
+      if (p.out) continue;
+      const dx = Math.abs(p.bot.x - x);
+      const dy = Math.abs(p.bot.y - y);
+      const d = dx * dx + dy * dy;
+      if (!best || d < best.d) best = { p, dx, dy, d };
+    }
+    return best;
+  }
+
+  /** The robot a boss is after: the nearest, looked for again every so often; always the one robot alone. */
+  bossTarget() {
+    if (!this.multi) return this.bot;
+    const e = this.bossEye;
+    if (e && !e.out && this.time < this.bossEyeUntil) return e.bot;
+    const b = this.boss;
+    const n = b ? this.nearest(b.x, b.y) : null;
+    this.bossEye = n ? n.p : this.me;
+    this.bossEyeUntil = this.time + COOP.retarget;
+    return this.bossEye.bot;
+  }
+
+  /** The robot this client's camera follows: its own, or, while it is out, the nearest teammate still in. */
+  focus() {
+    const me = this.me;
+    if (!me.out || this.mode === 'solo') return me.bot;
+    const n = this.nearest(me.bot.x, me.bot.y);
+    return n ? n.p.bot : me.bot;
   }
 
   emit(s, extra = {}) {
@@ -127,32 +274,37 @@ export class Game {
   }
 
   /** The power-up kinds with charges left, in cycle order, after the standard charge. */
-  loadable() {
-    return ['std', ...POWERUPS.map((p) => p.id).filter((id) => this.ammo[id] > 0)];
+  loadable(pl = this.me) {
+    return ['std', ...POWERUPS.map((p) => p.id).filter((id) => pl.ammo[id] > 0)];
   }
 
-  cycle() {
-    const list = this.loadable();
-    const i = list.indexOf(this.loaded);
-    this.loaded = list[(i + 1) % list.length];
-    this.emit('cycle', { kind: this.loaded });
-  }
-
-  get spec() {
-    return chargeSpec(this.loaded);
+  cycle(pl = this.me) {
+    const list = this.loadable(pl);
+    const i = list.indexOf(pl.loaded);
+    pl.loaded = list[(i + 1) % list.length];
+    this.emit('cycle', { kind: pl.loaded, slot: pl.slot });
   }
 
   // ------------------------------------------------------------------ step
 
+  /** Has the level or match ended (nothing moves any more)? */
+  ended() {
+    return this.phase === 'cleared' || this.phase === 'down' || this.phase === 'over';
+  }
+
   /**
-   * One physics step. `it`: mx, run, jump, jumpPressed, down, aim (radians,
-   * or null to keep), fire (pressed this step), worm [light end pressed,
-   * dark end pressed], cycle (pressed).
+   * One physics step. `it` is the intent of the one player, or a list with
+   * one for each player in slot order. An intent: mx, run, jump, jumpPressed,
+   * down, aim (radians, or null to keep), fire (pressed this step), worm
+   * [light end pressed, dark end pressed], cycle (pressed). In a list, a
+   * missing intent is a robot with nothing pressed; null holds the robot
+   * where it is for this step (a guest whose inputs are late); and a list of
+   * intents plays each in turn (a guest catching up).
    */
   step(dt, it) {
-    const bot = this.bot;
+    const its = Array.isArray(it) ? it : [it];
     this.fx.update(dt);
-    if (this.phase === 'cleared' || this.phase === 'down') return;
+    if (this.ended()) return;
     this.time += dt;
     this.phaseT += dt;
     const w = this.world;
@@ -165,51 +317,12 @@ export class Game {
     }
     w.ice = this.enemies.filter((e) => e.ice && !e.dead).map((e) => e.ice);
 
-    this.lastJumpHeld = !!it.jump;
-    const frozen = this.phase === 'intro' && this.phaseT < 0.6;
-    const move = frozen ? { mx: 0 } : it;
-    if (it.aim != null && Number.isFinite(it.aim)) bot.aim = it.aim;
-    bot.invuln = Math.max(0, (bot.invuln || 0) - dt);
-    stepRobot(bot, move, w, dt, {
-      jump: () => this.emit('jump'),
-      land: (air) => {
-        if (air > 0.25) {
-          this.fx.dust(bot.x, bot.bottom, '#cfefff', 6 + Math.min(8, air * 10));
-          this.emit('land', { air });
-        }
-      },
-      hurt: (reason, p) => this.hurt(reason, p, reason === 'crushed'),
-      spring: () => {
-        this.emit('spring');
-        this.fx.ring(bot.x, bot.bottom, '#9dff5c', 50, 0.3);
-      },
-      pulse: () => this.emit('pulse'),
-      warp: (from, to) => {
-        this.fx.ring(from.x, from.y, '#ffffff', 70, 0.35);
-        this.fx.ring(to.x, to.y, '#ffffff', 90, 0.45);
-        this.tally.warps++;
-        this.emit('warp');
-      },
-      fell: () => this.hurt('fell', null, true),
-      swallowed: () => this.hurt('well', null, true),
+    this.players.forEach((pl, i) => {
+      if (pl.out) return;
+      const pi = its[i] === undefined ? IDLE : its[i];
+      if (pi === null) return;
+      for (const x of Array.isArray(pi) ? pi : [pi]) if (!pl.out) this.stepPlayer(pl, x || IDLE, dt);
     });
-
-    if (this.inPit(bot.x, bot.top)) this.hurt('fell', null, true);
-
-    for (const k of endsLeftBehind(w, bot.x, bot.y)) this.closeEnd(k);
-
-    this.cool -= dt;
-    if (it.fire) {
-      // A press during the cooldown is kept, not lost. One with six already out is refused, audibly.
-      if (this.roomFor(this.spec)) this.firePending = BLASTER.cooldown + 0.05;
-      else this.emit('dry');
-    }
-    if (this.firePending > 0) {
-      if (this.fire()) this.firePending = 0;
-      else this.firePending -= dt;
-    }
-    if (it.worm) for (let k = 0; k < 2; k++) if (it.worm[k]) this.deploy(k);
-    if (it.cycle) this.cycle();
 
     this.stepCharges(dt);
     this.stepSwitches(dt);
@@ -220,17 +333,81 @@ export class Game {
     this.stepAmbushes();
     this.stepBoss(dt);
     this.stepHazards(dt);
+    if (this.mode === 'versus') this.stepVersus(dt);
+  }
+
+  /** One player's robot for one step: moving, falling, the blaster and the wormholes. */
+  stepPlayer(pl, it, dt) {
+    const bot = pl.bot;
+    const w = this.world;
+    pl.lastJumpHeld = !!it.jump;
+    pl.frozen = Math.max(0, pl.frozen - dt);
+    const held = (this.phase === 'intro' && this.phaseT < 0.6) || this.phase === 'ready' || pl.frozen > 0;
+    const move = held ? { mx: 0 } : it;
+    if (it.aim != null && Number.isFinite(it.aim)) bot.aim = it.aim;
+    bot.invuln = Math.max(0, (bot.invuln || 0) - dt);
+    const slot = pl.slot;
+    // What the robot's own movement makes (dust, a spring's ring, a wormhole's flash) is marked as its
+    // own, so a guest predicting its robot, which makes these itself, is not shown them twice.
+    const own = (fn) => (...a) => {
+      this.fx.who = slot;
+      fn(...a);
+      this.fx.who = null;
+    };
+    stepRobot(bot, move, w, dt, {
+      jump: () => this.emit('jump', { slot }),
+      land: own((air) => {
+        if (air > 0.25) {
+          this.fx.dust(bot.x, bot.bottom, '#cfefff', 6 + Math.min(8, air * 10));
+          this.emit('land', { air, slot });
+        }
+      }),
+      hurt: (reason, p) => this.hurt(reason, p, reason === 'crushed', pl),
+      spring: own(() => {
+        this.emit('spring', { slot });
+        this.fx.ring(bot.x, bot.bottom, '#9dff5c', 50, 0.3);
+      }),
+      pulse: () => this.emit('pulse', { slot }),
+      warp: own((from, to) => {
+        this.fx.ring(from.x, from.y, '#ffffff', 70, 0.35);
+        this.fx.ring(to.x, to.y, '#ffffff', 90, 0.45);
+        this.tally.warps++;
+        this.emit('warp', { slot });
+      }),
+      fell: () => this.hurt('fell', null, true, pl),
+      swallowed: () => this.hurt('well', null, true, pl),
+    });
+
+    if (pl.out) return;
+    if (this.inPit(bot.x, bot.top)) this.hurt('fell', null, true, pl);
+    if (pl.out) return;
+
+    for (const k of endsLeftBehind(w, bot.x, bot.y, slot)) this.closeEnd(k, pl);
+
+    pl.cool -= dt;
+    if (held && this.phase !== 'intro') return; // held fast, it cannot fire or open an end either
+    if (it.fire) {
+      // A press during the cooldown is kept, not lost. One with six already out is refused, audibly.
+      if (this.roomFor(pl.spec, pl)) pl.firePending = BLASTER.cooldown + 0.05;
+      else this.emit('dry', { slot });
+    }
+    if (pl.firePending > 0) {
+      if (this.fire(pl)) pl.firePending = 0;
+      else pl.firePending -= dt;
+    }
+    if (it.worm) for (let k = 0; k < 2; k++) if (it.worm[k]) this.deploy(k, pl);
+    if (it.cycle) this.cycle(pl);
   }
 
   // ------------------------------------------------------------ the blaster
 
   /** Fire what is loaded along the aim, if the blaster is ready. */
-  fire() {
-    const bot = this.bot;
-    if (this.cool > 0 || this.phase === 'down' || this.phase === 'cleared') return false;
-    const spec = this.spec;
-    if (!this.roomFor(spec)) return false;
-    this.cool = BLASTER.cooldown;
+  fire(pl = this.me) {
+    const bot = pl.bot;
+    if (pl.cool > 0 || this.ended() || pl.out) return false;
+    const spec = pl.spec;
+    if (!this.roomFor(spec, pl)) return false;
+    pl.cool = BLASTER.cooldown;
     const sh = bot.shoulder;
     for (const off of spec.spread) {
       const a = bot.aim + off;
@@ -238,60 +415,71 @@ export class Game {
       const dy = Math.sin(a);
       const at = muzzle(this.world, sh.x, sh.y, dx, dy, spec.r);
       const c = new Charge({ x: at.x, y: at.y, vx: dx * BLASTER.speed, vy: dy * BLASTER.speed, r: spec.r, life: spec.life, damage: spec.damage, freeze: spec.freeze, kind: spec.kind, color: spec.color, born: this.time, owner: bot.slot });
+      c.id = this.pickupId++;
       this.charges.push(c);
     }
-    if (this.loaded !== 'std') {
-      this.ammo[this.loaded] -= 1;
-      if (this.ammo[this.loaded] <= 0) {
-        this.ammo[this.loaded] = 0;
-        this.loaded = 'std';
-        this.emit('empty');
+    if (pl.loaded !== 'std') {
+      pl.ammo[pl.loaded] -= 1;
+      if (pl.ammo[pl.loaded] <= 0) {
+        pl.ammo[pl.loaded] = 0;
+        pl.loaded = 'std';
+        this.emit('empty', { slot: pl.slot });
       }
     }
     this.tally.shots++;
     this.fx.ring(sh.x + Math.cos(bot.aim) * BLASTER.muzzle, sh.y + Math.sin(bot.aim) * BLASTER.muzzle, spec.color, 36, 0.2, 2);
-    this.emit('fire', { kind: spec.kind });
+    this.emit('fire', { kind: spec.kind, slot: pl.slot });
     return true;
   }
 
-  /** Is there room in the air for a volley of `spec`? A whole volley or none: a trident needs three free. */
-  roomFor(spec) {
-    return this.charges.length + spec.spread.length <= BLASTER.maxAlive;
+  /** Is there room in the air for a volley of `spec`? A whole volley or none: a trident needs three free. Six each. */
+  roomFor(spec, pl = this.me) {
+    let n = 0;
+    for (const c of this.charges) if (c.owner === pl.slot) n++;
+    return n + spec.spread.length <= BLASTER.maxAlive;
+  }
+
+  /** How many of this player's charges are in the air. */
+  chargesOf(pl = this.me) {
+    let n = 0;
+    for (const c of this.charges) if (c.owner === pl.slot) n++;
+    return n;
   }
 
   /** The targeting line for what is loaded, from where the robot stands. */
-  guide() {
-    const sh = this.bot.shoulder;
-    return guideLine(this.world, sh.x, sh.y, this.bot.aim, this.spec, this.time);
+  guide(pl = this.me) {
+    const sh = pl.bot.shoulder;
+    return guideLine(this.world, sh.x, sh.y, pl.bot.aim, pl.spec, this.time);
   }
 
   /** The wormhole aim line for either end. */
-  sight() {
-    const sh = this.bot.shoulder;
-    return sightLine(this.world, sh.x, sh.y, this.bot.aim);
+  sight(pl = this.me) {
+    const sh = pl.bot.shoulder;
+    return sightLine(this.world, sh.x, sh.y, pl.bot.aim);
   }
 
   /** Let go of LB / RB (Q / E): that end goes where the line of sight lands, if a wormhole can sit there. */
-  deploy(which) {
-    const s = this.sight();
-    const p = placeEnd(this.world, s, which);
+  deploy(which, pl = this.me) {
+    const s = this.sight(pl);
+    const p = placeEnd(this.world, s, which, pl.slot);
     if (!p) {
       const end = s.pts[s.pts.length - 1];
       this.fx.sparks(end[0], end[1], 0, -1, '#ff5c7a', 8, 160);
-      this.emit('fizzle');
+      this.emit('fizzle', { slot: pl.slot });
       return false;
     }
-    const old = this.world.portals[0][which];
+    const pair = this.world.portals[pl.slot];
+    const old = pair[which];
     if (old) this.ejectAll(old); // whatever was halfway into the end being moved is put back out
-    this.world.portals[0][which] = p;
+    pair[which] = p;
     this.fx.ring(p.cx, p.cy, which === 0 ? '#e6fbff' : '#2c7c9a', 70, 0.4);
-    this.emit('portal', { which });
+    this.emit('portal', { which, slot: pl.slot });
     return true;
   }
 
-  /** Close the robot's end `which` (both with `which` left out), putting back whatever was sunk in it. */
-  closeEnd(which) {
-    const pair = this.world.portals[0];
+  /** Close a player's end `which` (both with `which` left out), putting back whatever was sunk in it. */
+  closeEnd(which, pl = this.me) {
+    const pair = this.world.portals[pl.slot];
     let closed = false;
     for (const k of which == null ? [0, 1] : [which]) {
       const p = pair[k];
@@ -305,13 +493,24 @@ export class Game {
     return closed;
   }
 
+  /** Close every player's ends. */
+  closeAllEnds() {
+    for (const pl of this.players) this.closeEnd(null, pl);
+  }
+
   /**
-   * Is (x, y) on screen? Without a camera (the tests and tools) the screen is
-   * one round the robot, framed as the camera frames it.
+   * Is (x, y) on a screen: this client's, or any other player's still in?
+   * Without a camera (the tests and tools, or a client that has not said)
+   * a screen is one round the robot, framed as the camera frames it.
    */
   inView(x, y) {
-    const v = this.view ?? { x: this.bot.x + this.bot.facing * 60, y: this.bot.y - 50, hw: SCREEN.w / 2, hh: SCREEN.h / 2 };
-    return Math.abs(x - v.x) <= v.hw && Math.abs(y - v.y) <= v.hh;
+    for (const pl of this.players) {
+      if (pl.out) continue;
+      const b = pl.bot;
+      const v = pl.view ?? { x: b.x + b.facing * 60, y: b.y - 50, hw: SCREEN.w / 2, hh: SCREEN.h / 2 };
+      if (Math.abs(x - v.x) <= v.hw && Math.abs(y - v.y) <= v.hh) return true;
+    }
+    return false;
   }
 
   /**
@@ -339,16 +538,15 @@ export class Game {
     this.emit('switch');
   }
 
-  /** A timed switch runs down and shuts its doors again, never on the robot. */
+  /** A timed switch runs down and shuts its doors again, never on a robot. */
   stepSwitches(dt) {
-    const bot = this.bot;
     for (const sw of this.world.switches) {
       sw.flash = Math.max(0, sw.flash - dt * 2);
       if (!sw.on || !sw.hold) continue;
       sw.t -= dt;
       if (sw.t > 0) continue;
       const doors = this.world.doors.filter((d) => sw.doors.includes(d.id));
-      if (doors.some((d) => Math.abs(bot.x - d.x) < bot.r + 12 && bot.bottom > d.y0 && bot.top < d.y1)) {
+      if (doors.some((d) => this.players.some(({ bot, out }) => !out && Math.abs(bot.x - d.x) < bot.r + 12 && bot.bottom > d.y0 && bot.top < d.y1))) {
         sw.t = 0.05;
         continue;
       }
@@ -358,9 +556,9 @@ export class Game {
     }
   }
 
-  /** An end is going: the robot and any enemy sunk in its mouth are put back in front of its surface. */
+  /** An end is going: any robot or enemy sunk in its mouth is put back in front of its surface. */
   ejectAll(p) {
-    ejectFrom(p, this.bot);
+    for (const pl of this.players) if (!pl.out) ejectFrom(p, pl.bot);
     for (const e of this.enemies) if (!e.dead && !e.frozen) ejectFrom(p, e);
   }
 
@@ -434,8 +632,35 @@ export class Game {
           }
         }
       }
+      if (!spent && this.mode === 'versus') spent = this.chargeVsRobots(c);
       if (spent) this.charges.splice(i, 1);
     }
+  }
+
+  /**
+   * Versus: another robot's charge costs a shield (a Hammer's two), and a
+   * Frost one holds the robot fast instead. Your own go through you, and so
+   * does anything while you flicker. Returns true if the charge is spent.
+   */
+  chargeVsRobots(c) {
+    for (const pl of this.players) {
+      if (pl.out || pl.slot === c.owner) continue;
+      const b = pl.bot;
+      if (!circleVsCapsule(c.x, c.y, c.r, b.x, b.y - b.half, b.x, b.y + b.half, b.r)) continue;
+      if (b.invuln > 0 || (c.freeze && pl.frozen > 0)) continue;
+      const by = this.players.find((q) => q.slot === c.owner);
+      if (c.freeze) {
+        pl.frozen = VERSUS.frozen;
+        b.vx = 0;
+        this.fx.ring(b.x, b.y, '#8fdcff', 60, 0.4);
+        this.emit('freeze', { slot: pl.slot });
+      } else {
+        if (by) by.stats.hits += 1;
+        this.hurt('shot', { x: c.x, y: c.y }, false, pl, c.damage);
+      }
+      return c.kind !== 'big';
+    }
+    return false;
   }
 
   /** A charge against the boss: a plate turns it, armour bounces it, the core takes it. Returns true if the charge is spent. */
@@ -556,13 +781,12 @@ export class Game {
   // -------------------------------------------------------------- pickups
 
   makePickup(kind, x, y, owner = null, resting = false) {
-    return { kind, x, y, vx: 0, vy: resting ? 0 : -380, owner, t: this.rng() * TAU, resting, taken: false, age: 0 };
+    return { id: this.pickupId++, kind, x, y, vx: 0, vy: resting ? 0 : -380, owner, t: this.rng() * TAU, resting, taken: false, age: 0 };
   }
 
   /**
    * Something drops. Every player gets their own copy that only they can
-   * take (one player today, so one pickup), which is how multiplayer will
-   * keep drops fair without changing a level.
+   * take, which is how co-op keeps drops fair without changing a level.
    */
   drop(kind, x, y) {
     const k = kind === 'random' ? randomDrop(this.rng) : kind;
@@ -574,7 +798,6 @@ export class Game {
   }
 
   stepPickups(dt) {
-    const bot = this.bot;
     for (const p of this.pickups) {
       if (p.taken) continue;
       p.t += dt;
@@ -596,67 +819,76 @@ export class Game {
         } else p.y = ny;
         if (p.y > this.world.height + 200) p.taken = true;
       }
-      if (p.owner != null && p.owner !== bot.slot) continue;
-      if (p.age < 0.3) continue;
-      const dx = p.x - bot.x;
-      const dy = p.y - bot.y;
-      if (Math.abs(dx) < PICKUP.r + bot.r + 4 && Math.abs(dy) < PICKUP.r + bot.half + bot.r) this.take(p);
+      if (p.age < 0.3 || p.taken) continue;
+      for (const pl of this.players) {
+        if (pl.out || (p.owner != null && p.owner !== pl.slot)) continue;
+        const bot = pl.bot;
+        const dx = p.x - bot.x;
+        const dy = p.y - bot.y;
+        if (Math.abs(dx) < PICKUP.r + bot.r + 4 && Math.abs(dy) < PICKUP.r + bot.half + bot.r) {
+          this.take(p, pl);
+          break;
+        }
+      }
     }
     this.pickups = this.pickups.filter((p) => !p.taken);
   }
 
-  take(p) {
+  take(p, pl = this.me) {
     p.taken = true;
     if (p.kind === 'shield') {
-      if (this.pool !== Infinity && this.pool < this.maxPool) this.pool++;
+      if (pl.pool !== Infinity && pl.pool < pl.maxPool) pl.pool++;
       this.fx.word(p.x, p.y - 20, '+1 SHIELD', PICKUP.shield);
-      this.emit('shield');
+      this.emit('shield', { slot: pl.slot });
       return;
     }
     const pu = POWERUPS.find((q) => q.id === p.kind);
     if (!pu) return;
-    const had = this.ammo[p.kind];
-    this.ammo[p.kind] = Math.min(POWER.maxAmmo, had + POWER.ammo);
-    if (had === 0 && this.loaded === 'std') this.loaded = p.kind;
+    const had = pl.ammo[p.kind];
+    pl.ammo[p.kind] = Math.min(POWER.maxAmmo, had + POWER.ammo);
+    if (had === 0 && pl.loaded === 'std') pl.loaded = p.kind;
     this.stats.powerups++;
+    pl.stats.powerups++;
     this.fx.word(p.x, p.y - 20, pu.name.toUpperCase(), pu.color);
     this.fx.ring(p.x, p.y, pu.color, 50, 0.35);
-    this.emit('powerup', { kind: p.kind });
+    this.emit('powerup', { kind: p.kind, slot: pl.slot });
   }
 
   // -------------------------------------------------------------- enemies
 
   stepEnemies(dt) {
-    const bot = this.bot;
     const shoot = (e, a, sh) => this.shot(e.x + Math.cos(a) * (e.r + 6), e.y + Math.sin(a) * (e.r + 6), a, sh.speed, { r: 8, color: e.color, bounce: !!sh.bounce, life: 4 });
     for (const e of this.enemies) {
       if (e.dead) continue;
-      const dx = Math.abs(e.x - bot.x);
-      const dy = Math.abs(e.y - bot.y);
-      if (!e.awake && dx < ACTIVE.wakeX && dy < ACTIVE.wakeY) e.awake = true;
-      else if (e.awake && (dx > ACTIVE.sleepX || dy > ACTIVE.sleepY) && !e.bossMinion && !e.room) e.awake = false;
+      // Each goes after the robot nearest it, and wakes and sleeps by that one too.
+      const n = this.nearest(e.x, e.y);
+      if (!n) continue;
+      if (!e.awake && n.dx < ACTIVE.wakeX && n.dy < ACTIVE.wakeY) e.awake = true;
+      else if (e.awake && (n.dx > ACTIVE.sleepX || n.dy > ACTIVE.sleepY) && !e.bossMinion && !e.room) e.awake = false;
       if (!e.awake) continue;
-      stepEnemy(e, this.world, bot, dt, shoot);
+      stepEnemy(e, this.world, n.p.bot, dt, shoot);
       if (e.y > this.world.height + 300 || this.inPit(e.x, e.y - e.r)) {
         e.dead = true;
         continue;
       }
       if (e.frozen) continue;
-      const t = touchesRobot(e, bot);
-      if (!t) continue;
-      const prevFeet = bot.prevY + bot.half + bot.r;
-      if (t.body && bot.vy > 30 && prevFeet <= e.y - e.r * 0.25) {
-        if (e.stompable) {
-          bot.vy = -(this.lastJumpHeld ? MOVE.stompHeld : MOVE.stomp);
+      for (const pl of this.players) {
+        if (pl.out || e.dead) continue;
+        const bot = pl.bot;
+        const t = touchesRobot(e, bot);
+        if (!t) continue;
+        const prevFeet = bot.prevY + bot.half + bot.r;
+        if (t.body && bot.vy > 30 && prevFeet <= e.y - e.r * 0.25 && e.stompable) {
+          bot.vy = -(pl.lastJumpHeld ? MOVE.stompHeld : MOVE.stomp);
           bot.rising = true;
           bot.y = Math.min(bot.y, e.y - e.r - bot.half - bot.r);
           this.fx.ring(e.x, e.y - e.r, '#ffffff', 40, 0.25);
-          this.emit('stomp');
+          this.emit('stomp', { slot: pl.slot });
           this.hitEnemy(e, 1, e.x, e.y - e.r);
           continue;
         }
+        this.hurt('enemy', t, false, pl);
       }
-      this.hurt('enemy', t);
     }
     this.enemies = this.enemies.filter((e) => !e.dead || false);
   }
@@ -680,12 +912,12 @@ export class Game {
     c.wave = o.wave || 0;
     c.look = o.look || 'orb';
     c.burst = o.burst || 0;
+    c.id = this.pickupId++;
     this.shots.push(c);
     return c;
   }
 
   stepShots(dt) {
-    const bot = this.bot;
     const w = this.world;
     const born = [];
     for (let i = this.shots.length - 1; i >= 0; i--) {
@@ -706,9 +938,13 @@ export class Game {
         swallow: () => {},
       });
       let done = !alive || c.bounces > c.maxBounces || ended;
-      if (!done && !(bot.invuln > 0) && circleVsCapsule(c.x, c.y, c.r, bot.x, bot.y - bot.half, bot.x, bot.y + bot.half, bot.r)) {
-        this.hurt('shot', { x: c.x, y: c.y });
-        done = true;
+      for (const pl of this.players) {
+        const bot = pl.bot;
+        if (done || pl.out || bot.invuln > 0) continue;
+        if (circleVsCapsule(c.x, c.y, c.r, bot.x, bot.y - bot.half, bot.x, bot.y + bot.half, bot.r)) {
+          this.hurt('shot', { x: c.x, y: c.y }, false, pl);
+          done = true;
+        }
       }
       if (done) {
         if (c.burst) for (let k = 0; k < c.burst; k++) born.push([c.x, c.y - 4, -Math.PI / 2 + (k - (c.burst - 1) / 2) * 0.5, 240]);
@@ -727,10 +963,10 @@ export class Game {
 
   /** Ambush rooms: shut on the way in, a wave at a time, open again (with a reward) when the last falls. */
   stepAmbushes() {
-    const bot = this.bot;
+    const live = this.live();
     for (const a of this.ambushes) {
       if (a.state === 'idle') {
-        if (bot.x > a.x0 + 90 && bot.x < a.x1 - 90 && bot.y > a.top && bot.y < a.floor) {
+        if (live.some(({ bot }) => bot.x > a.x0 + 90 && bot.x < a.x1 - 90 && bot.y > a.top && bot.y < a.floor)) {
           a.state = 'fight';
           for (const g of a.gates) setGate(g, true);
           this.emit('lock');
@@ -739,10 +975,11 @@ export class Game {
         continue;
       }
       if (a.state !== 'fight') continue;
-      // Out of a locked room with its waves not beaten (through a wormhole), and no end left
-      // inside to get back in by: it would be shut for good, so its doors open and it starts over.
+      // Nobody left in a locked room with its waves not beaten (out through a wormhole), and no end
+      // left inside to get back in by: it would be shut for good, so its doors open and it starts over.
       const inside = (x, y) => x >= a.x0 - 2 && x <= a.x1 + 2 && y >= a.top - 2 && y <= a.floor + 2;
-      if (!inside(bot.x, bot.y) && !this.world.portals[0].some((p) => p && inside(p.cx, p.cy)) && a.live.some((e) => !e.dead)) {
+      const endInside = this.players.some((pl) => this.world.portals[pl.slot].some((p) => p && inside(p.cx, p.cy)));
+      if (!live.some(({ bot }) => inside(bot.x, bot.y)) && !endInside && a.live.some((e) => !e.dead)) {
         this.resetRoom(a);
         continue;
       }
@@ -786,27 +1023,50 @@ export class Game {
   // ---------------------------------------------------- markers and zones
 
   stepMarkers() {
-    const bot = this.bot;
+    const live = this.live();
     this.checkpoints.forEach((c, i) => {
-      if (c.on || Math.abs(bot.x - c.x) > 36 || Math.abs(bot.y - c.y) > 90) return;
+      if (c.on || !live.some(({ bot }) => Math.abs(bot.x - c.x) <= 36 && Math.abs(bot.y - c.y) <= 90)) return;
       c.on = true;
       if (i > this.checkpoint) this.checkpoint = i;
       this.fx.ring(c.x, c.y - 40, '#9dff5c', 90, 0.5);
       this.fx.word(c.x, c.y - 90, 'CHECKPOINT', '#9dff5c');
       this.emit('checkpoint');
+      this.revive(c);
     });
     for (const s of this.secrets) {
-      if (s.found || bot.x < s.x0 || bot.x > s.x1 || bot.y < s.y0 || bot.y > s.y1) continue;
+      if (s.found) continue;
+      const pl = live.find(({ bot }) => bot.x >= s.x0 && bot.x <= s.x1 && bot.y >= s.y0 && bot.y <= s.y1);
+      if (!pl) continue;
       s.found = true;
       this.stats.secrets++;
-      this.fx.word(bot.x, bot.top - 30, 'SECRET', '#ffd23f', 1.6);
+      this.fx.word(pl.bot.x, pl.bot.top - 30, 'SECRET', '#ffd23f', 1.6);
       this.emit('secret');
     }
-    if (this.exit && this.phase === 'exit' && Math.abs(bot.x - this.exit.x) < 48 && Math.abs(bot.y - this.exit.y) < 90) {
+    if (this.exit && this.phase === 'exit' && live.some(({ bot }) => Math.abs(bot.x - this.exit.x) < 48 && Math.abs(bot.y - this.exit.y) < 90)) {
       this.phase = 'cleared';
       this.stats.time = this.time;
       this.fx.blink('#ffffff', 0.9);
       this.emit('cleared');
+    }
+  }
+
+  /**
+   * Co-op: a teammate has reached a checkpoint (or the boss), so everyone who
+   * was out comes back there, with COOP.revive shields.
+   */
+  revive(at) {
+    if (this.mode !== 'coop') return;
+    for (const pl of this.players) {
+      if (!pl.out) continue;
+      const s = this.besideSpot(at, pl.slot);
+      pl.out = false;
+      pl.pool = COOP.revive;
+      pl.frozen = 0;
+      pl.bot.spawn(s.x, s.y);
+      pl.bot.invuln = ROBOT.invuln;
+      this.fx.ring(s.x, s.y, pl.color, 90, 0.5);
+      this.fx.word(s.x, s.y - 70, `${pl.name.toUpperCase()} IS BACK`, pl.color, 1.4);
+      this.emit('revive', { slot: pl.slot });
     }
   }
 
@@ -818,7 +1078,10 @@ export class Game {
     const A = this.arena;
     const game = this;
     this._api = {
-      bot: this.bot,
+      // The robot it is after: the one robot alone, or with a team the nearest, looked for again every few seconds.
+      get bot() {
+        return game.bossTarget();
+      },
       get charges() {
         return game.charges;
       },
@@ -884,8 +1147,8 @@ export class Game {
   }
 
   bossPortals(a, b) {
-    const make = (s, which) => ({ owner: 1, which, key: `1${which}`, hw: PORTAL.halfWidth, cx: s.x, cy: s.y, nx: s.nx, ny: s.ny, host: { kind: 'wall', seg: s.seg } });
-    this.world.portals[1] = [make(a, 0), make(b, 1)];
+    const make = (s, which) => ({ owner: 'boss', which, key: `boss${which}`, hw: PORTAL.halfWidth, cx: s.x, cy: s.y, nx: s.nx, ny: s.ny, host: { kind: 'wall', seg: s.seg } });
+    this.world.portals.boss = [make(a, 0), make(b, 1)];
     this.fx.ring(a.x, a.y, this.boss.color, 70, 0.4);
     this.fx.ring(b.x, b.y, this.boss.color, 70, 0.4);
   }
@@ -893,15 +1156,25 @@ export class Game {
   stepBoss(dt) {
     const A = this.arena;
     if (!A) return;
-    const bot = this.bot;
-    if (this.phase === 'play' && bot.x > A.x0 + 70 && bot.y > A.top && bot.y < A.floor) {
+    const inArena = (bot) => bot.x > A.x0 + 70 && bot.y > A.top && bot.y < A.floor;
+    if (this.phase === 'play' && this.live().some(({ bot }) => inArena(bot))) {
       // The door closes behind you, and the music doubles. Every wormhole closes too: the fight starts clean.
       setGate(this.gate, true);
-      this.closeEnd();
+      this.closeAllEnds();
       this.phase = 'intro';
       this.phaseT = 0;
       this.boss = new Boss(A.boss, A);
       this.bossCheckpoint();
+      // A team goes in together: anyone still outside is brought in by the door, and anyone out comes back.
+      const door = { x: A.x0 + 130, y: A.floor - ROBOT.half - ROBOT.r - 0.5 };
+      for (const pl of this.live()) {
+        if (inArena(pl.bot)) continue;
+        const s = this.besideSpot(door, pl.slot);
+        pl.bot.spawn(s.x, s.y);
+        pl.bot.invuln = Math.max(pl.bot.invuln, 1);
+        this.fx.ring(s.x, s.y, pl.color, 80, 0.5);
+      }
+      this.revive(door);
       this.emit('bossIntro', { name: this.boss.name });
       return;
     }
@@ -916,7 +1189,9 @@ export class Game {
     if (this.phase === 'boss') {
       const b = this.boss;
       b.update(this.bossApi(), dt);
-      if (!(bot.invuln > 0)) {
+      for (const pl of this.players) {
+        const bot = pl.bot;
+        if (pl.out || bot.invuln > 0) continue;
         for (const p of b.parts) {
           let hit = null;
           if (p.type === 'plate') {
@@ -928,7 +1203,7 @@ export class Game {
             }
           } else if (circleVsCapsule(p.x, p.y, p.r, bot.x, bot.y - bot.half, bot.x, bot.y + bot.half, bot.r)) hit = { x: p.x, y: p.y };
           if (hit) {
-            this.hurt('boss', hit);
+            this.hurt('boss', hit, false, pl);
             break;
           }
         }
@@ -939,7 +1214,7 @@ export class Game {
       this.phase = 'exit';
       this.phaseT = 0;
       setGate(this.gate, false);
-      delete this.world.portals[1];
+      delete this.world.portals.boss;
       this.exit = this.exitSpot();
       this.fx.ring(this.exit.x, this.exit.y, '#ffffff', 140, 0.8);
       this.emit('exitOpen');
@@ -983,7 +1258,6 @@ export class Game {
   // --------------------------------------------------------------- hazards
 
   stepHazards(dt) {
-    const bot = this.bot;
     for (let i = this.hazards.length - 1; i >= 0; i--) {
       const h = this.hazards[i];
       h.age += dt;
@@ -998,13 +1272,16 @@ export class Game {
           continue;
         }
       }
-      if (bot.invuln > 0) continue;
       if (h.type === 'column') {
         const live = h.age > h.warn;
         h.live = live;
         const rise = live ? Math.min(1, (h.age - h.warn) / 0.18) : 0;
         const top = h.y1 - (h.y1 - h.y0) * rise;
-        if (live && Math.abs(bot.x - h.x) < h.w / 2 + bot.r && bot.bottom > top && bot.top < h.y1) this.hurt('hazard', { x: h.x, y: bot.y });
+        for (const pl of this.players) {
+          const bot = pl.bot;
+          if (pl.out || bot.invuln > 0) continue;
+          if (live && Math.abs(bot.x - h.x) < h.w / 2 + bot.r && bot.bottom > top && bot.top < h.y1) this.hurt('hazard', { x: h.x, y: bot.y }, false, pl);
+        }
       } else if (h.type === 'beam' && h.live) {
         const dx = Math.cos(h.angle);
         const dy = Math.sin(h.angle);
@@ -1013,53 +1290,62 @@ export class Game {
         h.len = stop ? stop.t + 50 : 1650;
         const ex = h.x + dx * h.len;
         const ey = h.y + dy * h.len;
-        const hit = circleVsCapsule(bot.x, bot.y - bot.half, bot.r + h.width / 2, h.x + dx * 50, h.y + dy * 50, ex, ey, 0) || circleVsCapsule(bot.x, bot.y + bot.half, bot.r + h.width / 2, h.x + dx * 50, h.y + dy * 50, ex, ey, 0);
-        if (hit) this.hurt('beam', { x: bot.x, y: bot.y });
+        for (const pl of this.players) {
+          const bot = pl.bot;
+          if (pl.out || bot.invuln > 0) continue;
+          const hit = circleVsCapsule(bot.x, bot.y - bot.half, bot.r + h.width / 2, h.x + dx * 50, h.y + dy * 50, ex, ey, 0) || circleVsCapsule(bot.x, bot.y + bot.half, bot.r + h.width / 2, h.x + dx * 50, h.y + dy * 50, ex, ey, 0);
+          if (hit) this.hurt('beam', { x: bot.x, y: bot.y }, false, pl);
+        }
       }
     }
     for (const l of this.world.lasers) {
-      if (!l.on || bot.invuln > 0) continue;
-      const hit = l.dir === 'v' ? Math.abs(bot.x - l.x) < bot.r + 4 && bot.bottom > l.y0 && bot.top < l.y1 : Math.abs(bot.y - l.y) < bot.half + bot.r && bot.x + bot.r > l.x0 && bot.x - bot.r < l.x1;
-      if (hit) this.hurt('laser', { x: bot.x, y: bot.y });
+      if (!l.on) continue;
+      for (const pl of this.players) {
+        const bot = pl.bot;
+        if (pl.out || bot.invuln > 0) continue;
+        const hit = l.dir === 'v' ? Math.abs(bot.x - l.x) < bot.r + 4 && bot.bottom > l.y0 && bot.top < l.y1 : Math.abs(bot.y - l.y) < bot.half + bot.r && bot.x + bot.r > l.x0 && bot.x - bot.r < l.x1;
+        if (hit) this.hurt('laser', { x: bot.x, y: bot.y }, false, pl);
+      }
     }
   }
 
   // ----------------------------------------------------------------- harm
 
   /**
-   * Something got the robot. It costs a shield unless it is still flickering
-   * from the last one; a fall, the well or a crush also puts it back on the
-   * last solid ground it stood on. With no shields left the level is lost.
+   * Something got a player's robot. It costs a shield (`amount` of them)
+   * unless it is still flickering from the last one; a fall, the well or a
+   * crush also puts it back on the last solid ground it stood on (in versus,
+   * at the spawn furthest from everyone else). With no shields left it is
+   * out: alone, the level is lost.
    */
-  hurt(reason, p, respawn = false) {
-    const bot = this.bot;
-    if (this.phase === 'cleared' || this.phase === 'down') return;
+  hurt(reason, p, respawn = false, pl = this.me, amount = 1) {
+    const bot = pl.bot;
+    if (this.ended() || pl.out) return;
     const shielded = bot.invuln > 0;
     if (shielded && !respawn) return;
     if (!shielded) {
-      if (this.pool !== Infinity) this.pool -= 1;
+      if (pl.pool !== Infinity) pl.pool = Math.max(0, pl.pool - amount);
       this.stats.shieldsLost++;
+      pl.stats.shieldsLost++;
+      if (reason === 'fell' || reason === 'well') pl.stats.falls++;
       this.fx.kick(12);
-      this.fx.blink('#ff5c7a', 0.45);
-      this.fx.explode(bot.x, bot.y, 10, ['#7fe9ff', '#ffffff']);
-      this.emit('hurt', { reason });
+      if (pl === this.me) this.fx.blink('#ff5c7a', 0.45);
+      this.fx.explode(bot.x, bot.y, 10, [pl.color, '#ffffff']);
+      this.emit('hurt', { reason, slot: pl.slot });
     }
-    if (this.pool <= 0) {
-      this.phase = 'down';
-      this.phaseT = 0;
-      this.stats.time = this.time;
-      this.fx.explode(bot.x, bot.y, 30, ['#7fe9ff', '#ffb347', '#ffffff']);
-      this.emit('down', { reason });
+    if (pl.pool <= 0) {
+      this.knockOut(pl, reason);
       return;
     }
     bot.invuln = ROBOT.invuln;
     if (respawn) {
       const aim = bot.aim;
-      const safe = this.returnSpot();
+      const safe = this.mode === 'versus' ? this.spawnSpot(pl) : this.returnSpot(pl);
       bot.spawn(safe.x, safe.y);
       bot.aim = aim;
       bot.invuln = ROBOT.invuln;
-      this.fx.ring(safe.x, safe.y, '#7fe9ff', 80, 0.5);
+      pl.frozen = 0;
+      this.fx.ring(safe.x, safe.y, pl.color, 80, 0.5);
     } else {
       const away = p ? Math.sign(bot.x - p.x) || -bot.facing : -bot.facing;
       bot.vx = away * ROBOT.knock;
@@ -1070,33 +1356,149 @@ export class Game {
   }
 
   /**
+   * A player's last shield is gone. Alone, that is the level lost. In co-op
+   * they are out until a teammate reaches a checkpoint or the boss, and the
+   * level is lost only when the whole team is out; in versus they are out
+   * of the match, and the last one standing wins it.
+   */
+  knockOut(pl, reason) {
+    const bot = pl.bot;
+    this.fx.explode(bot.x, bot.y, 30, [pl.color, '#ffb347', '#ffffff']);
+    if (this.mode === 'solo') {
+      this.phase = 'down';
+      this.phaseT = 0;
+      this.stats.time = this.time;
+      this.emit('down', { reason });
+      return;
+    }
+    pl.out = true;
+    pl.frozen = 0;
+    this.closeEnd(null, pl);
+    for (const c of this.charges) if (c.owner === pl.slot) c.dead = true;
+    this.charges = this.charges.filter((c) => !c.dead);
+    this.fx.word(bot.x, bot.top - 30, `${pl.name.toUpperCase()} IS OUT`, pl.color, 1.6);
+    this.emit('out', { slot: pl.slot, reason });
+    const live = this.live();
+    if (this.mode === 'coop' && !live.length) {
+      this.phase = 'down';
+      this.phaseT = 0;
+      this.stats.time = this.time;
+      this.emit('down', { reason });
+    } else if (this.mode === 'versus' && live.length <= 1) {
+      this.phase = 'over';
+      this.phaseT = 0;
+      this.winner = live.length ? live[0].slot : null;
+      this.stats.time = this.time;
+      this.emit('over', { winner: this.winner });
+    }
+  }
+
+  /**
    * Where a fall puts the robot back: the last safe spot it stood on, if there
    * is still firm ground under it; if not (the ground broke, or was never
    * meant to last), the last checkpoint. Never back over the pit.
    */
-  returnSpot() {
-    const bot = this.bot;
+  returnSpot(pl = this.me) {
+    const bot = pl.bot;
     const s = bot.safe;
     const reach = bot.half + bot.r + 8;
     const segs = segmentsNear(this.world, s.x - bot.r, s.y, s.x + bot.r, s.y + reach, { movers: false }).filter(firmGround);
     if (raycastSegments(s.x, s.y, 0, 1, segs, reach)) return { x: s.x, y: s.y };
     const c = this.checkpoint >= 0 ? this.checkpoints[this.checkpoint] : this.bp.spawn;
-    return { x: c.x, y: c.y };
+    return this.besideSpot(c, pl.slot);
   }
 
-  /** Everything a HUD needs to know. */
+  // ---------------------------------------------------------------- versus
+
+  /** Versus: the spawn furthest from every other robot still in (a fall, or the start). */
+  spawnSpot(pl) {
+    const others = this.players.filter((q) => q !== pl && !q.out);
+    let best = this.bp.spawns[0];
+    let far = -1;
+    for (const s of this.bp.spawns) {
+      const d = others.length ? Math.min(...others.map((q) => Math.hypot(q.bot.x - s.x, q.bot.y - s.y))) : 0;
+      if (d > far) {
+        far = d;
+        best = s;
+      }
+    }
+    return best;
+  }
+
+  /** Seconds until the next power-up: anywhere from VERSUS.powerMin to powerMax. */
+  powerDelay() {
+    return this.time + VERSUS.powerMin + this.rng() * (VERSUS.powerMax - VERSUS.powerMin);
+  }
+
+  /**
+   * How fair a spot is for a power-up: the nearest robot's distance over the
+   * next nearest's (1 is dead level, 0 is on top of someone). Needs two
+   * robots still in; with one, anywhere is fair.
+   */
+  fairness(x, y) {
+    const d = this.live()
+      .map((p) => Math.hypot(p.bot.x - x, p.bot.y - y))
+      .sort((a, b) => a - b);
+    if (d.length < 2) return 1;
+    return d[1] > 0 ? d[0] / d[1] : 1;
+  }
+
+  /**
+   * Where the next power-up goes: a random one of the map's platform spots
+   * where the nearest robot is no nearer than half as far as the next
+   * nearest (VERSUS.fair), and not on top of one already lying there. If no
+   * spot is fair (everyone bunched round one end), the fairest there is.
+   */
+  powerSpot() {
+    const spots = (this.bp.spots || []).filter((s) => !this.pickups.some((p) => !p.taken && Math.hypot(p.x - s.x, p.y - s.y) < 80));
+    if (!spots.length) return null;
+    const fair = spots.filter((s) => this.fairness(s.x, s.y) >= VERSUS.fair);
+    if (fair.length) return fair[Math.floor(this.rng() * fair.length)];
+    return spots.reduce((a, b) => (this.fairness(b.x, b.y) > this.fairness(a.x, a.y) ? b : a));
+  }
+
+  /** Versus: the countdown, and a power-up now and then on a fair platform. */
+  stepVersus() {
+    if (this.phase === 'ready') {
+      if (this.phaseT >= VERSUS.ready) {
+        this.phase = 'play';
+        this.phaseT = 0;
+        this.emit('go');
+      }
+      return;
+    }
+    if (this.time < this.nextPower) return;
+    this.nextPower = this.powerDelay();
+    if (this.pickups.filter((p) => !p.taken).length >= VERSUS.powerCap) return;
+    const s = this.powerSpot();
+    if (!s) return;
+    const kind = POWERUPS[Math.floor(this.rng() * POWERUPS.length)].id;
+    const pk = this.makePickup(kind, s.x, s.y, null, true);
+    this.pickups.push(pk);
+    const pu = POWERUPS.find((q) => q.id === kind);
+    this.fx.ring(s.x, s.y, pu.color, 90, 0.6);
+    this.fx.word(s.x, s.y - 40, pu.name.toUpperCase(), pu.color, 1.2);
+    this.emit('spawnPower', { kind });
+  }
+
+  /** Everything a HUD needs to know, for this client's own player, and a line for each of the others. */
   hud() {
+    const me = this.me;
     return {
-      pool: this.pool,
+      pool: me.pool,
       time: this.time,
-      loaded: this.loaded,
-      ammo: this.ammo,
-      charges: this.charges.length,
+      loaded: me.loaded,
+      ammo: me.ammo,
+      charges: this.chargesOf(me),
       maxCharges: BLASTER.maxAlive,
       boss: this.boss && (this.phase === 'boss' || this.phase === 'intro') ? { name: this.boss.name, hp: this.boss.hp, max: this.boss.maxHp } : null,
       phase: this.phase,
       secrets: this.stats.secrets,
       secretsTotal: this.stats.secretsTotal,
+      mode: this.mode,
+      out: me.out,
+      frozen: me.frozen,
+      team: this.players.map((p) => ({ slot: p.slot, name: p.name, pool: p.pool, out: p.out, color: p.color, hits: p.stats.hits })),
     };
   }
 }

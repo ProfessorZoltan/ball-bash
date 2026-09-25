@@ -74,8 +74,9 @@ The sequel's own tools sit with it, and the tests use them.
 
 | Script | What it does | Example |
 | --- | --- | --- |
-| `reach.mjs` | Can each level be crossed? A search over everything the robot can stand on, flown with its own physics. | `node sequel/tools/reach.mjs 6` |
+| `reach.mjs` | Can each level be crossed? A search over everything the robot can stand on, flown with its own physics. With `from` and `targets` it says which places it reaches from anywhere, which is how the versus maps are checked. | `node sequel/tools/reach.mjs 6` |
 | `solve.mjs` | Solves every puzzle in a level in the real game: wormhole puzzles (bulkhead, chasm, skylight), a vault's switch through a wormhole, and every other switch with a shot found by flying the charge's own physics. | `node sequel/tools/solve.mjs 9` |
 | `timed.mjs` | Crosses every blinking stretch in a level with the clock running: waits a beat at a time and jumps while the platforms blink. | `node sequel/tools/timed.mjs 9` |
 | `fight.mjs` | Fights a level's boss with a robot that cannot be hurt and only fires shots it has checked. `noportals` forbids wormholes. | `node sequel/tools/fight.mjs 3 noportals` |
 | `shots.mjs` | Screenshots from the real game: the title, three places along a level, or its boss fight. Needs Playwright. | `node sequel/tools/shots.mjs boss 3 shots/` |
+| `multi.mjs` | Multiplayer in real browser pages through the LAN relay of `server.js`: a host and one or two guests make and join a room, play a co-op level or a versus map for a few seconds, walking, jumping and firing, and each page is screenshotted; each guest's robot is checked against the host's. Needs Playwright. | `node sequel/tools/multi.mjs versus 3 horizon out/` |

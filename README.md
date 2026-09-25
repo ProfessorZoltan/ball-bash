@@ -980,9 +980,10 @@ and the real one overlap. The robot is a fighter now, with no shield: it
 runs and jumps like Super Mario Bros. 3, shoots Deflector's own charge in any
 direction, and carries a pair of wormholes. It lives in `sequel/`, a page of
 its own (`sequel/index.html`) that imports Deflector's physics, portals,
-colour helpers, config and audio engine from `src/`; nothing in `src/`
-imports from it. Single player for now; multiplayer comes later, on the same
-levels.
+colour helpers, config, audio engine and relay client from `src/`; nothing
+in `src/` imports from it. Up to three can play it together, in co-op on the
+campaign's levels or in versus on maps of its own (see
+[Multiplayer](#multiplayer-co-op-and-versus) below).
 
 The campaign is ten levels, each ending in a boss. The difficulty is
 Deflector's: the lives are still called **shields**, and the pool is carried
@@ -1090,11 +1091,10 @@ out of the air.
 Power-ups drop from some enemies, some crates and every secret. Each pickup
 loads 15 charges of its kind (up to 45); the first of a kind is loaded at
 once, LT or 1 cycles through the kinds you hold and the standard charge,
-and an empty kind falls back to the standard one. When multiplayer comes,
-every drop is one pickup per player that only that player can take; the
-game already makes them that way (`drop` in `sequel/src/game.js`). What you
-gather stays in its level: the next one starts you on the standard charge
-again.
+and an empty kind falls back to the standard one. In co-op every drop is
+one pickup per player that only that player can take (`drop` in
+`sequel/src/game.js`). What you gather stays in its level: the next one
+starts you on the standard charge again.
 
 | Power-up | What it does | Source |
 | --- | --- | --- |
@@ -1348,6 +1348,79 @@ up.
 
 The last level plays the Antechamber's progression, Deflector's first.
 
+### Multiplayer: co-op and versus
+
+Up to three can play, each on their own screen, through the same relay as
+Deflector's multiplayer: the online relay by default, or on one Wi-Fi the
+LAN server of `npm start` (put `local` under **Relay** on the title screen,
+or open the game with `?relay=local`). Under **Multiplayer** on the title
+screen, one player hosts a room and gets a four-letter code and a share link
+(`?room=CODE` fills the code in); the others join with it. The room lasts
+until you leave it: a match ends back in it, with the same people.
+
+The host picks the mode. **Co-op** is a campaign level, at a difficulty;
+**versus** is a map, at 3, 5 or 7 shields each, and needs two robots. Each
+player keeps one colour for the match (cyan, rose, lime), and wears it on
+the robot, the name over it, the standard charge and the wormhole ends. A
+match cannot be paused, since others are playing it: Esc opens a menu over
+it while it plays on. At the end, the host chooses what next (the next
+level, a continue, a rematch, another map, or back to the room) and everyone
+else sees the same screen.
+
+| Co-op rule | What happens | Source |
+| --- | --- | --- |
+| Shields | each robot has its own pool at the difficulty's size, and a hit costs only the robot that took it | `Player` in `sequel/src/game.js` |
+| Out | a robot with no shields left is out: gone from the level, its wormholes closed, its camera on the nearest teammate. The level goes on | `knockOut`, same file |
+| Back in | when a teammate still in reaches a checkpoint, or the boss's door, everyone who was out comes back there with one shield | `revive`, same file |
+| The boss | the fight starts when anyone goes through the door: everyone still outside is brought in by it, and the door shuts behind the team | `stepBoss`, same file |
+| Lost | the level is lost only when the whole team is out. A continue brings everyone back at the last checkpoint with full shields | `knockOut`, same file |
+| Enemies | each goes after the robot nearest it, and wakes and sleeps by that one. A boss watches the nearest robot and looks again every 2.5 s | `stepEnemies`, `bossTarget`, same file |
+| Charges | six in the air each; a teammate's charge goes straight through you | `roomFor`, `chargeVsRobots`, same file |
+| Wormholes | each robot has a pair of its own, and anyone (enemies included) can go through anyone's | `world.portals[slot]` in `sequel/src/world.js` |
+| Drops | one pickup per player, that only that player can take | `drop`, same file |
+| Switches | a switch takes a charge while it is on anyone's screen | `inView`, same file |
+
+| Versus rule | What happens | Source |
+| --- | --- | --- |
+| The start | every robot on its spawn, held through a 2.4 s countdown | `stepVersus` in `sequel/src/game.js` |
+| A hit | another robot's charge costs a shield (a Hammer's two), then the robot flickers for 1.6 s and anything goes through it. Your own charges never hurt you | `chargeVsRobots`, same file |
+| Frost | holds the robot fast for 2 s instead: it can neither move nor fire, and loses no shield | same |
+| A fall | a pit, a crusher or the black hole costs a shield and puts the robot back at the spawn furthest from everyone else | `hurt`, `spawnSpot`, same file |
+| The end | a robot with no shields left is out; the last one standing wins | `knockOut`, same file |
+| Power-ups | one appears every 30 to 60 seconds, at random, on one of the map's platforms, and anyone can take it. Never more than three lie about at once | `stepVersus`, `VERSUS` in `sequel/src/config.js` |
+| Where they appear | only where the nearest robot is at least half as far away as the next nearest, so nobody gets one dropped at their feet; if everyone is bunched so that nowhere is, the fairest platform there is | `powerSpot`, `fairness` in `sequel/src/game.js` |
+
+The six versus maps are seen whole, framed as a boss arena is, and walled
+and roofed so a charge always has something to bank off. Each wears the
+look and the music of one of the campaign's levels:
+
+| Map | Look | What it is | Source |
+| --- | --- | --- | --- |
+| Crossfire | Neon Orchard | open tiers either side of a pillar in the middle of the floor, with posts hanging from the roof to bank off. Nowhere to hide for long | `MAPS` in `sequel/src/maps.js` |
+| Drift Yard | Rain Market | a drop down the middle, crossed by two decks that slide past each other and a lift up to a high perch | same |
+| Event Horizon | Observatory Heights | a black hole hangs in the middle: every shot past it bends, and it swallows any robot that strays in. Islands on every side | same |
+| Twin Spires | Transit Loop | two tall towers with springs at their feet, ledges up their sides and a bridge between their tops, open in the middle over the yard between them. Long walls for wormholes | same |
+| Glasshouse | Greenhouse Arcology | a house of armoured glass in the middle: see in, open a wormhole past it, shoot in off the walls, and crawl in under its walls. Spikes either side | same |
+| Blink Foundry | Folded City | floors that blink over a drop either side of a steady island, crushers in the upper halls with lasers under them, and a blinking walk to a high top | same |
+
+How it plays over a network: the host's page runs the one real game, and
+the guests' pages mirror it. A guest sends its inputs, one record a frame
+for exactly the physics steps it covered, the last six repeated in every
+message so a lost one costs nothing; the host keeps them in a small queue,
+like a jitter buffer, and plays each for exactly those steps (Deflector's
+input queue, in Defector's shape). So that a guest never waits a round trip
+to see its own robot move, it predicts it: it steps it itself with the same
+physics, and each snapshot (30 a second) says how far through the guest's
+inputs the host has got and where the robot was then; the guest puts it
+there and plays again what the host has not played yet, and what is left of
+any difference fades out on screen. Everything else, the other robots,
+enemies, charges and the boss, the guest shows a tenth of a second behind,
+between the two snapshots either side of then, with their sounds and
+particles as they come on screen. All of Defector's messages start with
+`dx`, so a Defector room and a Deflector room never read each other's
+(`sequel/src/netplay.js`; the lobby and the match are in
+`sequel/src/main.js`).
+
 ### Checking it
 
 `npm test` runs the sequel's tests in `sequel/test/` with the rest. They
@@ -1363,17 +1436,23 @@ moving, the burst, the boss fights, and every level:
 | Secrets | each level hides its secrets no more plainly than the one before; every cover breaks under fire and its prize is out of sight until then, then found and taken; every loft's wall is in sight from its own floor and a wormhole puts the robot up; a hidden sky ledge is off the top of the screen and its spring still reaches it | `sequel/test/secrets.test.js` |
 | Bosses | every boss is beaten in the real game by a robot that aims well | `sequel/tools/fight.mjs` |
 | Lengths | each level's estimate sits in its band | `sequel/test/levels.test.js` |
+| Co-op | each robot on its own shields; out and back at a checkpoint or the boss; the level lost only with the whole team out; enemies after the nearest robot; a pair of wormholes each, anyone's to go through | `sequel/test/coop.test.js` |
+| Versus maps | six, no two built from the same parts; on each, every spawn and every power-up platform is reached from every spawn by the crossing search, and standing still on any of them is safe | `sequel/test/versus.test.js`, `sequel/tools/reach.mjs` |
+| Versus rules | hits, Frost, falls to the furthest spawn, the last one standing; power-ups every 30 to 60 s and never nearer one robot than half as far as the next, checked over hundreds of placements on every map | `sequel/test/versus.test.js` |
+| Netcode | a host and a guest over a pretend network (late by 40 to 90 ms, one message in twenty lost): the guest's predicted robot agrees with the host's to under a pixel, riding moving platforms too; its charges and wormholes happen in the host's game; everything else follows the host; every boss fight comes through whole and draws | `sequel/test/netplay.test.js` |
 
 Each tool also runs on its own (`node sequel/tools/reach.mjs 4`), and
 `node sequel/tools/shots.mjs level 4 out/` or `boss 4 out/` screenshots the
-real game. `window.__defector` is the browser handle (`state`, `game`,
-`startLevel(id, opts)`, `renderer`, `input`, `audio`, `level`).
+real game. `node sequel/tools/multi.mjs versus 3 horizon out/` plays a
+multiplayer match in real browser pages through the LAN relay and checks
+each guest's robot against the host's. `window.__defector` is the browser
+handle (`state`, `game`, `startLevel(id, opts)`, `renderer`, `input`,
+`audio`, `level`, and for multiplayer `room`, `mp`, `host(name)`,
+`join(code, name)`, `pick(p)`, `startMatch()`).
 
 ### Roadmap
 
-1. **Multiplayer**, on the same levels: only the number of power-ups dropped
-   changes (one pickup per player, which `drop` already makes).
-2. **Gravitational lensing**: black and white holes bend the picture round
+1. **Gravitational lensing**: black and white holes bend the picture round
    them, walls, platforms and background art included, as they already bend
    a charge's path and the wormhole sight line. It is a lens on the drawn
    frame, never a change to the geometry, so physics, levels and the checks

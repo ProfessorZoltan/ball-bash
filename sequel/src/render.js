@@ -5,7 +5,7 @@
 import { portalHue, mix } from '../../src/color.js';
 import { pointInPolygon } from '../../src/physics.js';
 import { openPortals } from '../../src/portals.js';
-import { ROBOT, SCREEN } from './config.js';
+import { ROBOT, SCREEN, PLAYERS } from './config.js';
 import { seeded } from './build.js';
 import { drawRobot, drawEnemy, drawBoss, drawProp, drawPickup, drawCheckpoint, drawSign, drawExit, withAlpha } from './art.js';
 
@@ -161,7 +161,7 @@ export class Renderer {
    */
   updateCamera(game, alpha, dt) {
     const bp = this.bp;
-    const bot = game.bot;
+    const bot = game.focus();
     const c = this.cam;
     const bx = bot.warped ? bot.x : lerp(bot.prevX, bot.x, alpha);
     const by = bot.warped ? bot.y : lerp(bot.prevY, bot.y, alpha);
@@ -195,6 +195,19 @@ export class Renderer {
       scale = Math.min(this.h / (A.h + CAM.arenaAbove + CAM.arenaBelow), this.w / (A.w + 80));
       smoothX = smoothY = CAM.smoothArena;
     }
+    // A versus map is seen whole, framed as a boss arena is: everyone in sight of everyone.
+    const V = bp.view;
+    if (V) {
+      tx = (V.x0 + V.x1) / 2;
+      ty = (V.top - CAM.arenaAbove + V.floor + CAM.arenaBelow) / 2;
+      scale = Math.min(this.h / (V.floor - V.top + CAM.arenaAbove + CAM.arenaBelow), this.w / (V.x1 - V.x0 + 80));
+      if (!c.framed) {
+        c.x = tx;
+        c.y = ty;
+        this.scale = scale;
+        c.framed = true;
+      }
+    }
     // The level's edges bound where it heads, not where it is: it eases up to an edge instead of stopping dead on it.
     const edgeX = (hw) => clamp(tx, hw - 200, bp.width - hw + 200);
     tx = edgeX(this.w / 2 / scale);
@@ -210,7 +223,7 @@ export class Renderer {
       [c.y, c.vy] = smoothDamp(c.y, ty, c.vy, smoothY, dt);
     }
     // Whatever the spring is doing, the robot never goes off screen.
-    if (!inArena) {
+    if (!inArena && !V) {
       const mx = halfW * 0.72;
       const up = halfH * 0.62;
       const down = halfH * 0.7;
@@ -638,9 +651,18 @@ export class Renderer {
     }
     // Aim lines, under the robot.
     if (ui.guide) drawGuide(ctx, ui.guide, game.spec.color, this.scale);
-    if (ui.sight) drawSight(ctx, ui.sight, t, this.scale);
-    // The robot.
-    if (game.phase !== 'down') drawRobot(ctx, game.bot, t, alpha, { loaded: game.loaded, low: this.low, charging: game.cool > 0 });
+    if (ui.sight) drawSight(ctx, ui.sight, t, this.scale, PLAYERS[game.me.slot].color);
+    // The robots: this client's own last, on top, and the others with their names over them.
+    if (game.phase !== 'down') {
+      const me = game.me;
+      for (const pl of game.players) {
+        if (pl.out || pl === me) continue;
+        const P = PLAYERS[pl.slot];
+        drawRobot(ctx, pl.bot, t, alpha, { loaded: pl.loaded, low: this.low, charging: pl.cool > 0, color: P.color, trim: P.trim, frozen: pl.frozen });
+        drawNameTag(ctx, pl, P.color, this.scale);
+      }
+      if (!me.out) drawRobot(ctx, me.bot, t, alpha, { loaded: me.loaded, low: this.low, charging: me.cool > 0, color: PLAYERS[me.slot].color, trim: PLAYERS[me.slot].trim, frozen: me.frozen });
+    }
     // Charges.
     for (const c of game.charges) drawCharge(ctx, c, t, alpha, this.low);
     // Front scenery.
@@ -685,8 +707,11 @@ export class Renderer {
       d.arc(sx, sy, rr, 0, TAU);
       d.fill();
     };
-    const bot = game.bot;
-    hole(lerp(bot.prevX, bot.x, alpha), lerp(bot.prevY, bot.y, alpha), 330);
+    for (const pl of game.players) {
+      if (pl.out) continue;
+      const bot = pl.bot;
+      hole(lerp(bot.prevX, bot.x, alpha), lerp(bot.prevY, bot.y, alpha), 330);
+    }
     for (const c of game.charges) hole(c.x, c.y, 110 + c.r * 2);
     for (const c of game.shots) hole(c.x, c.y, 60);
     for (const p of game.pickups) hole(p.x, p.y, 80);
@@ -1265,8 +1290,19 @@ function drawWell(ctx, w, t) {
 }
 
 function portalColor(game, p) {
-  if (p.owner === 1 && game.boss) return portalHue(game.boss.color.length === 7 ? game.boss.color : '#ffffff', p.which);
-  return portalHue(ROBOT.color, p.which);
+  if (p.owner === 'boss' && game.boss) return portalHue(game.boss.color.length === 7 ? game.boss.color : '#ffffff', p.which);
+  return portalHue((PLAYERS[p.owner] || PLAYERS[0]).color, p.which);
+}
+
+/** A robot's name over its head, in its colour, the same size on screen at any zoom. */
+function drawNameTag(ctx, pl, color, scale) {
+  const b = pl.bot;
+  ctx.save();
+  ctx.font = `${Math.round(13 / scale)}px system-ui, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillStyle = withAlpha(color, 0.9);
+  ctx.fillText(pl.name, b.x, b.top - 26);
+  ctx.restore();
 }
 
 /** A switch: a node in a housing, amber and pulsing until a charge flips it, then green. */
@@ -1510,7 +1546,7 @@ function drawGuide(ctx, lines, color, scale) {
  * can sit; nothing when the line meets nothing. (The line itself is the
  * targeting line's first leg: a charge and a line of sight fly the same.)
  */
-function drawSight(ctx, s, t, scale) {
+function drawSight(ctx, s, t, scale, color = ROBOT.color) {
   const line = s.line;
   if (!line.hit) return;
   if (s.place) {
@@ -1521,11 +1557,11 @@ function drawSight(ctx, s, t, scale) {
     ctx.globalAlpha = 0.45 + 0.25 * Math.sin(t * 6);
     ctx.lineWidth = 2 / Math.sqrt(scale);
     ctx.setLineDash([7, 6]);
-    ctx.strokeStyle = portalHue(ROBOT.color, 0);
+    ctx.strokeStyle = portalHue(color, 0);
     ctx.beginPath();
     ctx.ellipse(0, 0, p.hw, 9, 0, Math.PI, Math.PI * 2);
     ctx.stroke();
-    ctx.strokeStyle = portalHue(ROBOT.color, 1);
+    ctx.strokeStyle = portalHue(color, 1);
     ctx.beginPath();
     ctx.ellipse(0, 0, p.hw, 9, 0, 0, Math.PI);
     ctx.stroke();

@@ -77,6 +77,8 @@ sequel)"). The tests hold its levels and bosses to these rules:
 - **Every boss can be beaten.** `sequel/tools/fight.mjs` fights it in the real game. A wormhole-only boss must also lose to it only with wormholes.
 - **Lengths stay in their bands.** `estimateSeconds` in `sequel/src/build.js`: early levels 3 to 5 minutes, middle 4 to 8, late 8 to 15. Tune a level's `count`, not the estimate.
 - **Levels are seeded.** Changing a level's `seed`, `count` or palette rebuilds its run; check it with the tools above and `node sequel/tools/shots.mjs level <id> out/`.
+- **Every versus map can be played from every spawn.** In `sequel/src/maps.js`, every spawn and every power-up spot must be reached from every spawn by `reach.mjs`, and standing still on any of them must be safe (`sequel/test/versus.test.js`).
+- **Multiplayer mirrors the one real game.** The host's `Game` is the only one that decides anything; a guest predicts only its own robot's movement (`Mirror` in `sequel/src/netplay.js`). Whatever a guest's robot stands on or goes through must reach it in the snapshot, and `sequel/test/netplay.test.js` must keep its predicted robot within a pixel of the host's. Defector's messages start with `dx`.
 
 ## A sequel or a new game
 

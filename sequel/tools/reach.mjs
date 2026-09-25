@@ -146,8 +146,14 @@ function pieceAt(ps, x, y, tol = 60) {
   return best;
 }
 
-/** The search. Returns { ok, reached, furthest } where furthest is the rightmost x it stood. */
-export function reachability(bp, { log = false, links = true } = {}) {
+/**
+ * The search. Returns { ok, reached, furthest } where furthest is the
+ * rightmost x it stood. With `from` it starts there instead of the spawn,
+ * and with `targets` (points a robot's centre might stand at) it searches
+ * everywhere it can get to and says which of them it reached: `hit`, one
+ * true or false for each, and ok when every one was.
+ */
+export function reachability(bp, { log = false, links = true, from = null, targets = null } = {}) {
   const w = searchWorld(bp, links);
   const surfs = surfaces(w);
   const ps = pieces(w, surfs);
@@ -157,7 +163,7 @@ export function reachability(bp, { log = false, links = true } = {}) {
     bySeg.get(p.s).push(i);
   });
   const A = bp.arena;
-  const goal = (p) => p.x1 > A.x0 + 60 && p.at(p.x1) <= A.floor + 1 && p.at(p.x0) >= A.top;
+  const goal = (p) => !targets && A && p.x1 > A.x0 + 60 && p.at(p.x1) <= A.floor + 1 && p.at(p.x0) >= A.top;
   // Walking: a piece to the next along its surface, or across a bend to another surface, if the body fits where they meet.
   const walk = ps.map(() => []);
   const ends = new Map();
@@ -184,8 +190,9 @@ export function reachability(bp, { log = false, links = true } = {}) {
     if (!fits(w, x, y)) continue;
     for (const i of list) for (const j of list) if (i !== j) walk[i].push(j);
   }
-  const start = pieceAt(ps, bp.spawn.x, bp.spawn.y + 30, 20);
-  if (start < 0) return { ok: false, reason: 'no surface under the spawn', reached: 0, furthest: bp.spawn.x };
+  const origin = from || bp.spawn;
+  const start = pieceAt(ps, origin.x, origin.y + 30, 20);
+  if (start < 0) return { ok: false, reason: 'no surface under the spawn', reached: 0, furthest: origin.x };
   const jumps = new Map(); // wormhole puzzles: near floor to far floor
   if (links) {
     for (const l of bp.portalLinks || []) {
@@ -200,7 +207,7 @@ export function reachability(bp, { log = false, links = true } = {}) {
   const seen = new Uint8Array(ps.length);
   const queue = [start];
   seen[start] = 1;
-  let furthest = bp.spawn.x;
+  let furthest = origin.x;
   let sims = 0;
   const actions = [];
   for (const dir of [1, -1]) {
@@ -235,6 +242,13 @@ export function reachability(bp, { log = false, links = true } = {}) {
         if (land) push(pieceAt(ps, land.x, land.y + 30.5, 8));
       }
     }
+  }
+  if (targets) {
+    const hit = targets.map((t) => {
+      const j = pieceAt(ps, t.x, t.y + 30.5, 30);
+      return j >= 0 && !!seen[j];
+    });
+    return { ok: hit.every(Boolean), hit, reached: count(), furthest, sims };
   }
   if (log) console.log('stuck: furthest', furthest);
   return { ok: false, reached: count(), furthest, sims };

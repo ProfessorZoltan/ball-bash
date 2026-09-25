@@ -13,6 +13,7 @@ export class Fx {
     this.shake = 0;
     this.flash = 0;
     this.flashColor = '#ffffff';
+    this.who = null; // in multiplayer, the robot whose own movement is making what is made now (see game.js)
   }
 
   reset() {

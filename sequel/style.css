@@ -189,3 +189,31 @@ kbd { font-family: var(--display); font-size: 11px; padding: 1px 5px; border-rad
 details { margin-top: 12px; }
 summary { cursor: pointer; font-family: var(--display); font-size: 12px; letter-spacing: 0.2em; color: var(--muted); }
 .hint { font-size: 12px; color: var(--muted); text-align: center; margin-top: 12px; }
+
+/* Multiplayer ----------------------------------------------------------- */
+input[type='text'] {
+  font-family: var(--body);
+  font-size: 14px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #0b0820;
+  color: var(--text);
+  border: 1px solid rgba(127, 233, 255, 0.4);
+  -webkit-user-select: text;
+  user-select: text;
+}
+input.code { font-family: var(--display); letter-spacing: 0.3em; text-transform: uppercase; width: 7.5em; }
+.mp { margin-top: 18px; padding-top: 14px; border-top: 1px solid rgba(127, 233, 255, 0.15); }
+.mp .status { font-size: 13px; color: var(--muted); min-height: 1.4em; margin-top: 6px; }
+.roomcode { font-family: var(--display); font-size: 44px; letter-spacing: 0.35em; text-align: center; color: #fff; text-shadow: 0 0 18px var(--pink); margin: 6px 0; }
+.share { text-align: center; font-size: 12px; color: var(--muted); word-break: break-all; }
+.roster { list-style: none; margin: 14px 0; padding: 0; display: grid; gap: 6px; }
+.roster li { display: grid; grid-template-columns: 18px 1fr auto; gap: 10px; align-items: center; padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(127, 233, 255, 0.15); font-size: 15px; }
+.roster li.empty { color: var(--muted); font-style: italic; }
+.roster .dot { width: 14px; height: 14px; border-radius: 50%; box-shadow: 0 0 10px currentColor; background: currentColor; }
+.roster .tag { font-size: 11px; color: var(--muted); font-family: var(--display); letter-spacing: 0.12em; }
+.picks { margin-top: 10px; }
+.blurb { font-size: 13px; color: var(--muted); margin: 4px 0 0 100px; }
+.team { display: flex; gap: 16px; justify-content: center; font-size: 12px; margin-top: 6px; }
+.team .who { display: flex; gap: 6px; align-items: center; }
+.team .out { opacity: 0.4; text-decoration: line-through; }

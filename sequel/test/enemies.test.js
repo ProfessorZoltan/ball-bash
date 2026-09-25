@@ -154,9 +154,8 @@ test('a shielded enemy turns a charge away; from behind it goes down', () => {
 });
 
 test('a drop makes one pickup for each player, and only that player can take it', () => {
-  const { g } = withEnemy({ kind: 'skitter', x: 3000, y: -17 });
-  const other = { slot: 1, x: 0, y: 0 };
-  g.players = [g.bot, other];
+  const g = new Game(buildLevel({ id: 60, boss: 'gardener', theme: {}, sections: [['flat', { len: 40, deco: false }]] }), { mode: 'coop', players: 2, shields: 5, rng: () => 0.3 });
+  g.players[1].bot.spawn(1400, -31); // well away from where it lands
   g.drop('strong', 700, -100);
   const mine = g.pickups.filter((p) => p.owner === 0);
   const theirs = g.pickups.filter((p) => p.owner === 1);

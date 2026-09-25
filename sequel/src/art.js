@@ -66,11 +66,12 @@ function jet(ctx, x, y, len, width, lean, color, a, low) {
  * while a lost shield's grace runs.
  */
 export function drawRobot(ctx, b, t, alpha, o = {}) {
-  const x = b.warped ? b.x : lerp(b.prevX, b.x, alpha);
-  const y = b.warped ? b.y : lerp(b.prevY, b.y, alpha);
+  // drawDX, drawDY: a multiplayer guest's correction to its own robot, fading out (netplay.js).
+  const x = (b.warped ? b.x : lerp(b.prevX, b.x, alpha)) + (b.drawDX || 0);
+  const y = (b.warped ? b.y : lerp(b.prevY, b.y, alpha)) + (b.drawDY || 0);
   if (b.invuln > 0 && b.invuln < 30 && Math.floor(t * 18) % 2 === 0) return;
-  const col = ROBOT.color;
-  const trim = ROBOT.trim;
+  const col = o.color || ROBOT.color;
+  const trim = o.trim || ROBOT.trim;
   const low = o.low;
   const face = Math.cos(b.aim) >= 0 ? 1 : -1;
   const squash = b.landed * 0.12;
@@ -236,6 +237,18 @@ export function drawRobot(ctx, b, t, alpha, o = {}) {
   ctx.fill();
   ctx.shadowBlur = 0;
   ctx.restore();
+  // Versus: held fast in a block of ice by a Frost charge.
+  if (o.frozen > 0) {
+    ctx.save();
+    ctx.fillStyle = withAlpha('#8fdcff', 0.28);
+    ctx.strokeStyle = withAlpha('#e6fbff', 0.8);
+    ctx.lineWidth = 2;
+    glow(ctx, '#8fdcff', 12, low);
+    rr(ctx, x - 26, y - 52, 52, 84, 6);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
 }
 
 // ---------------------------------------------------------------- enemies
