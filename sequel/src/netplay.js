@@ -26,6 +26,12 @@
 //    ice, falling platforms) it takes from the newest snapshot.
 //  - Sounds and particles are sent too, each once in several snapshots in
 //    a row, and played by the guest as the moment they belong to is shown.
+//  - Every match in a room has its own number, and inputs and snapshots
+//    carry it. The last of one match's messages can still be on their way
+//    when the next starts, and each end drops any that are not for the match
+//    it is playing: a guest's records start from 1 again, and a host queue
+//    that took an old one numbered in the hundreds would take every new one
+//    as older still, and the robot would never move.
 import { PHYSICS_DT, POWERUPS } from './config.js';
 import { MIN_BUFFER, MAX_BUFFER, BUFFER_GROWTH, CALM_STEPS, CATCH_UP_OVER, TRIM_OVER, REDUNDANCY, splitAck } from '../../src/inputqueue.js';
 import { Enemy, iceBlock } from './enemies.js';
@@ -102,7 +108,8 @@ export function recordStep(rec, i) {
 
 /** A guest's inputs going out: one record a frame, the last few repeated in every message. */
 export class GuestInputs {
-  constructor() {
+  constructor(match = 0) {
+    this.match = match;
     this.seq = 0;
     this.recent = [];
     this.carry = 0; // presses from a frame that covered no steps, kept for the next
@@ -124,7 +131,7 @@ export class GuestInputs {
   }
 
   message(view) {
-    return { t: MSG.input, r: this.recent.slice(), v: view ? [r1(view.x), r1(view.y), r1(view.hw), r1(view.hh)] : null };
+    return { t: MSG.input, m: this.match, r: this.recent.slice(), v: view ? [r1(view.x), r1(view.y), r1(view.hw), r1(view.hh)] : null };
   }
 }
 
@@ -383,8 +390,9 @@ function pulserState(p) {
  * sounds made since the last snapshot, and the snapshots themselves.
  */
 export class HostLink {
-  constructor(game) {
+  constructor(game, match = 0) {
     this.game = game;
+    this.match = match;
     this.n = 0;
     this.queues = new Map(); // slot → HostQueue
     this.log = []; // [id, time, entry]
@@ -413,6 +421,7 @@ export class HostLink {
 
   /** A guest's message: its records into its queue, and where its screen is. */
   input(slot, msg) {
+    if ((msg.m ?? 0) !== this.match) return; // the last of another match's inputs
     this.queue(slot).push(msg.r);
     const pl = this.game.players[slot];
     if (pl && Array.isArray(msg.v)) pl.view = { x: msg.v[0], y: msg.v[1], hw: msg.v[2], hh: msg.v[3] };
@@ -455,6 +464,7 @@ export class HostLink {
     for (const [k, pair] of Object.entries(w.portals)) if (pair) po[k] = [portalState(w, pair[0]), portalState(w, pair[1])];
     return {
       t: MSG.snap,
+      m: this.match,
       n: ++this.n,
       tm: g.time,
       wt: w.t,
@@ -497,9 +507,10 @@ const OWN_MOTION = new Set(['jump', 'land', 'spring', 'warp', 'pulse']);
  * blueprint), kept to the host's snapshots, with its own robot predicted.
  */
 export class Mirror {
-  constructor(game, slot) {
+  constructor(game, slot, match = 0) {
     this.game = game;
     this.slot = slot;
+    this.match = match;
     game.local = slot;
     this.snaps = [];
     this.offset = null; // host time less local time, as near as we can tell
@@ -591,6 +602,7 @@ export class Mirror {
 
   /** A snapshot has come in, at local time `now` (seconds). */
   receive(s, now) {
+    if ((s.m ?? 0) !== this.match) return false; // from another match: the one before, or the next, come early
     const last = this.snaps[this.snaps.length - 1];
     if (last && s.n <= last.n) return false; // late, or a copy that came both ways
     s.at = now;

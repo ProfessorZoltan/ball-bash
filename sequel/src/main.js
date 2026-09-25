@@ -745,7 +745,8 @@ function startMatch(extra = {}) {
     }
   }
   const shields = pick.mode === 'versus' ? pick.shields : d.shields;
-  const msg = { t: MSG.start, v: NET.version, mode: pick.mode, level: pick.level, map, roster, shields: shields === Infinity ? -1 : shields, checkpoint: extra.checkpoint ?? -1 };
+  room.match = (room.match || 0) + 1; // each match its own number: see netplay.js
+  const msg = { t: MSG.start, v: NET.version, match: room.match, mode: pick.mode, level: pick.level, map, roster, shields: shields === Infinity ? -1 : shields, checkpoint: extra.checkpoint ?? -1 };
   net.send(msg);
   beginMatch(msg);
   sendRoom();
@@ -764,10 +765,10 @@ function beginMatch(msg) {
   const shields = msg.shields === -1 ? Infinity : msg.shields;
   game = new Game(bp, { mode: msg.mode, players: msg.roster.map((p) => ({ name: p.name })), local: meEntry.slot, shields, maxShields: shields, checkpoint: msg.checkpoint });
   mp = { host: room.host, msg, slotOf: new Map(msg.roster.map((p) => [p.id, p.slot])), snapT: 0, sendT: 0, ended: false };
-  if (mp.host) mp.link = new HostLink(game);
+  if (mp.host) mp.link = new HostLink(game, msg.match);
   else {
-    mp.mirror = new Mirror(game, meEntry.slot);
-    mp.inputs = new GuestInputs();
+    mp.mirror = new Mirror(game, meEntry.slot, msg.match);
+    mp.inputs = new GuestInputs(msg.match);
   }
   room.playing = true;
   levelId = msg.mode === 'coop' ? msg.level : levelId;

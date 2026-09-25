@@ -991,7 +991,12 @@ from level to level. Power-ups are not: each level starts on the standard
 charge (a continue in the same level keeps what you held). Losing the last
 shield offers a **continue** from the last checkpoint (reaching a boss
 counts as one) with the pool refilled, and the continue is counted. Saves use
-their own `defector.*` keys, so neither game ever reads the other's.
+their own `defector.*` keys, so neither game ever reads the other's. A robot
+put down (at the start of a level or a match, at a checkpoint, or brought
+back in co-op) faces away from the nearer wall beside it, its blaster with
+it: in versus the map's sides, in a level any wall within half a screen, and
+right, the way a level goes, when there is none (`faceAway` in
+`sequel/src/game.js`).
 
 | Difficulty | Shields | Source |
 | --- | --- | --- |
@@ -1382,10 +1387,10 @@ else sees the same screen.
 
 | Versus rule | What happens | Source |
 | --- | --- | --- |
-| The start | every robot on its spawn, held through a 2.4 s countdown | `stepVersus` in `sequel/src/game.js` |
+| The start | every robot on its spawn, facing away from the nearer side of the map with its blaster, held through a 2.4 s countdown | `stepVersus`, `faceAway` in `sequel/src/game.js` |
 | A hit | another robot's charge costs a shield (a Hammer's two), then the robot flickers for 1.6 s and anything goes through it. Your own charges never hurt you | `chargeVsRobots`, same file |
 | Frost | holds the robot fast for 2 s instead: it can neither move nor fire, and loses no shield | same |
-| A fall | a pit, a crusher or the black hole costs a shield and puts the robot back at the spawn furthest from everyone else | `hurt`, `spawnSpot`, same file |
+| A fall | a pit, a crusher or the black hole costs a shield and puts the robot back at the spawn furthest from everyone else, facing into the room | `hurt`, `spawnSpot`, same file |
 | The end | a robot with no shields left is out; the last one standing wins | `knockOut`, same file |
 | Power-ups | one appears every 30 to 60 seconds, at random, on one of the map's platforms, and anyone can take it. Never more than three lie about at once | `stepVersus`, `VERSUS` in `sequel/src/config.js` |
 | Where they appear | only where the nearest robot is at least half as far away as the next nearest, so nobody gets one dropped at their feet; if everyone is bunched so that nowhere is, the fairest platform there is | `powerSpot`, `fairness` in `sequel/src/game.js` |
@@ -1416,7 +1421,12 @@ there and plays again what the host has not played yet, and what is left of
 any difference fades out on screen. Everything else, the other robots,
 enemies, charges and the boss, the guest shows a tenth of a second behind,
 between the two snapshots either side of then, with their sounds and
-particles as they come on screen. All of Defector's messages start with
+particles as they come on screen. Every match in a room has its own number,
+carried by every input and snapshot, and each end drops any that are for
+another match: the last of one match's are still on their way when the next
+starts, and a guest's inputs are numbered from 1 again. A robot waiting on a
+guest's late inputs holds where it is, but its flicker runs on the game's
+clock all the same. All of Defector's messages start with
 `dx`, so a Defector room and a Deflector room never read each other's
 (`sequel/src/netplay.js`; the lobby and the match are in
 `sequel/src/main.js`).

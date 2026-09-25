@@ -45,6 +45,32 @@ test('the host plays a guest\'s records in order, each for its steps, waits when
   assert.deepEqual(q.next(), [], 'dry: it waits');
 });
 
+test('a match drops what is left over from the one before: the last inputs and snapshots of it are still on their way when it starts', () => {
+  const bp = arenaMap('crossfire');
+  const host = new Game(bp, { mode: 'versus', players: 2, local: 0 });
+  host.phase = 'play';
+  const hl = new HostLink(host, 2);
+  // The old match's guest was up to record 331; the new one starts again from 1.
+  hl.input(1, { t: MSG.input, m: 1, r: [[331, 4, 1, 0, 0]] });
+  const fresh = new GuestInputs(2);
+  const msgs = [];
+  for (let k = 0; k < 20; k++) {
+    fresh.record({ mx: -1 }, 4);
+    msgs.push(fresh.message(null));
+  }
+  const x = host.players[1].bot.x;
+  for (const m of msgs) {
+    assert.equal(m.m, 2, 'each input says which match it is for');
+    hl.input(1, JSON.parse(JSON.stringify(m)));
+    for (let k = 0; k < 4; k++) host.step(DT, hl.intents(IDLE));
+  }
+  assert.ok(host.players[1].bot.x < x - 20, 'the guest\'s robot moves in the new match');
+  const s = hl.snapshot();
+  assert.equal(s.m, 2);
+  const mirror = new Mirror(new Game(bp, { mode: 'versus', players: 2, local: 1 }), 1, 3);
+  assert.equal(mirror.receive(JSON.parse(JSON.stringify(s)), 0), false, 'and a guest in another match takes no snapshot of this one');
+});
+
 /** A pretend network: late by 40 to 90 ms each way, and one message in twenty lost. */
 function link(seed = 7) {
   let r = seed;

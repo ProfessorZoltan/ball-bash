@@ -102,6 +102,38 @@ test('a match starts on the spawns, held through a countdown', () => {
   assert.ok(g.players[0].bot.x > bp.spawns[0].x + 20, 'then off they go');
 });
 
+test('every robot starts facing away from the nearer side of the map, its blaster with it', () => {
+  for (const d of MAPS) {
+    const g = match(d.id, 3);
+    const bp = arenaMap(d.id);
+    for (const p of g.players) {
+      const want = bp.view.x1 - p.bot.x < p.bot.x - bp.view.x0 - 1 ? -1 : 1;
+      assert.equal(p.bot.facing, want, `${d.title}: the robot at ${Math.round(p.bot.x)}`);
+      assert.equal(Math.sign(Math.cos(p.bot.aim)), want, 'and aims that way');
+    }
+    assert.ok(g.players.some((p) => p.bot.facing < 0), `${d.title}: the one by the right wall faces left`);
+  }
+});
+
+test('a robot put back at a spawn after a fall faces away from the nearer side too', () => {
+  const g = started('drift', 2);
+  const [a, b] = g.players;
+  b.bot.spawn(160, -31); // by the left spawns, so the fall puts a back by the right wall
+  a.bot.aim = 0;
+  a.bot.spawn(1000, 300);
+  for (let i = 0; i < 240 && a.pool === 5; i++) g.step(DT, [{ mx: 0 }, { mx: 0 }]);
+  assert.ok(a.bot.x > 1500, `back at the right spawn (${Math.round(a.bot.x)})`);
+  assert.ok(a.bot.facing < 0 && Math.cos(a.bot.aim) < 0, 'facing into the room');
+});
+
+test('a robot waiting on a guest\'s late inputs still stops flickering on time', () => {
+  const g = match('crossfire', 2);
+  const b = g.players[1].bot;
+  b.invuln = 1;
+  for (let i = 0; i < 240 * 1.2; i++) g.step(DT, [{ mx: 0 }, null]); // null: its inputs have not come
+  assert.equal(b.invuln, 0);
+});
+
 test('another robot\'s charge costs a shield; your own go through you, and so does anything while you flicker', () => {
   const g = started('crossfire', 2);
   const [a, b] = g.players;

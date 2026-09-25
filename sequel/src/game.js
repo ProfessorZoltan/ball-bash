@@ -133,6 +133,7 @@ export class Game {
       const spot = this.mode === 'versus' ? bp.spawns[slot % bp.spawns.length] : this.besideSpot(at, slot);
       const pl = new Player(slot, spot.x, spot.y, { name: r.name, shields: opts.shields, maxShields: opts.maxShields, ammo: kit.ammo, loaded: kit.loaded });
       this.world.portals[slot] = this.world.portals[slot] || [null, null];
+      this.faceAway(pl.bot);
       return pl;
     });
     this.local = Math.min(opts.local ?? 0, this.players.length - 1);
@@ -236,6 +237,38 @@ export class Game {
     return floor && floor.seg.ny < -0.6 && !blocked ? { x, y: at.y } : { x: at.x, y: at.y };
   }
 
+  /**
+   * Which way a robot put down at (x, y) should face: away from the nearer
+   * side of the room, so it starts looking into it rather than at a wall. A
+   * versus map's sides are its walls; in a level, whatever wall stands within
+   * half a screen either side. With neither nearer (or none), right: the way
+   * a level goes.
+   */
+  facingAt(x, y) {
+    const V = this.bp.view;
+    let left;
+    let right;
+    if (V) {
+      left = x - V.x0;
+      right = V.x1 - x;
+    } else {
+      const reach = SCREEN.w / 2;
+      const segs = segmentsNear(this.world, x - reach, y - 4, x + reach, y + 4, { oneWay: false, movers: false });
+      const l = raycastSegments(x, y, -1, 0, segs, reach);
+      const r = raycastSegments(x, y, 1, 0, segs, reach);
+      left = l ? l.t : Infinity;
+      right = r ? r.t : Infinity;
+    }
+    return right < left - 1 ? -1 : 1;
+  }
+
+  /** A robot just put down faces away from the nearer side of the room, its blaster with it. */
+  faceAway(bot) {
+    const dir = this.facingAt(bot.x, bot.y);
+    bot.facing = dir;
+    bot.aim = dir > 0 ? 0 : Math.PI;
+  }
+
   /** The living player nearest (x, y), and how far away across and down; null with nobody in. */
   nearest(x, y) {
     let best = null;
@@ -317,6 +350,12 @@ export class Game {
     }
     w.ice = this.enemies.filter((e) => e.ice && !e.dead).map((e) => e.ice);
 
+    // A flicker and a freeze run on the game's clock, for a robot waiting on a guest's late inputs too.
+    for (const pl of this.players) {
+      if (pl.out) continue;
+      pl.bot.invuln = Math.max(0, (pl.bot.invuln || 0) - dt);
+      pl.frozen = Math.max(0, pl.frozen - dt);
+    }
     this.players.forEach((pl, i) => {
       if (pl.out) return;
       const pi = its[i] === undefined ? IDLE : its[i];
@@ -341,11 +380,9 @@ export class Game {
     const bot = pl.bot;
     const w = this.world;
     pl.lastJumpHeld = !!it.jump;
-    pl.frozen = Math.max(0, pl.frozen - dt);
     const held = (this.phase === 'intro' && this.phaseT < 0.6) || this.phase === 'ready' || pl.frozen > 0;
     const move = held ? { mx: 0 } : it;
     if (it.aim != null && Number.isFinite(it.aim)) bot.aim = it.aim;
-    bot.invuln = Math.max(0, (bot.invuln || 0) - dt);
     const slot = pl.slot;
     // What the robot's own movement makes (dust, a spring's ring, a wormhole's flash) is marked as its
     // own, so a guest predicting its robot, which makes these itself, is not shown them twice.
@@ -1063,6 +1100,7 @@ export class Game {
       pl.pool = COOP.revive;
       pl.frozen = 0;
       pl.bot.spawn(s.x, s.y);
+      this.faceAway(pl.bot);
       pl.bot.invuln = ROBOT.invuln;
       this.fx.ring(s.x, s.y, pl.color, 90, 0.5);
       this.fx.word(s.x, s.y - 70, `${pl.name.toUpperCase()} IS BACK`, pl.color, 1.4);
@@ -1171,6 +1209,7 @@ export class Game {
         if (inArena(pl.bot)) continue;
         const s = this.besideSpot(door, pl.slot);
         pl.bot.spawn(s.x, s.y);
+        this.faceAway(pl.bot);
         pl.bot.invuln = Math.max(pl.bot.invuln, 1);
         this.fx.ring(s.x, s.y, pl.color, 80, 0.5);
       }
@@ -1342,7 +1381,9 @@ export class Game {
       const aim = bot.aim;
       const safe = this.mode === 'versus' ? this.spawnSpot(pl) : this.returnSpot(pl);
       bot.spawn(safe.x, safe.y);
-      bot.aim = aim;
+      // Back at a versus spawn it is put down fresh; back on the ground it fell from, it keeps its aim.
+      if (this.mode === 'versus') this.faceAway(bot);
+      else bot.aim = aim;
       bot.invuln = ROBOT.invuln;
       pl.frozen = 0;
       this.fx.ring(safe.x, safe.y, pl.color, 80, 0.5);
