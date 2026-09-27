@@ -202,7 +202,9 @@ export function stepRobot(bot, it, world, dt, hooks = {}) {
 
   // Remember the last solid, still ground it stood on: a fall is survived from there.
   const underCrusher = world.movers.some((m) => m.kind === 'crusher' && bot.x > m.bx - 40 && bot.x < m.bx + m.w + 40 && bot.y > m.by);
-  if (bot.onGround && !bot.groundMover && firmGround(bot.ground) && !underCrusher) {
+  // Nor the foot of a trove: a fall from anywhere down there goes back up top.
+  const noSafe = (world.noSafe || []).some((z) => bot.x > z.x0 && bot.x < z.x1 && bot.y > z.y0 && bot.y < z.y1);
+  if (bot.onGround && !bot.groundMover && firmGround(bot.ground) && !underCrusher && !noSafe) {
     bot.safeT += dt;
     if (bot.safeT > 0.25) bot.safe = { x: bot.x, y: bot.y };
   } else bot.safeT = 0;

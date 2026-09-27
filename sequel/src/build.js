@@ -75,6 +75,7 @@ class Builder {
       portalLinks: [], // the puzzles, where only a wormhole or a switch gets you across: { from, to, kind }
       doors: [], // shut until a switch opens them: { id, x, y0, y1 }
       veils: [], // paint over a secret's hollow as solid until its cover (a crate) breaks: { x, y, w, h, probe, until, style }
+      noSafe: [], // places whose ground is never where a fall puts you back: { x0, x1, y0, y1 }
       switches: [], // a charge flips one: { x, y, doors: [id], hold? }
     };
     this.minY = this.y;
@@ -743,6 +744,56 @@ export const SECTIONS = {
   },
 
   /**
+   * A trove: from above, a pit like any other, a jump across. But it has no
+   * kill line: it is a shaft `depth` tiles down to a floor, and at its foot
+   * the far wall is a cracked cover over a chamber under the far rim, with
+   * a shield and a power-up of every kind in it. Past them, at the chamber's
+   * back, a drain: the way out for a robot that left no wormhole end up top,
+   * at the cost of a shield, since a fall puts it back on the last safe
+   * ground and nothing down here counts as that. The cover is as well hidden
+   * as the level's other secrets (`hide`).
+   */
+  trove(b, p) {
+    const x0 = b.x;
+    b.flat(p.run ?? 3);
+    const rimL = b.x;
+    const floorY = b.y;
+    const w = p.w ?? 3;
+    const depth = p.depth ?? 20;
+    const cw = 7; // the chamber, under the far rim
+    const ch = 3;
+    b.rise(-depth); // down the near side
+    const footY = b.y;
+    b.flat(w); // the shaft's floor
+    const rimR = b.x;
+    b.flat(cw - 1.5); // the chamber's floor, as far as the drain
+    const hx0 = b.x;
+    const hx1 = rimR + cw * T;
+    // The drain: a slot down past a kill line at the chamber's back.
+    b.endRun();
+    b.x = hx1;
+    b.bp.pits.push({ x0: hx0, x1: hx1, y: footY + 420 });
+    b.startRun();
+    b.rise(ch); // the chamber's back wall
+    b.run.pts.push([rimR, b.y]); // its ceiling, back over to the shaft
+    b.x = rimR;
+    b.rise(depth - ch); // and up the far side to the rim
+    b.flat(Math.max(cw + 1, p.land ?? 8));
+    const top = footY - ch * T;
+    const above = [rimR + 2 * T, top - T]; // the ground over the chamber, which the cover and the paint pass for
+    const ci = b.cover(rimR, top, 0.5 * T, ch * T, Math.max(1, p.hide ?? 1), 'left', 'ground', above, [rimR - T, footY + T]);
+    b.veil(rimR + 0.5 * T - 2, top - 14, (cw - 0.5) * T + 16, ch * T + 28, above, ci);
+    b.veil(hx0 - 14, footY - 2, hx1 - hx0 + 28, 900, [hx1 + T, footY + T], ci); // and the drain under it
+    const reward = p.reward || ['shield', 'big', 'triple', 'freeze', 'durable', 'strong'];
+    reward.forEach((k, i) => b.pickup(k, rimR + (1.1 + i * 0.75) * T, footY - T * 0.7));
+    b.bp.secrets.push({ x0: rimR + 0.5 * T, x1: hx1, y0: top, y1: footY });
+    b.bp.noSafe.push({ x0: rimL, x1: hx1, y0: floorY + T, y1: footY + 2 * T });
+    b.bp.troves = b.bp.troves || [];
+    b.bp.troves.push({ rimL, rimR, floorY, footY, cover: ci, drain: [hx0, hx1] });
+    b.enemies(p.e, x0, floorY);
+  },
+
+  /**
    * A bulkhead: a wall from the floor to well above any jump, with a gap
    * under it too low for the robot and just tall enough to see (and shoot)
    * under. Beyond it, a pillar's face. The only way through is a wormhole:
@@ -1083,7 +1134,7 @@ export function estimateSeconds(bp) {
   s += bp.enemies.length * 1.1;
   for (const sec of bp.sections) {
     s += Math.abs(sec.y1 - sec.y0) / (4 * T); // climbing and dropping
-    if (['gap', 'plats', 'mover', 'well', 'fount', 'phase', 'spikes'].includes(sec.type)) s += 2.5;
+    if (['gap', 'trove', 'plats', 'mover', 'well', 'fount', 'phase', 'spikes'].includes(sec.type)) s += 2.5;
     if (sec.type === 'mover' || sec.type === 'phase') s += 3;
     if (sec.type === 'crushers' || sec.type === 'laser') s += 4;
     if (sec.type === 'ambush') s += (sec.p.waves || []).reduce((n, w) => n + w.length * 2.2, 3);

@@ -168,6 +168,7 @@ test('a fall into a pit costs a shield and puts the robot back on the ground it 
   assert.equal(g.pool, 2);
   assert.ok(g.bot.invuln > 0, 'it flickers after');
   assert.ok(g.bot.x <= safe.x + 400 && g.bot.y < bp.pits[0].y, 'it is back up on solid ground');
+  assert.ok(g.bot.x > bp.pits[0].x0 - 2 * TILE, `at the lip it walked off, not back at the start (at ${Math.round(g.bot.x)})`);
 });
 
 test('a fall after standing on a frozen enemy over a pit puts the robot back on solid ground, never over the pit', () => {

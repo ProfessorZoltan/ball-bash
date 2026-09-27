@@ -149,10 +149,33 @@ test('another robot\'s charge costs a shield; your own go through you, and so do
   shoot(g, a, b);
   run(g, 0.3);
   assert.equal(b.pool, 4, 'flickering, the next goes through');
+  g.charges.length = 0; // what is still flying round the map from before
   b.bot.invuln = 0;
-  shoot(g, b, b);
+  g.charges.push(new Charge({ x: b.bot.x - 60, y: b.bot.y, vx: BLASTER.speed, vy: 0, born: g.time, owner: b.slot }));
   run(g, 0.3);
   assert.equal(b.pool, 4, 'its own charge never hurts it');
+});
+
+test('a robot that is hit is put back at the spawn furthest from everyone, so a stream of shots cannot pin it', () => {
+  const g = started('crossfire', 2);
+  const [a, b] = g.players;
+  const bp = arenaMap('crossfire');
+  a.bot.spawn(300, -31);
+  b.bot.spawn(700, -31);
+  run(g, 0.2);
+  b.bot.invuln = 0;
+  shoot(g, a, b);
+  run(g, 0.3);
+  assert.equal(b.pool, 4, 'hit');
+  const far = bp.spawns.reduce((best, s) => (Math.hypot(s.x - a.bot.x, s.y - a.bot.y) > Math.hypot(best.x - a.bot.x, best.y - a.bot.y) ? s : best));
+  assert.ok(Math.abs(b.bot.x - far.x) < 2, `back at the spawn at ${far.x}, furthest from the one who fired (at ${Math.round(b.bot.x)})`);
+  assert.ok(b.bot.invuln > 0, 'flickering');
+  // The one who fired keeps firing along the same line: none of it reaches the robot where it now is.
+  for (let k = 0; k < 8; k++) {
+    g.charges.push(new Charge({ x: 400, y: -31, vx: BLASTER.speed, vy: 0, born: g.time, owner: 0 }));
+    run(g, 0.4, [{ mx: 0 }, { mx: 0 }]);
+  }
+  assert.equal(b.pool, 4, 'the stream at where it was hit finds nobody there');
 });
 
 test('a Hammer charge costs two shields, and a Frost one holds a robot fast instead', () => {

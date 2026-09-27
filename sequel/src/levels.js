@@ -350,7 +350,6 @@ function compose(L) {
   return out;
 }
 
-// A sign's words for each input: the keyboard's and the controller's.
 // A sign's words for the mouse and keyboard, a controller, and (if they differ) the keyboard alone.
 const say = (kb, pad, keys = kb) => ({ kb, pad, keys });
 
@@ -706,9 +705,32 @@ export const LEVEL_DEFS = [
   },
 ];
 
+/** `n` of `list`, chosen by a seeded generator: the same every time the game is built. */
+function choose(list, n, seed) {
+  const rng = seeded(seed);
+  const pool = [...list];
+  const out = [];
+  while (out.length < n && pool.length) out.push(pool.splice(Math.floor(rng() * pool.length), 1)[0]);
+  return out.sort((a, b) => a - b);
+}
+
+/** The three levels, of the fourth to the tenth, with a trove: a pit that is not one (see SECTIONS.trove). */
+export const TROVE_LEVELS = choose([4, 5, 6, 7, 8, 9, 10], 3, 4242);
+
+/** A level's own set pieces, and those the game gives it (a trove), in the order they come. */
+function featuresOf(L) {
+  const out = [...(L.features || [])];
+  if (TROVE_LEVELS.includes(L.id)) {
+    const rng = seeded(L.seed * 31 + 7);
+    const flier = flierOf(rng, L);
+    out.push({ at: 0.25 + rng() * 0.4, sections: [['trove', { w: 3, depth: 18 + Math.floor(rng() * 5), hide: L.hide, e: rng() < 0.6 ? [[flier, 4.5, 3.5, { range: 100 }]] : [] }]] });
+  }
+  return out.sort((a, b) => a.at - b.at);
+}
+
 /** A level definition, ready for buildLevel: its opening, then its seeded run. */
 export function levelDef(L) {
-  return { ...L, floor: 0, sections: [...L.opening, ...compose(L)] };
+  return { ...L, floor: 0, sections: [...L.opening, ...compose({ ...L, features: featuresOf(L) })] };
 }
 
 const cache = new Map();

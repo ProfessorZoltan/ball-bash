@@ -1369,15 +1369,18 @@ export class Game {
   /**
    * Something got a player's robot. It costs a shield (`amount` of them)
    * unless it is still flickering from the last one; a fall, the well or a
-   * crush also puts it back on the last solid ground it stood on (in versus,
-   * at the spawn furthest from everyone else). With no shields left it is
-   * out: alone, the level is lost.
+   * crush also puts it back on the last solid ground it stood on. In versus
+   * anything that costs a shield puts it back at the spawn furthest from
+   * everyone else. With no shields left it is out: alone, the level is lost.
    */
   hurt(reason, p, respawn = false, pl = this.me, amount = 1) {
     const bot = pl.bot;
     if (this.ended() || pl.out) return;
     const shielded = bot.invuln > 0;
     if (shielded && !respawn) return;
+    // In versus a hit puts the robot back at a spawn too, as a fall does: left where it was hit,
+    // a steady stream of shots would have it again the moment its flicker ran out.
+    if (this.mode === 'versus') respawn = true;
     if (!shielded) {
       if (pl.pool !== Infinity) pl.pool = Math.max(0, pl.pool - amount);
       this.stats.shieldsLost++;
@@ -1459,8 +1462,12 @@ export class Game {
     const bot = pl.bot;
     const s = bot.safe;
     const reach = bot.half + bot.r + 8;
-    const segs = segmentsNear(this.world, s.x - bot.r, s.y, s.x + bot.r, s.y + reach, { movers: false }).filter(firmGround);
-    if (raycastSegments(s.x, s.y, 0, 1, segs, reach)) return { x: s.x, y: s.y };
+    const segs = segmentsNear(this.world, s.x - 3 * bot.r, s.y, s.x + 3 * bot.r, s.y + reach, { movers: false }).filter(firmGround);
+    // The last spot it stood on can be a lip it was walking off, its middle already out over the
+    // drop: put it back a step in from there instead.
+    for (const dx of [0, -bot.r, bot.r, -2 * bot.r, 2 * bot.r]) {
+      if (raycastSegments(s.x + dx, s.y, 0, 1, segs, reach)) return { x: s.x + dx, y: s.y };
+    }
     const c = this.checkpoint >= 0 ? this.checkpoints[this.checkpoint] : this.bp.spawn;
     return this.besideSpot(c, pl.slot);
   }

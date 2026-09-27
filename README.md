@@ -1284,6 +1284,22 @@ The cracks are the tell, and they fade:
 Every loft brings ten tiles of open floor in front of it, so its wall is in
 sight (and on screen) from somewhere on the loft's own floor.
 
+Three levels from the fourth to the tenth (chosen once, by seed: the fifth,
+seventh and tenth) hold a trove. From above it is a pit like any other, a
+jump across with the far rim level with the near; but it is a shaft 18 to 22
+tiles deep, and the fall to its floor costs nothing. The shaft's far wall at
+the foot is a cracked cover, and behind it is a shield and one of every
+power-up. There is no climbing out: the drain at the back of the trove puts
+the robot back up at the rim for a shield (the one it just took), and a
+wormhole end left in the floor before the jump is the free way up. Nowhere
+down there counts as ground to come back to after a fall.
+
+| Trove | What it is | Source |
+| --- | --- | --- |
+| Which levels | three of the fourth to the tenth, picked by a fixed seed | `TROVE_LEVELS` in `sequel/src/levels.js` |
+| The shaft | three tiles across, 18 to 22 deep, with a flier over it in most | `SECTIONS.trove` in `sequel/src/build.js` |
+| The way out | the drain (a shield), or a wormhole end left up top | `noSafe` in `sequel/src/player.js` |
+
 Each palette leans on the level's own pieces, and every level from the
 second holds three to five puzzles of at least two kinds (no more than two
 of one kind from the seeded run). A jump over a pit is rarely a jump with
@@ -1401,7 +1417,7 @@ else sees the same screen.
 | Versus rule | What happens | Source |
 | --- | --- | --- |
 | The start | every robot on its spawn, facing away from the nearer side of the map with its blaster, held through a 2.4 s countdown | `stepVersus`, `faceAway` in `sequel/src/game.js` |
-| A hit | another robot's charge costs a shield (a Hammer's two), then the robot flickers for 1.6 s and anything goes through it. Your own charges never hurt you | `chargeVsRobots`, same file |
+| A hit | another robot's charge costs a shield (a Hammer's two) and puts the robot back at the spawn furthest from everyone else, as a fall does, flickering for 1.6 s so anything goes through it. Left where it was hit, a steady stream of shots would have it again the moment its flicker ran out. Your own charges never hurt you | `chargeVsRobots`, `hurt`, same file |
 | Frost | holds the robot fast for 2 s instead: it can neither move nor fire, and loses no shield | same |
 | A fall | a pit, a crusher or the black hole costs a shield and puts the robot back at the spawn furthest from everyone else, facing into the room | `hurt`, `spawnSpot`, same file |
 | The end | a robot with no shields left is out; the last one standing wins | `knockOut`, same file |
@@ -1457,11 +1473,12 @@ moving, the burst, the boss fights, and every level:
 | Puzzles | every puzzle in every level is solved in the real game: wormhole ends aimed and stepped through, a vault's switch hit through a wormhole, and every other switch hit by a shot found by flying the charge's own physics (banks and black holes included), a timed door run through before it shuts. No level with a puzzle can be crossed without solving it; a chimney's switch is out of every straight line, and an orbit's out of every shot without its black hole | `sequel/tools/solve.mjs` |
 | Timing | every blinking stretch is crossed with the clock running: from each place it stands, the robot waits a beat at a time and jumps, while the platforms blink | `sequel/tools/timed.mjs` |
 | Secrets | each level hides its secrets no more plainly than the one before; every cover breaks under fire and its prize is out of sight until then, then found and taken; every loft's wall is in sight from its own floor and a wormhole puts the robot up; a hidden sky ledge is off the top of the screen and its spring still reaches it | `sequel/test/secrets.test.js` |
+| Troves | three of them, each a pit from above; the fall costs nothing, the wall at the foot breaks, the loot is all there, the drain puts the robot back at the rim for a shield, and a wormhole end at the rim gets it out for free | `sequel/test/troves.test.js` |
 | Bosses | every boss is beaten in the real game by a robot that aims well | `sequel/tools/fight.mjs` |
 | Lengths | each level's estimate sits in its band | `sequel/test/levels.test.js` |
 | Co-op | each robot on its own shields; out and back at a checkpoint or the boss; the level lost only with the whole team out; enemies after the nearest robot; a pair of wormholes each, anyone's to go through | `sequel/test/coop.test.js` |
 | Versus maps | six, no two built from the same parts; on each, every spawn and every power-up platform is reached from every spawn by the crossing search, and standing still on any of them is safe | `sequel/test/versus.test.js`, `sequel/tools/reach.mjs` |
-| Versus rules | hits, Frost, falls to the furthest spawn, the last one standing; power-ups every 30 to 60 s and never nearer one robot than half as far as the next, checked over hundreds of placements on every map | `sequel/test/versus.test.js` |
+| Versus rules | hits and falls back to the furthest spawn, Frost, the last one standing; power-ups every 30 to 60 s and never nearer one robot than half as far as the next, checked over hundreds of placements on every map | `sequel/test/versus.test.js` |
 | Netcode | a host and a guest over a pretend network (late by 40 to 90 ms, one message in twenty lost): the guest's predicted robot agrees with the host's to under a pixel, riding moving platforms too; its charges and wormholes happen in the host's game; everything else follows the host; every boss fight comes through whole and draws | `sequel/test/netplay.test.js` |
 
 Each tool also runs on its own (`node sequel/tools/reach.mjs 4`), and

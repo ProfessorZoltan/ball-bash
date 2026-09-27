@@ -364,6 +364,7 @@ export function createWorld(bp) {
   });
   w.switches = (bp.switches || []).map((s) => ({ ...s, r: s.r ?? 16, on: false, t: 0, flash: 0 }));
   w.veils = (bp.veils || []).map((v) => ({ ...v }));
+  w.noSafe = bp.noSafe || [];
   return w;
 }
 
