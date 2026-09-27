@@ -10,6 +10,7 @@ import { MAPS, arenaMap } from '../src/maps.js';
 import { Charge } from '../src/blaster.js';
 import { BLASTER, POWER, POWERUPS, VERSUS, ROBOT } from '../src/config.js';
 import { reachability } from '../tools/reach.mjs';
+import { placeEnd } from '../src/wormholes.js';
 
 const DT = 1 / 240;
 const match = (id = 'crossfire', n = 2, o = {}) => new Game(arenaMap(id), { mode: 'versus', players: n, shields: 5, ...o });
@@ -32,7 +33,7 @@ test('six maps, each laid out its own way', () => {
   assert.equal(MAPS.length, 6);
   const looks = new Set();
   const signatures = new Set();
-  const has = { movers: 0, wells: 0, glass: 0, springs: 0, blinking: 0, crushers: 0, lasers: 0, pits: 0, spikes: 0 };
+  const has = { movers: 0, wells: 0, glass: 0, springs: 0, blinking: 0, crushers: 0, lasers: 0, pits: 0, spikes: 0, ramps: 0 };
   for (const d of MAPS) {
     const bp = arenaMap(d.id);
     looks.add(d.look);
@@ -50,6 +51,7 @@ test('six maps, each laid out its own way', () => {
       spikes: bp.spikes.length,
       ledges: bp.oneWays.length,
       blocks: bp.solids.filter((s) => s.kind === 'block').length,
+      ramps: bp.solids.filter((s) => s.kind === 'ramp').length,
     };
     for (const k of Object.keys(has)) if (f[k]) has[k]++;
     signatures.add(JSON.stringify(f));
@@ -58,6 +60,37 @@ test('six maps, each laid out its own way', () => {
   assert.equal(signatures.size, 6, 'no two are built from the same parts');
   for (const [k, n] of Object.entries(has)) assert.ok(n >= 1, `some map has ${k}`);
   assert.ok(has.movers >= 1 && has.blinking >= 1, 'some platforms move, some blink');
+  assert.equal(has.ramps, 3, 'three have launch ramps');
+});
+
+test('a launch ramp in a corner throws a robot, and a charge comes off a hung one at its angle', () => {
+  // Crossfire's right-hand corner ramp, an end on it and one at the robot's feet: thrown up and back across the floor.
+  const g = started('crossfire', 2);
+  const bot = g.players[0].bot;
+  bot.spawn(1400, -31);
+  for (let i = 0; i < 60; i++) g.step(DT, { mx: 0 });
+  const ramp = arenaMap('crossfire').solids.filter((s) => s.kind === 'ramp')[1];
+  let ok = false;
+  for (let a = -Math.PI / 2; a < 0 && !ok; a += 0.002) {
+    bot.aim = a;
+    const p = placeEnd(g.world, g.sight(g.players[0]), 1);
+    ok = !!p && p.host.kind === 'wall' && p.host.seg.solid === ramp;
+  }
+  assert.ok(ok && g.deploy(1, g.players[0]), 'the ramp face is in sight from the floor, and takes an end');
+  bot.aim = Math.PI / 2;
+  assert.ok(g.deploy(0, g.players[0]), 'and an end at the robot\'s feet');
+  let thrown = null;
+  for (let i = 0; i < 240 && !thrown; i++) {
+    g.step(DT, { mx: 0 });
+    if (bot.warped) thrown = { vx: bot.vx, vy: bot.vy };
+  }
+  assert.ok(thrown && thrown.vx < -800 && thrown.vy < -800, `thrown up and left, hard (${thrown && Math.round(thrown.vx)}, ${thrown && Math.round(thrown.vy)})`);
+  // Glasshouse's top-left corner ramp faces down and right: a charge fired straight up into it goes off along the roof.
+  const h = started('glasshouse', 2);
+  const c = new Charge({ x: 60, y: -600, vx: 0, vy: -BLASTER.speed, born: h.time, owner: 1 });
+  h.charges.push(c);
+  for (let i = 0; i < 240 && c.vy < 0; i++) h.step(DT, { mx: 0 });
+  assert.ok(c.vx > 600 && Math.abs(c.vy) < 200, `off the corner and away across the room (${Math.round(c.vx)}, ${Math.round(c.vy)})`);
 });
 
 test('on every map, every spawn and every power-up spot can be reached from every spawn', () => {

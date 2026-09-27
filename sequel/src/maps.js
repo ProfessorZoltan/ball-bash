@@ -90,6 +90,23 @@ class MapBuilder {
     if (spot) this.spot(x + w / 2, y);
   }
 
+  /**
+   * A launch ramp: a wedge filling the box (x, y, w, h), its slanted face
+   * turned 'up-right', 'up-left', 'down-right' or 'down-left'. A charge banks
+   * off the face at its angle; a robot out of a wormhole end on it is thrown
+   * the way it faces, hard (WORM.launch).
+   */
+  ramp(x, y, w, h, face) {
+    const len = Math.hypot(w, h);
+    const [pts, slant, n] = {
+      'up-right': [[[x, y], [x + w, y + h], [x, y + h]], [x, y, x + w, y + h], [h, -w]],
+      'up-left': [[[x + w, y], [x + w, y + h], [x, y + h]], [x, y + h, x + w, y], [-h, -w]],
+      'down-right': [[[x, y], [x + w, y], [x, y + h]], [x + w, y, x, y + h], [h, w]],
+      'down-left': [[[x, y], [x + w, y], [x + w, y + h]], [x, y, x + w, y + h], [-h, w]],
+    }[face];
+    this.bp.solids.push({ pts, kind: 'ramp', face: [...slant, n[0] / len, n[1] / len] });
+  }
+
   /** A thin platform: jump up through it, land on it. */
   ledge(x0, x1, y, spot = true) {
     this.bp.oneWays.push({ x0, x1, y });
@@ -173,10 +190,14 @@ export const MAPS = [
     id: 'crossfire',
     title: 'Crossfire',
     look: 1,
-    blurb: 'Open tiers either side of a pillar, and roof posts to bank off. Nowhere to hide for long.',
+    blurb: 'Open tiers either side of a pillar, roof posts to bank off, and a launch ramp in each corner. Nowhere to hide for long.',
     build(m) {
       m.ground(0, 2000);
       m.props(0, 2000);
+      // A ramp in each corner, turned up into the arena: a shot along the floor comes up off it,
+      // and a wormhole end on it throws you the length of the floor.
+      m.ramp(0, -100, 100, 100, 'up-right');
+      m.ramp(1900, -100, 100, 100, 'up-left');
       m.block(940, -160, 120, 160); // the pillar in the middle of the floor
       m.ledge(200, 480, -160);
       m.ledge(1520, 1800, -160);
@@ -246,9 +267,12 @@ export const MAPS = [
     id: 'spires',
     title: 'Twin Spires',
     look: 3,
-    blurb: 'Two tall towers, springs at their feet and a bridge between their tops. Long walls for wormholes.',
+    blurb: 'Two tall towers, springs at their feet, a bridge between their tops and a prism hung over it. Long walls for wormholes.',
     build(m) {
       m.ground(0, 2000);
+      // A prism hung from the roof over the bridge: its two faces turn a shot from either tower down into the yard.
+      m.ramp(880, TOP, 120, 120, 'down-left');
+      m.ramp(1000, TOP, 120, 120, 'down-right');
       m.props(0, 380);
       m.props(1620, 2000);
       m.block(560, -560, 120, 560);
@@ -277,8 +301,11 @@ export const MAPS = [
     id: 'glasshouse',
     title: 'Glasshouse',
     look: 5,
-    blurb: 'A house of armoured glass in the middle: see in, open a wormhole past it, shoot in off the walls. Spikes either side.',
+    blurb: 'A house of armoured glass in the middle: see in, open a wormhole past it, shoot in off the walls and the ramps hung in the corners. Spikes either side.',
     build(m) {
+      // A ramp hung in each top corner, turned down across the room: a shot up into a corner comes down at the house.
+      m.ramp(0, TOP, 140, 140, 'down-right');
+      m.ramp(1860, TOP, 140, 140, 'down-left');
       m.ground(0, 480);
       m.spikes(480, 600);
       m.ground(600, 1400);

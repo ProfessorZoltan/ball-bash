@@ -136,7 +136,8 @@ export const BOSS_INTRO = 2.4;
 
 /**
  * Multiplayer: up to three robots, each in its own colours (the first is the
- * campaign's own). A standard charge takes its owner's colour, so in versus
+ * campaign's own). A standard charge takes its owner's colour, and with more
+ * than one robot about every charge is ringed in it (drawCharge), so
  * you can tell whose is whose, and so do the wormhole ends.
  */
 export const PLAYERS = [

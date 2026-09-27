@@ -664,7 +664,9 @@ export class Renderer {
       if (!me.out) drawRobot(ctx, me.bot, t, alpha, { loaded: me.loaded, low: this.low, charging: me.cool > 0, color: PLAYERS[me.slot].color, trim: PLAYERS[me.slot].trim, frozen: me.frozen });
     }
     // Charges.
-    for (const c of game.charges) drawCharge(ctx, c, t, alpha, this.low);
+    // With more than one robot about, every charge wears its owner's colour too, so whose is whose is plain.
+    const multi = game.players.length > 1;
+    for (const c of game.charges) drawCharge(ctx, c, t, alpha, this.low, multi ? PLAYERS[c.owner] || null : null);
     // Front scenery.
     for (const d of bp.deco) {
       if (d.layer !== 'front' || d.x < v.x0 - 200 || d.x > v.x1 + 200 || d.y < v.y0 - 100 || d.y > v.y1 + 600) continue;
@@ -1465,17 +1467,25 @@ function drawHazard(ctx, h, t, low) {
   }
 }
 
-function drawCharge(ctx, c, t, alpha, low) {
+/**
+ * A charge. With `owner` (a PLAYERS entry, when more than one robot is about)
+ * its tail, glow, ring and ticks are in the owner's colour, and a standard
+ * charge's core too; a power-up's core keeps the power-up's colour, so a
+ * charge says both what it is and whose.
+ */
+function drawCharge(ctx, c, t, alpha, low, owner = null) {
   const x = c.warped ? c.x : lerp(c.prevX, c.x, alpha);
   const y = c.warped ? c.y : lerp(c.prevY, c.y, alpha);
+  const mark = owner ? owner.color : c.color;
+  const core = owner && c.kind === 'std' ? owner.color : c.color;
   // Tail along the velocity.
   const sp = Math.hypot(c.vx, c.vy) || 1;
-  const tl = Math.min(60, sp * 0.05) + c.r;
+  const tl = Math.min(60, sp * 0.05) + c.r + (owner ? 14 : 0);
   const g = ctx.createLinearGradient(x, y, x - (c.vx / sp) * tl, y - (c.vy / sp) * tl);
-  g.addColorStop(0, withAlpha(c.color, 0.7));
-  g.addColorStop(1, withAlpha(c.color, 0));
+  g.addColorStop(0, withAlpha(mark, owner ? 0.9 : 0.7));
+  g.addColorStop(1, withAlpha(mark, 0));
   ctx.strokeStyle = g;
-  ctx.lineWidth = c.r * 1.4;
+  ctx.lineWidth = c.r * (owner ? 1.8 : 1.4);
   ctx.lineCap = 'round';
   ctx.beginPath();
   ctx.moveTo(x, y);
@@ -1483,25 +1493,34 @@ function drawCharge(ctx, c, t, alpha, low) {
   ctx.stroke();
   ctx.lineCap = 'butt';
   if (!low) {
-    ctx.shadowColor = c.color;
+    ctx.shadowColor = mark;
     ctx.shadowBlur = 18;
   }
-  ctx.fillStyle = c.color;
+  ctx.fillStyle = core;
   ctx.beginPath();
   ctx.arc(x, y, c.r, 0, TAU);
   ctx.fill();
   ctx.shadowBlur = 0;
-  ctx.fillStyle = '#ffffff';
+  // The heart: white alone, or tinted with the owner's colour, which a white one would wash out.
+  ctx.fillStyle = owner ? mix(core, '#ffffff', 0.5) : '#ffffff';
   ctx.beginPath();
-  ctx.arc(x, y, c.r * 0.55, 0, TAU);
+  ctx.arc(x, y, c.r * (owner ? 0.42 : 0.55), 0, TAU);
   ctx.fill();
+  if (owner) {
+    // The owner's ring, solid, just clear of the charge.
+    ctx.strokeStyle = mark;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(x, y, c.r + 4, 0, TAU);
+    ctx.stroke();
+  }
   // Three turning ticks, as Deflector's loaded charge has.
-  ctx.strokeStyle = withAlpha(c.color, 0.8);
-  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = withAlpha(mark, owner ? 1 : 0.8);
+  ctx.lineWidth = owner ? 2 : 1.5;
   for (let i = 0; i < 3; i++) {
     const a = t * 6 + (i * TAU) / 3;
     ctx.beginPath();
-    ctx.arc(x, y, c.r + 4, a, a + 0.6);
+    ctx.arc(x, y, c.r + (owner ? 8 : 4), a, a + 0.6);
     ctx.stroke();
   }
   if (c.freeze) {

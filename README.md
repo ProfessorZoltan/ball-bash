@@ -1455,6 +1455,7 @@ else sees the same screen.
 | Lost | the level is lost only when the whole team is out. A continue brings everyone back at the last checkpoint with full shields | `knockOut`, same file |
 | Enemies | each goes after the robot nearest it, and wakes and sleeps by that one. A boss watches the nearest robot and looks again every 2.5 s | `stepEnemies`, `bossTarget`, same file |
 | Charges | six in the air each; a teammate's charge goes straight through you | `roomFor`, `chargeVsRobots`, same file |
+| Whose charge | with more than one robot about, every charge wears its owner's colour: its trail, its glow, a solid ring round it and the turning ticks, and a standard charge's core too, with a tinted heart rather than a white one. A power-up's charge keeps the power-up's colour in its core, so a charge says both what it is and whose | `drawCharge` in `sequel/src/render.js` |
 | Wormholes | each robot has a pair of its own, and anyone (enemies included) can go through anyone's | `world.portals[slot]` in `sequel/src/world.js` |
 | Drops | one pickup per player, that only that player can take | `drop`, same file |
 | Switches | a switch takes a charge while it is on anyone's screen | `inView`, same file |
@@ -1475,11 +1476,11 @@ look and the music of one of the campaign's levels:
 
 | Map | Look | What it is | Source |
 | --- | --- | --- | --- |
-| Crossfire | Neon Orchard | open tiers either side of a pillar in the middle of the floor, with posts hanging from the roof to bank off. Nowhere to hide for long | `MAPS` in `sequel/src/maps.js` |
+| Crossfire | Neon Orchard | open tiers either side of a pillar in the middle of the floor, with posts hanging from the roof to bank off, and a launch ramp in each corner turned up into the arena: a shot along the floor comes up off it, and a wormhole end on it throws you across the floor. Nowhere to hide for long | `MAPS` in `sequel/src/maps.js` |
 | Drift Yard | Rain Market | a drop down the middle, crossed by two decks that slide past each other and a lift up to a high perch | same |
 | Event Horizon | Observatory Heights | a black hole hangs in the middle: every shot past it bends, and it swallows any robot that strays in. Islands on every side | same |
-| Twin Spires | Transit Loop | two tall towers with springs at their feet, ledges up their sides and a bridge between their tops, open in the middle over the yard between them. Long walls for wormholes | same |
-| Glasshouse | Greenhouse Arcology | a house of armoured glass in the middle: see in, open a wormhole past it, shoot in off the walls, and crawl in under its walls. Spikes either side | same |
+| Twin Spires | Transit Loop | two tall towers with springs at their feet, ledges up their sides and a bridge between their tops, open in the middle over the yard between them, and a prism of two ramps hung from the roof over the bridge, turning a shot from either tower down into the yard. Long walls for wormholes | same |
+| Glasshouse | Greenhouse Arcology | a house of armoured glass in the middle: see in, open a wormhole past it, shoot in off the walls and off the ramps hung in the top corners, and crawl in under its walls. Spikes either side | same |
 | Blink Foundry | Folded City | floors that blink over a drop either side of a steady island, crushers in the upper halls with lasers under them, and a blinking walk to a high top | same |
 
 How it plays over a network: the host's page runs the one real game, and
@@ -1525,7 +1526,7 @@ moving, the burst, the boss fights, and every level:
 | Bosses | every boss is beaten in the real game by a robot that aims well | `sequel/tools/fight.mjs` |
 | Lengths | each level's estimate sits in its band, the top of it soft, and a lair, a trove or a secret adds nothing to it | `sequel/test/levels.test.js` |
 | Co-op | each robot on its own shields; out and back at a checkpoint or the boss; the level lost only with the whole team out; enemies after the nearest robot; a pair of wormholes each, anyone's to go through | `sequel/test/coop.test.js` |
-| Versus maps | six, no two built from the same parts; on each, every spawn and every power-up platform is reached from every spawn by the crossing search, and standing still on any of them is safe | `sequel/test/versus.test.js`, `sequel/tools/reach.mjs` |
+| Versus maps | six, no two built from the same parts, three with launch ramps (a corner ramp throws a robot, a hung one turns a charge); on each, every spawn and every power-up platform is reached from every spawn by the crossing search, and standing still on any of them is safe | `sequel/test/versus.test.js`, `sequel/tools/reach.mjs` |
 | Versus rules | hits and falls back to the furthest spawn, Frost, the last one standing; power-ups every 30 to 60 s and never nearer one robot than half as far as the next, checked over hundreds of placements on every map | `sequel/test/versus.test.js` |
 | Netcode | a host and a guest over a pretend network (late by 40 to 90 ms, one message in twenty lost): the guest's predicted robot agrees with the host's to under a pixel, riding moving platforms too; its charges and wormholes happen in the host's game; everything else follows the host; every boss fight comes through whole and draws | `sequel/test/netplay.test.js` |
 
