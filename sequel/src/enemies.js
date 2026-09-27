@@ -70,6 +70,7 @@ export class Enemy {
     this.axis = spec.axis || 'x'; // a straight flier's line: across, or up and down
     this.orbit = spec.orbit ? { ...spec.orbit } : null; // { cx, cy, rx, ry, period, a, dir }: a moon, circling a black hole
     this.drop = spec.drop ?? null; // a power-up id, 'shield', or 'random'
+    this.lair = spec.lair ?? null; // the lair it sleeps in until its cover breaks
     this.onGround = false;
     this.frozen = 0;
     this.flash = 0;

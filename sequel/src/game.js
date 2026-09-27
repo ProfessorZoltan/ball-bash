@@ -165,6 +165,8 @@ export class Game {
       gates: [addGate(this.world, a.x0 + 10, a.top, a.floor), addGate(this.world, a.x1 - 10, a.top, a.floor)],
       live: [],
     }));
+    // Caves behind a cover, asleep until it breaks, with a hoard for clearing them.
+    this.lairs = (bp.lairs || []).map((l) => ({ ...l, cleared: false }));
     this.pits = bp.pits || [];
     this.tally = { shots: 0, warps: 0 };
     this.winner = null; // versus: the slot left standing (null for a draw)
@@ -385,6 +387,7 @@ export class Game {
     this.stepPickups(dt);
     this.stepMarkers();
     this.stepAmbushes();
+    this.stepLairs();
     this.stepBoss(dt);
     this.stepHazards(dt);
     if (this.mode === 'versus') this.stepVersus(dt);
@@ -912,7 +915,7 @@ export class Game {
   stepEnemies(dt) {
     const shoot = (e, a, sh) => this.shot(e.x + Math.cos(a) * (e.r + 6), e.y + Math.sin(a) * (e.r + 6), a, sh.speed, { r: 8, color: e.color, bounce: !!sh.bounce, life: 4 });
     for (const e of this.enemies) {
-      if (e.dead) continue;
+      if (e.dead || this.sealed(e)) continue;
       // Each goes after the robot nearest it, and wakes and sleeps by that one too.
       const n = this.nearest(e.x, e.y);
       if (!n) continue;
@@ -1047,6 +1050,24 @@ export class Game {
         }
       }
     }
+  }
+
+  /** Is this enemy in a lair whose cover still stands? Then it neither stirs nor shows. */
+  sealed(e) {
+    return e.lair != null && !this.world.crates[this.lairs[e.lair].cover].broken;
+  }
+
+  /** A lair is cleared when its cover is down and the last of its enemies falls: its hoard drops. */
+  stepLairs() {
+    this.lairs.forEach((l, i) => {
+      if (l.cleared || !this.world.crates[l.cover].broken) return;
+      if (this.enemies.some((e) => e.lair === i && !e.dead)) return;
+      l.cleared = true;
+      const mid = (l.x0 + l.x1) / 2;
+      l.reward.forEach((k, j) => this.drop(k, mid + (j - (l.reward.length - 1) / 2) * 60, l.floor - 120));
+      this.fx.word(mid, l.floor - 200, 'CLEAR', '#9dff5c', 1.4);
+      this.emit('unlock');
+    });
   }
 
   /** A locked room starts over: what is left of its wave goes, its doors open, and it locks again when the robot comes back in. */

@@ -1300,6 +1300,23 @@ down there counts as ground to come back to after a fall.
 | The shaft | three tiles across, 18 to 22 deep, with a flier over it in most | `SECTIONS.trove` in `sequel/src/build.js` |
 | The way out | the drain (a shield), or a wormhole end left up top | `noSafe` in `sequel/src/player.js` |
 
+Three other levels from the third to the tenth (the third, fourth and ninth)
+hold a lair: a cave under the path, 38 tiles by 15, more than three times the
+size of the biggest ambush room, got into through a tunnel in the foot of a
+step behind a cracked panel, as a cache is. The path climbs over it in two
+steps and drops back down past it, so nothing on the way on needs it. Until
+the panel breaks the cave is painted over as solid, and nothing in it stirs
+or shows. Behind it wait seven to nine of the level's enemies, walkers on the
+floor and fliers over them, and when the last of them falls a shield and four
+power-ups drop. Ledges zig-zag up the near wall back to the tunnel.
+
+| Lair | What it is | Source |
+| --- | --- | --- |
+| Which levels | three of the third to the tenth, none with a trove, picked by a fixed seed | `LAIR_LEVELS` in `sequel/src/levels.js` |
+| The cave | 38 tiles across and 15 high, with five ledges; the path over it two steps up | `SECTIONS.lair` in `sequel/src/build.js` |
+| Its enemies | six plus a third of the level's number, from the level's own roster (none only a folded charge touches), asleep until the panel breaks | `lairFoes` in `sequel/src/levels.js`, `sealed` in `sequel/src/game.js` |
+| The hoard | a shield, a Titan, a Trident, a Longwave and a Hammer, for each player | `stepLairs`, same file |
+
 Each palette leans on the level's own pieces, and every level from the
 second holds three to five puzzles of at least two kinds (no more than two
 of one kind from the seeded run). A jump over a pit is rarely a jump with
@@ -1473,6 +1490,7 @@ moving, the burst, the boss fights, and every level:
 | Puzzles | every puzzle in every level is solved in the real game: wormhole ends aimed and stepped through, a vault's switch hit through a wormhole, and every other switch hit by a shot found by flying the charge's own physics (banks and black holes included), a timed door run through before it shuts. No level with a puzzle can be crossed without solving it; a chimney's switch is out of every straight line, and an orbit's out of every shot without its black hole | `sequel/tools/solve.mjs` |
 | Timing | every blinking stretch is crossed with the clock running: from each place it stands, the robot waits a beat at a time and jumps, while the platforms blink | `sequel/tools/timed.mjs` |
 | Secrets | each level hides its secrets no more plainly than the one before; every cover breaks under fire and its prize is out of sight until then, then found and taken; every loft's wall is in sight from its own floor and a wormhole puts the robot up; a hidden sky ledge is off the top of the screen and its spring still reaches it | `sequel/test/secrets.test.js` |
+| Lairs | three of them, none in a trove's level; each more than three times the biggest ambush room, with more enemies than a wave; asleep and unseen until its panel breaks; cleared, its hoard drops; its floor climbs back out to the tunnel, and with its panel left standing the path past it is still reached | `sequel/test/lairs.test.js` |
 | Troves | three of them, each a pit from above; the fall costs nothing, the wall at the foot breaks, the loot is all there, the drain puts the robot back at the rim for a shield, and a wormhole end at the rim gets it out for free | `sequel/test/troves.test.js` |
 | Bosses | every boss is beaten in the real game by a robot that aims well | `sequel/tools/fight.mjs` |
 | Lengths | each level's estimate sits in its band | `sequel/test/levels.test.js` |

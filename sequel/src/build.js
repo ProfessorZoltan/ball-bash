@@ -76,6 +76,7 @@ class Builder {
       doors: [], // shut until a switch opens them: { id, x, y0, y1 }
       veils: [], // paint over a secret's hollow as solid until its cover (a crate) breaks: { x, y, w, h, probe, until, style }
       noSafe: [], // places whose ground is never where a fall puts you back: { x0, x1, y0, y1 }
+      lairs: [], // caves behind a cover, their enemies asleep until it breaks: { x0, x1, top, floor, cover, reward, mouth }
       switches: [], // a charge flips one: { x, y, doors: [id], hold? }
     };
     this.minY = this.y;
@@ -214,7 +215,8 @@ class Builder {
     const size = opts.size ?? 1;
     const r = k.r * size;
     const grounded = ['walk', 'run', 'jump', 'still'].includes(opts.move || k.move) && !opts.up;
-    const floorY = this.floorAt(x) ?? opts.floorY ?? this.y;
+    // `floor` is the floor it stands over when that is under another (a cave under the path).
+    const floorY = opts.floor ?? this.floorAt(x) ?? opts.floorY ?? this.y;
     let y = grounded ? floorY - r - 1 : floorY - (opts.up ?? 3) * T;
     // A flier that would start inside a block (a brick row, a roof) is moved down, then up, until it is clear.
     if (!grounded) {
@@ -227,7 +229,7 @@ class Builder {
         for (tries = 0; !free(y) && tries < 100; tries++) y -= 8;
       }
     }
-    this.bp.enemies.push({ kind, x, y, ...opts, up: undefined, floorY: undefined });
+    this.bp.enemies.push({ kind, x, y, ...opts, up: undefined, floorY: undefined, floor: undefined });
   }
 
   /** Enemies written as [kind, dx tiles, up tiles?, opts?] from section start x0. */
@@ -799,6 +801,57 @@ export const SECTIONS = {
    * under. Beyond it, a pillar's face. The only way through is a wormhole:
    * one end on that face, seen under the bulkhead, the other this side.
    */
+  /**
+   * A lair: a cave of its own under the path, more than three times the size
+   * of an ambush room, got into through a tunnel in the foot of a step behind
+   * a cracked cover, as a cache is. The path climbs over it in two steps and
+   * drops back down past it, so nothing on the way on needs it. The cave is
+   * painted over as solid, and nothing in it stirs, until the cover breaks;
+   * when the last of its enemies falls, a shield and a handful of power-ups
+   * drop. Ledges zig-zag up its near wall to the tunnel, the way back out.
+   * `e` are its enemies, [kind, dx, up, opts] from its near wall and floor;
+   * `ledges` its ledges, [dx, down, len] from the near wall and the tunnel's
+   * floor, the first two the way out.
+   */
+  lair(b, p) {
+    const x0 = b.x;
+    b.flat(p.lead ?? 6);
+    const F = b.y;
+    const xs = b.x;
+    const tl = 4; // the tunnel
+    const cw = p.w ?? 38;
+    const cd = p.depth ?? 10; // the cave's floor, below the tunnel's
+    const head = 5; // and its roof, above
+    const xc0 = xs + tl * T;
+    const xc1 = xc0 + cw * T;
+    const floor = F + cd * T;
+    const roof = F - head * T;
+    // Along the tunnel's floor, round the cave, back over the tunnel, and up the step over its mouth.
+    b.run.pts.push([xc0, F], [xc0, floor], [xc1, floor], [xc1, roof], [xc0, roof], [xc0, F - 2 * T], [xs, F - 2 * T], [xs, F - 4 * T], [xc0 - T, F - 4 * T], [xc0 - T, F - 7 * T]);
+    b.maxY = Math.max(b.maxY, floor);
+    b.x = xc0 - T;
+    b.y = F - 7 * T;
+    b.note();
+    b.flat(cw + 3);
+    const topEnd = b.x;
+    b.rise(-7);
+    b.flat(p.after ?? 4);
+    const over = [xs + 1.5 * T, F - 3 * T]; // the ground over the tunnel
+    const ci = b.cover(xs, F - 2 * T, 0.5 * T, 2 * T, Math.max(1, p.hide ?? 1), 'left', 'ground', over, [xs - T, F + T]);
+    b.veil(xs + 0.5 * T - 2, F - 2 * T - 14, (tl - 0.5) * T + 16, 2 * T + 28, over, ci);
+    b.veil(xc0 - 14, roof - 14, cw * T + 28, (cd + head) * T + 28, [xc1 + T, roof], ci);
+    const ledges = p.ledges || [[1, 3, 4], [6, 6.5, 4], [14, 6.5, 6], [22, 3, 5], [30, 6.5, 5]];
+    for (const [dx, down, len] of ledges) b.thin(xc0 + dx * T, xc0 + (dx + len) * T, F + down * T);
+    const li = b.bp.lairs.length;
+    for (const [kind, dx, up, opts] of p.e || []) b.enemy(kind, xc0 + dx * T, { ...(opts || {}), up: up || undefined, floor, lair: li });
+    const reward = p.reward || ['shield', 'big', 'triple', 'durable', 'strong'];
+    b.bp.lairs.push({ x0: xc0, x1: xc1, top: roof, floor, cover: ci, reward, mouth: { x: xs, y: F } });
+    b.bp.secrets.push({ x0: xc0, x1: xc1, y0: roof, y1: floor });
+    b.enemies(p.top, xc0, F - 7 * T);
+    b.decorate(xc0, topEnd, F - 7 * T);
+    b.enemies(p.before, x0, F);
+  },
+
   bulkhead(b, p) {
     const x0 = b.x;
     b.flat(p.run ?? 6);
@@ -1131,7 +1184,7 @@ export function buildLevel(def) {
 export function estimateSeconds(bp) {
   const arenaW = bp.arena ? bp.arena.x1 - bp.arena.x0 + 600 : 0;
   let s = (bp.width - arenaW) / (2.6 * T);
-  s += bp.enemies.length * 1.1;
+  s += bp.enemies.filter((e) => e.lair == null).length * 1.1; // a lair's are for those who find it
   for (const sec of bp.sections) {
     s += Math.abs(sec.y1 - sec.y0) / (4 * T); // climbing and dropping
     if (['gap', 'trove', 'plats', 'mover', 'well', 'fount', 'phase', 'spikes'].includes(sec.type)) s += 2.5;

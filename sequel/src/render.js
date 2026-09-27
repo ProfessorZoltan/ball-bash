@@ -639,7 +639,7 @@ export class Renderer {
     for (const h of game.hazards) drawHazard(ctx, h, t, this.low);
     // Enemies.
     for (const e of game.enemies) {
-      if (e.dead || !within(e.x, e.y)) continue;
+      if (e.dead || !within(e.x, e.y) || (game.sealed && game.sealed(e))) continue;
       drawEnemy(ctx, e, t, alpha, this.low);
     }
     // The boss.
@@ -718,7 +718,7 @@ export class Renderer {
     for (const c of game.checkpoints) if (!c.hidden) hole(c.x, c.y - 40, c.on ? 200 : 90);
     for (const p of openPortals(game.world)) hole(p.cx, p.cy, 140);
     for (const w of game.world.wells) if (w.fount) hole(w.x, w.y, 200);
-    for (const e of game.enemies) if (!e.dead && (e.kind === 'wisp' || e.kind === 'drifter' || e.kind === 'urchin')) hole(e.x, e.y, 90);
+    for (const e of game.enemies) if (!e.dead && !game.sealed(e) && (e.kind === 'wisp' || e.kind === 'drifter' || e.kind === 'urchin')) hole(e.x, e.y, 90);
     if (game.boss && !game.boss.dead) hole(game.boss.x, game.boss.y, 240);
     if (game.exit) hole(game.exit.x, game.exit.y, 240);
     for (const sg of game.bp.signs) hole(sg.x, sg.y - 60, 120);

@@ -717,13 +717,41 @@ function choose(list, n, seed) {
 /** The three levels, of the fourth to the tenth, with a trove: a pit that is not one (see SECTIONS.trove). */
 export const TROVE_LEVELS = choose([4, 5, 6, 7, 8, 9, 10], 3, 4242);
 
-/** A level's own set pieces, and those the game gives it (a trove), in the order they come. */
+/** The three levels, of the third to the tenth and none with a trove, with a lair: a cave behind a cover (see SECTIONS.lair). */
+export const LAIR_LEVELS = choose([3, 4, 5, 6, 7, 8, 9, 10].filter((id) => !TROVE_LEVELS.includes(id)), 3, 5151);
+
+/**
+ * A lair's enemies, across a cave `w` tiles wide: walkers on its floor and
+ * fliers over them by turns, more the later the level. None only a folded
+ * charge can touch: a lair is a fight, not a puzzle.
+ */
+function lairFoes(rng, L, w) {
+  const plain = (list) => Object.fromEntries(Object.entries(list).filter(([k]) => !KINDS[k].folded));
+  const ground = plain(L.ground);
+  const air = plain(Object.fromEntries(Object.entries(L.roster).filter(([k]) => ['fly', 'zigzag', 'swoop'].includes(KINDS[k].move))));
+  const n = 6 + Math.floor(L.id / 3);
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const up = i % 2 === 1 && Object.keys(air).length > 0;
+    const kind = pickW(rng, up ? air : ground);
+    const dx = 9 + ((w - 12) * (i + 0.5)) / n;
+    const opts = KINDS[kind].move === 'fly' ? { range: 160 } : {};
+    out.push([kind, Math.round(dx * 2) / 2, up ? 3 + Math.floor(rng() * 5) : 0, opts]);
+  }
+  return out;
+}
+
+/** A level's own set pieces, and those the game gives it (a trove, a lair), in the order they come. */
 function featuresOf(L) {
   const out = [...(L.features || [])];
   if (TROVE_LEVELS.includes(L.id)) {
     const rng = seeded(L.seed * 31 + 7);
     const flier = flierOf(rng, L);
     out.push({ at: 0.25 + rng() * 0.4, sections: [['trove', { w: 3, depth: 18 + Math.floor(rng() * 5), hide: L.hide, e: rng() < 0.6 ? [[flier, 4.5, 3.5, { range: 100 }]] : [] }]] });
+  }
+  if (LAIR_LEVELS.includes(L.id)) {
+    const rng = seeded(L.seed * 37 + 11);
+    out.push({ at: 0.4 + rng() * 0.35, sections: [['lair', { hide: L.hide, e: lairFoes(rng, L, 38) }]] });
   }
   return out.sort((a, b) => a.at - b.at);
 }
