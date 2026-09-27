@@ -1433,6 +1433,7 @@ export class Game {
       bot.vy = -420;
       bot.onGround = false;
       bot.rising = false;
+      bot.flung = false;
     }
   }
 

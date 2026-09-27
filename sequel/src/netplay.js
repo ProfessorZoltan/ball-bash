@@ -291,7 +291,7 @@ const BOSS_SKIP = new Set(['def', 'A', 'parts', 'prevX', 'prevY']);
 /** A robot's whole state: enough for a guest to carry on its physics from exactly there. */
 function robotState(pl) {
   const b = pl.bot;
-  const flags = (b.onGround ? 1 : 0) | (b.rising ? 2 : 0) | (pl.out ? 4 : 0) | (b.warped ? 8 : 0);
+  const flags = (b.onGround ? 1 : 0) | (b.rising ? 2 : 0) | (pl.out ? 4 : 0) | (b.warped ? 8 : 0) | (b.flung ? 16 : 0);
   return [
     pl.slot,
     b.x,
@@ -345,6 +345,7 @@ function applyRobot(pl, a, world, physics) {
   b.onGround = !!(a[5] & 1);
   b.rising = !!(a[5] & 2);
   b.warped = !!(a[5] & 8);
+  b.flung = !!(a[5] & 16);
   b.aim = a[6];
   b.coyote = a[13];
   b.buffer = a[14];

@@ -802,13 +802,13 @@ export const SECTIONS = {
    * one end on that face, seen under the bulkhead, the other this side.
    */
   /**
-   * A lair: a cave of its own under the path, more than three times the size
-   * of an ambush room, got into through a tunnel in the foot of a step behind
+   * A lair: a cave of its own under the path, 42 tiles by 16, more than three
+   * times the size of any ambush room, got into through a tunnel in the foot of a step behind
    * a cracked cover, as a cache is. The path climbs over it in two steps and
    * drops back down past it, so nothing on the way on needs it. The cave is
    * painted over as solid, and nothing in it stirs, until the cover breaks;
    * when the last of its enemies falls, a shield and a handful of power-ups
-   * drop. Ledges zig-zag up its near wall to the tunnel, the way back out.
+   * drop. Ledges climb its near wall to the tunnel, the way back out.
    * `e` are its enemies, [kind, dx, up, opts] from its near wall and floor;
    * `ledges` its ledges, [dx, down, len] from the near wall and the tunnel's
    * floor, the first two the way out.
@@ -819,8 +819,8 @@ export const SECTIONS = {
     const F = b.y;
     const xs = b.x;
     const tl = 4; // the tunnel
-    const cw = p.w ?? 38;
-    const cd = p.depth ?? 10; // the cave's floor, below the tunnel's
+    const cw = p.w ?? 42;
+    const cd = p.depth ?? 11; // the cave's floor, below the tunnel's
     const head = 5; // and its roof, above
     const xc0 = xs + tl * T;
     const xc1 = xc0 + cw * T;
@@ -840,7 +840,7 @@ export const SECTIONS = {
     const ci = b.cover(xs, F - 2 * T, 0.5 * T, 2 * T, Math.max(1, p.hide ?? 1), 'left', 'ground', over, [xs - T, F + T]);
     b.veil(xs + 0.5 * T - 2, F - 2 * T - 14, (tl - 0.5) * T + 16, 2 * T + 28, over, ci);
     b.veil(xc0 - 14, roof - 14, cw * T + 28, (cd + head) * T + 28, [xc1 + T, roof], ci);
-    const ledges = p.ledges || [[1, 3, 4], [6, 6.5, 4], [14, 6.5, 6], [22, 3, 5], [30, 6.5, 5]];
+    const ledges = p.ledges || [[1, 3, 4], [6, 6.5, 4], [11, 8.5, 4], [16, 5.5, 6], [24, 3, 5], [30, 7, 5], [36, 8.5, 4]];
     for (const [dx, down, len] of ledges) b.thin(xc0 + dx * T, xc0 + (dx + len) * T, F + down * T);
     const li = b.bp.lairs.length;
     for (const [kind, dx, up, opts] of p.e || []) b.enemy(kind, xc0 + dx * T, { ...(opts || {}), up: up || undefined, floor, lair: li });
@@ -859,15 +859,17 @@ export const SECTIONS = {
     const floorY = b.y;
     const gap = (p.gap ?? 1.3) * T; // 52 px: easy to see and shoot under, and still short of the robot's 60
     const tall = (p.tall ?? 11) * T;
-    b.flat(2);
-    b.solid(wx, floorY - tall, 2 * T, tall - gap, 'bulkhead');
+    const thick = p.thick ?? 2; // the thicker, the narrower the band of lines through the gap
+    b.flat(thick);
+    b.solid(wx, floorY - tall, thick * T, tall - gap, 'bulkhead');
+    if (p.drop) b.rise(-p.drop); // the room beyond sunk below the floor you came on
     b.flat(p.room ?? 6);
     const px = b.x;
     b.rise(p.pillar ?? 3);
     b.flat(2);
     b.rise(-(p.pillar ?? 3));
     b.flat(p.after ?? 4);
-    b.bp.portalLinks.push({ kind: 'bulkhead', from: { x: wx - 60, y: floorY }, to: { x: wx + 2 * T + 60, y: floorY }, wall: wx, face: px });
+    b.bp.portalLinks.push({ kind: 'bulkhead', from: { x: wx - 60, y: floorY }, to: { x: wx + thick * T + 60, y: floorY + (p.drop ?? 0) * T }, wall: wx, thick: thick * T, face: px });
     b.enemies(p.e, x0);
   },
 
@@ -881,13 +883,13 @@ export const SECTIONS = {
     b.flat(p.run ?? 4);
     const near = b.x;
     const floorY = b.y;
-    b.gap(p.w ?? 14, 0);
+    b.gap(p.w ?? 14, p.farUp ?? 0);
     const far = b.x;
     b.flat(p.land ?? 7);
     const wall = b.x;
     b.rise(p.up ?? 4);
     b.flat(p.after ?? 4);
-    b.bp.portalLinks.push({ kind: 'chasm', from: { x: near - 60, y: floorY }, to: { x: far + 80, y: floorY }, wall });
+    b.bp.portalLinks.push({ kind: 'chasm', from: { x: near - 60, y: floorY }, to: { x: far + 80, y: floorY - (p.farUp ?? 0) * T }, wall });
     b.enemies(p.e, x0, floorY);
   },
 
@@ -976,26 +978,53 @@ export const SECTIONS = {
    * A vault: a door shut across a corridor under a low roof, and the switch
    * that opens it sealed in a glass box on the floor before it. You can see
    * in; no charge can get in. One wormhole end on the vault's back wall, seen
-   * through the glass, the other on the roof over your head: fire up into it,
-   * and the charge comes out in the vault, straight at the switch.
+   * through the glass, the other where a charge of yours can go into it: on
+   * the roof over your head (`via` 'roof'), on a lintel hung behind you
+   * ('behind'), or in the floor ('floor'), the roof over you glass for those
+   * two. Fire into it, and the charge comes out in the vault at the switch.
+   * With `slant` the back wall's foot is a launch ramp facing up and back at
+   * the glass, and the switch hangs by the glass under the lid: only a charge
+   * thrown up off the ramp gets to it. `inner` is the vault's depth.
    */
   vault(b, p) {
     b.flat(p.run ?? 2);
     const x0 = b.x;
     const floorY = b.y;
     const roof = 5.5 * T;
+    const via = p.via || 'roof';
+    const inner = p.inner ?? 3.5;
     b.flat(p.stand ?? 6);
     const vx = b.x; // the glass front
-    b.flat(5); // half a tile of glass, three and a half inside, a tile of back wall
+    b.flat(0.5 + inner + 1); // the glass, the inside, the back wall
     const dx = b.x + T;
     b.flat(3 + (p.after ?? 4));
-    b.solid(x0, floorY - roof - T, dx + 2 * T - x0, T, 'block');
+    const bw = vx + (0.5 + inner) * T; // the back wall's inside face
+    if (via === 'roof') b.solid(x0, floorY - roof - T, dx + 2 * T - x0, T, 'block');
+    else {
+      // Glass over the way in, which holds no end: the other end goes behind you, or in the floor.
+      b.solid(x0, floorY - roof - T, vx - x0, T, 'window');
+      b.solid(vx, floorY - roof - T, dx + 2 * T - vx, T, 'block');
+      if (via === 'behind') b.solid(x0, floorY - roof, T, roof - 2 * T, 'block');
+    }
     b.solid(vx, floorY - 3.5 * T, 0.5 * T, 3.5 * T, 'window');
-    b.solid(vx + 0.5 * T, floorY - 3.5 * T, 4.5 * T, 0.5 * T, 'block'); // the lid, over the back wall too
-    b.solid(vx + 4 * T, floorY - 3 * T, T, 3 * T, 'block'); // the back wall: its face is the vault's inside, no more
+    b.solid(vx + 0.5 * T, floorY - 3.5 * T, (inner + 1) * T, 0.5 * T, 'block'); // the lid, over the back wall too
+    let sw = { x: vx + (0.5 + inner / 2) * T, y: floorY - 1.5 * T };
+    let ramp = null;
+    if (!p.slant) b.solid(bw, floorY - 3 * T, T, 3 * T, 'block'); // the back wall: its face is the vault's inside, no more
+    else {
+      // Over the ramp, only a tile of the back wall shows: too little to hold an end.
+      const h = 2 * T;
+      const len = Math.hypot(h, h);
+      b.solid(bw, floorY - 3 * T, T, T, 'block');
+      b.solid(bw, floorY - h, T, h, 'block');
+      ramp = [bw - h, floorY, bw, floorY - h, -h / len, -h / len];
+      b.bp.solids.push({ pts: [[bw - h, floorY], [bw, floorY - h], [bw, floorY]], kind: 'ramp', face: ramp });
+      // Up the ramp's face from its middle, and short of the lid.
+      sw = { x: bw - T - 1.5 * T, y: floorY - T - 1.5 * T };
+    }
     const id = b.door(dx, floorY - roof, floorY);
-    b.bp.switches.push({ x: vx + 2.25 * T, y: floorY - 1.5 * T, doors: [id] });
-    b.bp.portalLinks.push({ kind: 'vault', from: { x: vx - 2 * T, y: floorY }, to: { x: dx + 2 * T, y: floorY }, stand: vx - 2 * T, wall: vx + 4 * T, door: id });
+    b.bp.switches.push({ x: sw.x, y: sw.y, doors: [id] });
+    b.bp.portalLinks.push({ kind: 'vault', from: { x: vx - 2 * T, y: floorY }, to: { x: dx + 2 * T, y: floorY }, stand: vx - 2 * T, wall: bw, ramp, via, door: id });
     b.enemies(p.e, x0);
   },
 
@@ -1009,23 +1038,26 @@ export const SECTIONS = {
     b.flat(p.run ?? 2);
     const x0 = b.x;
     const floorY = b.y;
-    const roof = 5 * T;
+    const roof = (p.roof ?? 5) * T;
+    const spikes = p.spikes ?? 4;
+    const H = (p.height ?? 4) * T; // the chimney, from the roof's top to its cap
     b.flat(p.stand ?? 5);
     const sx = b.x;
-    b.spikeBed(4);
-    const cx = sx + 2 * T;
+    b.spikeBed(spikes);
+    const cx = sx + (spikes / 2) * T;
     b.flat(4);
     const dx = b.x;
     b.flat(2 + (p.after ?? 4));
-    const half = 0.75 * T;
+    const half = (p.half ?? 0.75) * T;
+    const top = floorY - roof - T - H;
     b.solid(x0, floorY - roof - T, cx - half - x0, T, 'block');
     b.solid(cx + half, floorY - roof - T, dx + 2 * T - cx - half, T, 'block');
-    b.solid(cx - half - 0.5 * T, floorY - roof - 5 * T, 0.5 * T, 4 * T, 'block');
-    b.solid(cx + half, floorY - roof - 5 * T, 0.5 * T, 4 * T, 'block');
-    b.solid(cx - half - 0.5 * T, floorY - roof - 5.5 * T, 2 * half + T, 0.5 * T, 'block');
+    b.solid(cx - half - 0.5 * T, top, 0.5 * T, H, 'block');
+    b.solid(cx + half, top, 0.5 * T, H, 'block');
+    b.solid(cx - half - 0.5 * T, top - 0.5 * T, 2 * half + T, 0.5 * T, 'block');
     const id = b.door(dx, floorY - roof, floorY);
-    b.bp.switches.push({ x: cx, y: floorY - roof - 5 * T + 20, doors: [id] });
-    b.bp.portalLinks.push({ kind: 'chimney', from: { x: sx - 2 * T, y: floorY }, to: { x: dx + 2 * T, y: floorY }, stands: [sx - 2 * T, sx - T, sx, sx + 4 * T, sx + 5 * T, sx + 6 * T], aim: [-Math.PI + 0.2, -0.2], door: id });
+    b.bp.switches.push({ x: cx, y: top + 20, doors: [id] });
+    b.bp.portalLinks.push({ kind: 'chimney', from: { x: sx - 2 * T, y: floorY }, to: { x: dx + 2 * T, y: floorY }, stands: [sx - 2 * T, sx - T, sx, sx + spikes * T, sx + (spikes + 1) * T, sx + (spikes + 2) * T], aim: [-Math.PI + 0.2, -0.2], door: id });
     b.enemies(p.e, x0);
   },
 
@@ -1055,15 +1087,16 @@ export const SECTIONS = {
   },
 
   /**
-   * A door across the way under a low roof, and its switch in plain sight on
-   * the roof `at` tiles before it: shoot it. With `hold`, the door only stays
-   * open that many seconds: shoot, then run.
+   * A door across the way under a low roof (`roof` tiles, never so low that a
+   * running jump gets on top), and its switch in plain sight on the roof `at`
+   * tiles before it: shoot it. With `hold`, the door only stays open that
+   * many seconds: shoot, then run.
    */
   switchdoor(b, p) {
     b.flat(p.run ?? 2);
     const x0 = b.x;
     const floorY = b.y;
-    const roof = 5 * T;
+    const roof = (p.roof ?? 5) * T;
     b.flat(p.stand ?? 8);
     const dx = b.x;
     b.flat(2 + (p.after ?? 4));
@@ -1074,6 +1107,83 @@ export const SECTIONS = {
     const near = [dx - (at + 4) * T, dx - (at + 2) * T].filter((x) => x > x0 + T);
     b.bp.portalLinks.push({ kind: 'switch', from: { x: dx - 5 * T, y: floorY }, to: { x: dx + 2 * T, y: floorY }, stands: near.length ? near : [x0 + 2 * T], aim: [-Math.PI + 0.1, -0.1], door: id });
     b.enemies(p.e, x0);
+  },
+
+  /**
+   * A launch: a chasm no jump crosses, to a ledge `up` tiles higher than the
+   * way you came, with no face toward you that an end would do any good on.
+   * Before it, a launch ramp on the floor: a wedge `h` tiles high whose face
+   * slants down toward the chasm, `slope` tiles across for each one down.
+   * From the pad between the ramp and the chasm its face is in sight: an end
+   * on it, the other in the pad at your feet, and the ramp throws you across.
+   */
+  launch(b, p) {
+    const x0 = b.x;
+    b.flat(p.run ?? 8);
+    const F = b.y;
+    const h = (p.h ?? 2) * T;
+    const k = p.slope ?? 1;
+    const wx = b.x + T;
+    b.flat(1 + ((p.h ?? 2) * k) + (p.pad ?? 3));
+    const lip = b.x;
+    const up = p.up ?? 4;
+    b.gap(p.w ?? 11, up);
+    const far = b.x;
+    b.flat(p.land ?? 8);
+    const len = Math.hypot(h * k, h);
+    const face = [wx, F - h, wx + h * k, F, h / len, -(h * k) / len];
+    b.bp.solids.push({ pts: [[wx, F - h], [wx + h * k, F], [wx, F]], kind: 'ramp', face });
+    b.minY = Math.min(b.minY, F - h);
+    b.bp.portalLinks.push({ kind: 'launch', from: { x: lip - T, y: F }, to: { x: far + 2 * T, y: F - up * T }, stand: wx + h * k + 1.5 * T, far, ramp: face });
+    b.enemies(p.e, x0, F);
+  },
+
+  /**
+   * A relay: two rooms under one high roof, each got into only by wormhole,
+   * through a doorway too high to jump to that a timed switch opens. Shoot
+   * the first switch, on the outer wall; while its door is open, put an end
+   * up through the doorway on the first room's roof and the other at your
+   * feet, and drop in. The second switch is on the inside of that wall; its
+   * doorway, in the far wall, is no higher than the first's sill, so no line
+   * from outside passes both. Shoot it, and go through the second doorway
+   * the same way, into the second room, open on the far side to the way on.
+   * Heights in tiles over the floor: `d1` and `d2` the doorways, `ceil` the
+   * rooms' roof; `s1` and `s2` the switches' heights on their walls.
+   */
+  relay(b, p) {
+    const x0 = b.x;
+    b.flat(p.run ?? 10);
+    const F = b.y;
+    const thick = T;
+    const topH = 13;
+    const ceilH = p.ceil ?? 10;
+    const d1 = p.d1 ?? [6.5, 7.75]; // shorter than the robot: nothing but a line of sight or a charge goes through
+    const d2 = p.d2 ?? [5, 6.25];
+    const w1 = b.x;
+    const w2 = w1 + thick + (p.room1 ?? 10) * T;
+    const w3 = w2 + thick + (p.room2 ?? 10) * T;
+    b.flat((w3 - w1) / T + (p.after ?? 4));
+    const y = (h) => F - h * T;
+    // The walls, each in two round its doorway, and the roof over both rooms.
+    b.solid(w1, y(d1[0]), thick, d1[0] * T, 'block');
+    b.solid(w1, y(topH), thick, (topH - d1[1]) * T, 'block');
+    b.solid(w2, y(d2[0]), thick, d2[0] * T, 'block');
+    b.solid(w2, y(ceilH), thick, (ceilH - d2[1]) * T, 'block');
+    b.solid(w1 + thick, y(topH), w3 - w1 - thick, (topH - ceilH) * T, 'block');
+    const id1 = b.door(w1 + thick / 2, y(d1[1]), y(d1[0]));
+    const id2 = b.door(w2 + thick / 2, y(d2[1]), y(d2[0]));
+    b.bp.switches.push({ x: w1 - 18, y: y(p.s1 ?? 3), doors: [id1], hold: p.hold1 ?? 6 });
+    b.bp.switches.push({ x: w1 + thick + 18, y: y(p.s2 ?? 1.5), doors: [id2], hold: p.hold2 ?? 6 });
+    b.bp.portalLinks.push({
+      kind: 'relay',
+      from: { x: w1 - 4 * T, y: F },
+      to: { x: w2 + thick + 2 * T, y: F },
+      stands: [w1 - 9 * T, w1 - 7 * T, w1 - 5 * T],
+      rooms: [w1 + thick, w2, w2 + thick, w3],
+      door: id1,
+      door2: id2,
+    });
+    b.enemies(p.e, x0, F);
   },
 
   /**
@@ -1199,6 +1309,8 @@ export function estimateSeconds(bp) {
     if (sec.type === 'skylight' || sec.type === 'vault') s += 14;
     if (sec.type === 'chimney' || sec.type === 'orbit') s += 10;
     if (sec.type === 'switchdoor') s += 4;
+    if (sec.type === 'relay') s += 20; // two doors, two wormholes, against the clock
+    if (sec.type === 'launch') s += 12;
   }
   return s;
 }

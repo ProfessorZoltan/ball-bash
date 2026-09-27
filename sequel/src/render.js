@@ -825,6 +825,50 @@ function drawSolid(g, sd, th, low) {
     g.shadowBlur = 0;
     return;
   }
+  if (kind === 'ramp') {
+    // A launch ramp: plated, its face lit, and chevrons in it pointing the way it throws.
+    const [ax, ay, bx, by, nx, ny] = sd.face;
+    g.fillStyle = mix(th.ground, '#7fe9ff', 0.14);
+    g.fill();
+    g.save();
+    g.clip();
+    const len = Math.hypot(bx - ax, by - ay);
+    const tx = (bx - ax) / len;
+    const ty = (by - ay) / len;
+    g.strokeStyle = 'rgba(127, 233, 255, 0.4)';
+    g.lineWidth = 3;
+    g.beginPath();
+    for (let depth = 16; depth < 90; depth += 26) {
+      for (let s = 18 + (depth % 2) * 10; s < len - 12; s += 30) {
+        const cx = ax + tx * s - nx * depth;
+        const cy = ay + ty * s - ny * depth;
+        g.moveTo(cx - tx * 8 - nx * 8, cy - ty * 8 - ny * 8);
+        g.lineTo(cx, cy);
+        g.lineTo(cx + tx * 8 - nx * 8, cy + ty * 8 - ny * 8);
+      }
+    }
+    g.stroke();
+    g.restore();
+    g.beginPath();
+    g.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]);
+    g.closePath();
+    g.strokeStyle = mix(th.edge, '#7fe9ff', 0.5);
+    g.lineWidth = 2;
+    g.stroke();
+    g.beginPath();
+    g.moveTo(ax, ay);
+    g.lineTo(bx, by);
+    g.strokeStyle = '#bff6ff';
+    g.lineWidth = 3.5;
+    if (!low) {
+      g.shadowColor = '#7fe9ff';
+      g.shadowBlur = 14;
+    }
+    g.stroke();
+    g.shadowBlur = 0;
+    return;
+  }
   if (kind === 'bulkhead') {
     // A bulkhead: hazard-striped, so it reads as a wall nothing climbs or breaks.
     const b = sd.bbox;
@@ -1548,7 +1592,8 @@ function drawGuide(ctx, lines, color, scale) {
  */
 function drawSight(ctx, s, t, scale, color = ROBOT.color) {
   const line = s.line;
-  if (!line.hit) return;
+  // Nothing in reach (WORM.maxLen, two screens): the same cross as a surface that holds no end, where the reach runs out.
+  if (!line.hit && !line.short) return;
   if (s.place) {
     const p = s.place;
     ctx.save();

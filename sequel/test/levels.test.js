@@ -3,7 +3,7 @@
 // campaign asks for, and nothing starts inside a wall.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { LEVEL_DEFS, level, TIER_SECONDS, THEMES } from '../src/levels.js';
+import { LEVEL_DEFS, level, TIER_SECONDS, SOFT_CAP, THEMES } from '../src/levels.js';
 import { estimateSeconds, LIMITS, buildLevel } from '../src/build.js';
 import { createWorld, segmentsNear } from '../src/world.js';
 import { circleVsCapsule, capsuleVsCapsule, pointInPolygon } from '../../src/physics.js';
@@ -26,14 +26,25 @@ for (const L of LEVEL_DEFS) {
   });
 }
 
-test('early levels run 3 to 5 minutes before the boss, middle ones 4 to 8, late ones 8 to 15', () => {
+test('early levels run 3 to 5 minutes before the boss, middle ones 4 to 8, late ones 8 to 15, the tops soft', () => {
   const tiers = LEVEL_DEFS.map((l) => l.tier);
   assert.deepEqual(tiers, ['early', 'early', 'early', 'mid', 'mid', 'mid', 'mid', 'late', 'late', 'late']);
   for (const L of LEVEL_DEFS) {
     const s = estimateSeconds(level(L.id));
     const [lo, hi] = TIER_SECONDS[L.tier];
-    assert.ok(s >= lo && s <= hi, `${L.title}: about ${(s / 60).toFixed(1)} min, not ${lo / 60} to ${hi / 60}`);
+    assert.ok(s >= lo && s <= hi * SOFT_CAP, `${L.title}: about ${(s / 60).toFixed(1)} min, not ${lo / 60} to ${hi / 60} (or a tenth over)`);
   }
+});
+
+test('the estimate counts only the way through: a lair, a trove or a secret adds nothing to it', () => {
+  const plain = buildLevel({ id: 98, boss: 'gardener', theme: {}, sections: [['flat', { len: 20, deco: false }]] });
+  const withLair = buildLevel({ id: 98, boss: 'gardener', theme: {}, sections: [['flat', { len: 20, deco: false }], ['lair', { e: [['skitter', 12], ['skitter', 20], ['drifter', 16, 4]] }]] });
+  const lair = withLair.sections.find((s) => s.type === 'lair');
+  const walk = (lair.x1 - lair.x0) / (2.6 * 40);
+  assert.ok(Math.abs(estimateSeconds(withLair) - estimateSeconds(plain) - walk) < 1, 'a lair: only the walk over it');
+  const withTrove = buildLevel({ id: 98, boss: 'gardener', theme: {}, sections: [['flat', { len: 20, deco: false }], ['trove', {}]] });
+  const trove = withTrove.sections.find((s) => s.type === 'trove');
+  assert.ok(Math.abs(estimateSeconds(withTrove) - estimateSeconds(plain) - (trove.x1 - trove.x0) / (2.6 * 40) - 2.5) < 1, 'a trove: the jump across it, as a pit');
 });
 
 test('every gap a level asks the robot to jump is one it can', () => {

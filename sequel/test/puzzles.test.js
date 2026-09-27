@@ -10,7 +10,8 @@ import { sightLine, placeEnd } from '../src/wormholes.js';
 import { Robot, stepRobot } from '../src/player.js';
 import { Charge, stepCharge } from '../src/blaster.js';
 import { Game } from '../src/game.js';
-import { LEVEL_DEFS, level } from '../src/levels.js';
+import { LEVEL_DEFS, level, levelDef } from '../src/levels.js';
+import { VARIANTS, kindOf, signature } from '../src/variants.js';
 import { BLASTER, ROBOT } from '../src/config.js';
 import { raycastSegments } from '../../src/physics.js';
 import { solve, shotHits } from '../tools/solve.mjs';
@@ -87,15 +88,36 @@ test('armoured glass: the line of sight goes through it, a charge bounces off it
   assert.ok(bot.x < 1500, 'and the robot is stopped by it');
 });
 
-test('a vault\'s switch is sealed in: no charge from anywhere before its door reaches it, bank or not', () => {
-  const bp = piece(112, ['vault', {}]);
-  const link = bp.portalLinks[0];
-  const g = new Game(bp, { shields: Infinity });
-  const sw = g.world.switches[0];
-  for (let x = link.from.x - 5 * 40; x <= link.from.x; x += 80) {
-    g.bot.spawn(x, link.from.y - 31);
-    for (let i = 0; i < 30; i++) g.step(DT, { mx: 0 });
-    for (let a = -Math.PI; a < Math.PI; a += 0.01) assert.ok(!shotHits(g, a, sw), `a shot at ${a.toFixed(2)} from ${x} got in`);
+test('no puzzle in the game is the same as another: each takes a variant of its own', () => {
+  const seen = new Map();
+  let n = 0;
+  for (const L of LEVEL_DEFS) {
+    for (const s of levelDef(L).sections) {
+      const kind = kindOf(s);
+      if (!kind) continue;
+      const sig = signature(kind, s[1]);
+      assert.ok(!seen.has(sig), `level ${L.id}'s ${kind} is the same as level ${seen.get(sig)}'s: ${sig}`);
+      seen.set(sig, L.id);
+      n++;
+    }
+  }
+  assert.ok(n >= 40, `${n} puzzles`);
+  for (const [kind, list] of Object.entries(VARIANTS)) assert.equal(new Set(list.map((v) => signature(kind, v))).size, list.length, `no two of the ${kind} variants alike`);
+});
+
+test('every vault\'s switch is sealed in: no charge from anywhere before its door reaches it, bank or not', () => {
+  for (const L of LEVEL_DEFS) {
+    const bp = level(L.id);
+    for (const link of bp.portalLinks.filter((l) => l.kind === 'vault')) {
+      const g = new Game(bp, { shields: Infinity });
+      for (const e of g.enemies) e.dead = true;
+      const sw = g.world.switches.find((w) => w.doors.includes(link.door));
+      for (let x = link.from.x - 5 * 40; x <= link.from.x; x += 80) {
+        g.bot.spawn(x, link.from.y - 31);
+        for (let i = 0; i < 30; i++) g.step(DT, { mx: 0 });
+        for (let a = -Math.PI; a < Math.PI; a += 0.01) assert.ok(!shotHits(g, a, sw), `level ${L.id}: a shot at ${a.toFixed(2)} from ${x} got in`);
+      }
+    }
   }
 });
 
@@ -121,17 +143,67 @@ test('no straight line from anywhere you can stand reaches a chimney\'s switch',
 });
 
 test('without its black hole, no shot from before the door reaches an orbit\'s switch: it takes the curve', () => {
-  const bp = piece(113, ['orbit', {}]);
-  bp.wells = [];
-  const link = bp.portalLinks[0];
-  const g = new Game(bp, { shields: Infinity });
-  const sw = g.world.switches[0];
-  for (const x of link.stands) {
-    g.bot.spawn(x, link.from.y - 31);
-    for (let i = 0; i < 30; i++) g.step(DT, { mx: 0 });
-    for (let a = -Math.PI; a < 0; a += 0.004) assert.ok(!shotHits(g, a, sw), `a straight or banked shot at ${a.toFixed(3)} from ${x} reached it`);
+  for (const L of LEVEL_DEFS) {
+    for (const link of level(L.id).portalLinks.filter((l) => l.kind === 'orbit')) {
+      // The level without the orbit's own black hole.
+      const bp = { ...level(L.id), wells: level(L.id).wells.filter((w) => Math.abs(w.x - link.to.x) > 12 * 40) };
+      const g = new Game(bp, { shields: Infinity });
+      for (const e of g.enemies) e.dead = true;
+      const sw = g.world.switches.find((w) => w.doors.includes(link.door));
+      for (const x of link.stands) {
+        g.bot.spawn(x, link.from.y - 31);
+        for (let i = 0; i < 30; i++) g.step(DT, { mx: 0 });
+        for (let a = -Math.PI; a < 0; a += 0.004) assert.ok(!shotHits(g, a, sw), `level ${L.id}: a straight or banked shot at ${a.toFixed(3)} from ${x} reached it`);
+      }
+    }
   }
   assert.ok(solve(new Game(piece(113, ['orbit', {}]), { shields: Infinity }), piece(113, ['orbit', {}]).portalLinks[0]).ok, 'and with it, a shot does');
+});
+
+test('past a launch\'s chasm nothing holds an end placed from before it: the ramp is the way over', () => {
+  for (const L of LEVEL_DEFS) {
+    const bp = level(L.id);
+    for (const link of bp.portalLinks.filter((l) => l.kind === 'launch')) {
+      const g = new Game(bp, { shields: Infinity });
+      for (const e of g.enemies) e.dead = true;
+      const sec = bp.sections.find((s) => s.type === 'launch' && s.x1 > link.far);
+      for (let x = sec.x0 + 20; x < link.from.x + 40; x += 20) {
+        g.bot.spawn(x, link.from.y - 200);
+        for (let i = 0; i < 120 && !g.bot.onGround; i++) g.step(DT, { mx: 0 });
+        if (!g.bot.onGround) continue;
+        for (let a = -Math.PI; a < Math.PI; a += 0.005) {
+          g.bot.aim = a;
+          const p = placeEnd(g.world, g.sight(), 0);
+          assert.ok(!p || p.cx < link.far - 20 || p.ny > -0.7, `level ${L.id}: from ${Math.round(x)} an end goes on the far floor at ${Math.round(p && p.cx)}`);
+        }
+      }
+    }
+  }
+});
+
+test('no line from outside a relay passes both its doorways, open or not: the first room has to be got into', () => {
+  for (const L of LEVEL_DEFS) {
+    const bp = level(L.id);
+    for (const link of bp.portalLinks.filter((l) => l.kind === 'relay')) {
+      const g = new Game(bp, { shields: Infinity });
+      for (const e of g.enemies) e.dead = true;
+      for (const d of g.world.doors) if (d.id === link.door || d.id === link.door2) g.flipSwitch(g.world.switches.find((s) => s.doors.includes(d.id)));
+      const [, , b0, b1] = link.rooms;
+      for (const x of link.stands) {
+        g.bot.spawn(x, link.from.y - 31);
+        for (let i = 0; i < 30; i++) g.step(DT, { mx: 0 });
+        for (const lift of [0, 60, 120, 180]) {
+          g.bot.y -= lift;
+          for (let a = -Math.PI / 2; a < 0; a += 0.002) {
+            g.bot.aim = a;
+            const p = placeEnd(g.world, g.sight(), 0);
+            assert.ok(!p || p.cx < b0 || p.cx > b1, `level ${L.id}: from ${x}, ${lift} px up, an end goes in the second room`);
+          }
+          g.bot.y += lift;
+        }
+      }
+    }
+  }
 });
 
 test('a skylight cannot be climbed out of, and the face up through the hole is the way', () => {

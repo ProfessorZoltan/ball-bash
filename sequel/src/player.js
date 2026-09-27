@@ -38,6 +38,7 @@ export class Robot {
     this.coyote = 0;
     this.buffer = 0;
     this.rising = false;
+    this.flung = false; // thrown upward out of a wormhole: it rises light, as a held jump does
     this.dropHold = 0;
     this.dropping = 0;
     this.portalGrace = 0;
@@ -151,9 +152,10 @@ export function stepRobot(bot, it, world, dt, hooks = {}) {
     if (hooks.jump) hooks.jump();
   }
 
-  // Gravity, with Mario's two weights: light while jump is held on the way up.
+  // Gravity, with Mario's two weights: light while jump is held on the way up, or flung up out of a wormhole.
   if (!it.jump) bot.rising = false;
-  const g = bot.vy < 0 ? (bot.rising ? MOVE.gUp : MOVE.gCut) : MOVE.gFall;
+  if (bot.vy >= 0 || bot.onGround) bot.flung = false;
+  const g = bot.vy < 0 ? (bot.rising || bot.flung ? MOVE.gUp : MOVE.gCut) : MOVE.gFall;
   bot.vy += g * dt;
   if (pull) {
     if (!held) bot.vx += pull.ax * ROBOT_PULL * dt; // in the air nothing holds it
@@ -347,10 +349,12 @@ function portalStep(bot, world, hooks) {
     const { p, q } = mouth;
     const o = throughPortal(p, q, bot.x, bot.y, bot.vx, bot.vy);
     const from = { x: bot.x, y: bot.y };
-    const v = exitVelocity(q, o.vx, o.vy, isFloorEnd(q) ? WORM.floorExit : WORM.minExit);
+    const ramp = q.host && q.host.seg && q.host.seg.kind === 'ramp';
+    const v = exitVelocity(q, o.vx, o.vy, ramp ? WORM.launch : isFloorEnd(q) ? WORM.floorExit : WORM.minExit);
     // Floor to floor, the turn is half a circle and would send the robot back the way it came:
     // it keeps walking the way it was going instead, so it steps off the mouth it came out of.
-    if (isFloorEnd(p) && isFloorEnd(q)) v.vx = bot.vx;
+    // Out of a slant it goes the way the slant faces: that is a launch.
+    if (isFloorEnd(p) && isFloorEnd(q) && !ramp && Math.abs(q.nx) < 0.2) v.vx = bot.vx;
     bot.x = o.x;
     bot.y = o.y;
     bot.vx = v.vx;
@@ -360,6 +364,7 @@ function portalStep(bot, world, hooks) {
     bot.portalGrace = PORTAL.grace;
     bot.onGround = false;
     bot.rising = false;
+    bot.flung = v.vy < 0;
     bot.warped = true;
     if (hooks.warp) hooks.warp(from, { x: bot.x, y: bot.y }, p, q);
     mouth = bodyMouth(world, bot.x, bot.y, bot.r, bot.half);

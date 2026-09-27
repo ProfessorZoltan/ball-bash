@@ -1,10 +1,10 @@
 // The robot's wormholes. A pair, light (Q / LB) and dark (E / RB), exactly
 // Deflector's Wormhole Variant pair and built from the same parts in
 // src/portals.js: the same mouth, the same carve, the same crossing. What is
-// new is the aim. A wormhole has no range: its end goes wherever the line
-// of sight first meets a surface, and that line bends through a gravity
-// field the way a charge does, so what the dashed aim line shows is exactly
-// where the end will land.
+// new is the aim. A wormhole reaches two screens: its end goes wherever the
+// line of sight first meets a surface that near, and that line bends through
+// a gravity field the way a charge does, so what the dashed aim line shows is
+// exactly where the end will land.
 import { PORTAL, portalLocal, throughPortal, openPortals, partner, openedSegments } from '../../src/portals.js';
 import { raycastSegments } from '../../src/physics.js';
 import { wellsAccel, swallowingWell } from '../../src/gamestate.js';
@@ -15,13 +15,19 @@ export { PORTAL, openPortals, openedSegments, throughPortal, portalLocal };
 
 export const WORM = {
   step: 1 / 120, // seconds per leg of the aim line inside a well's reach
-  maxLen: 200000, // px: in practice no range at all; only a line caught orbiting a well forever is cut off
+  // px: how far an end can be opened, along the line of sight (round a well's bend and all): two
+  // screens across. Anything a player can see on screen is in reach; an end flung the length of a
+  // long corridor, to skip a stretch of the level, is not.
+  maxLen: 2 * SCREEN.w,
   maxLegs: 6000, // legs flown inside wells before the line gives up
   minExit: 220, // px/s: whatever comes out of a mouth leaves at least this fast, so it can never hang in it
   // px/s: the robot out of a floor leaves at least this fast upward, its feet some 50 px clear, with
   // time to step off the mouth onto solid ground instead of dropping straight back in (two floor ends
   // otherwise bounce it to and fro, half sunk in the floor)
   floorExit: 800,
+  // px/s: the robot out of an end on a launch ramp leaves at least this fast along the ramp's face,
+  // half again what a fall gives it: a ramp throws it up and across a chasm no jump crosses
+  launch: 1250,
   minSurface: PORTAL.halfWidth * 2, // a surface must hold the whole mouth
   keep: 3, // screens: an end the robot has left this far behind (either way) closes
 };
@@ -39,11 +45,12 @@ function toNearestField(world, x, y) {
 /**
  * The line of sight from (x, y) along `angle`: flown like a charge at the
  * charge's speed, bent by every well, swallowed by a horizon, and stopped by
- * the first solid it meets (thin platforms and windows let it through). It has no range:
- * away from every well it is a straight line cast in one go, however long,
- * and only inside a well's reach is it flown step by step. Returns the
- * polyline, and the hit: the point, the surface and whether a wormhole can
- * sit there.
+ * the first solid it meets (thin platforms and windows let it through), or
+ * `maxLen` along it (WORM.maxLen, two screens), whichever comes first. Away
+ * from every well it is a straight line cast in one go, and only inside a
+ * well's reach is it flown step by step. Returns the polyline, and the hit:
+ * the point, the surface and whether a wormhole can sit there; with no hit,
+ * `short` if the line ran out of reach before it met anything.
  */
 export function sightLine(world, x, y, angle, { speed = BLASTER.speed, maxLen = WORM.maxLen, step = WORM.step } = {}) {
   let vx = Math.cos(angle) * speed;
@@ -59,7 +66,8 @@ export function sightLine(world, x, y, angle, { speed = BLASTER.speed, maxLen = 
     if (far > 8) {
       // Straight: all the way to the nearest field's edge, or out of the level.
       const s = Math.hypot(vx, vy);
-      const reach = Math.min(far - 4, 4000);
+      const reach = Math.min(far - 4, 4000, maxLen - len);
+      if (reach < 1) break;
       dx = (vx / s) * reach;
       dy = (vy / s) * reach;
     } else {
@@ -90,7 +98,7 @@ export function sightLine(world, x, y, angle, { speed = BLASTER.speed, maxLen = 
     len += l;
     pts.push([x, y]);
   }
-  return { pts, hit: null };
+  return { pts, hit: null, short: len >= maxLen - 1 };
 }
 
 /** Can a wormhole's end sit on this surface? Solid ground and moving platforms, long enough for the mouth. */
@@ -198,8 +206,7 @@ export function exitVelocity(q, vx, vy, min = WORM.minExit) {
  * The robot's ends it has left behind: more than WORM.keep screens from it,
  * across or up and down, having once been nearer. An end opened far off down
  * the line of sight stays open until the robot has been near it (through the
- * wormhole, or on foot), so there is still no range; but whatever is behind
- * is tidied away. Returns which ends ([0, 1]) should close.
+ * wormhole, or on foot); but whatever is behind is tidied away. Returns which ends ([0, 1]) should close.
  */
 export function endsLeftBehind(world, x, y, slot = 0) {
   const out = [];

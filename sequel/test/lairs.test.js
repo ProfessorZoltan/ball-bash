@@ -96,6 +96,8 @@ test('once its cover breaks a lair wakes; when the last of it falls, a shield an
     for (const e of foes.slice(0, -1)) g.defeat(e);
     run(g, 0.5);
     assert.ok(!g.lairs[0].cleared, 'not while one is left');
+    bot.spawn(l.x0 + 2 * T, l.floor - 31); // out of the way of the drop, to count it
+    bot.invuln = 1e9;
     g.defeat(foes[foes.length - 1]);
     run(g, 2);
     assert.ok(g.lairs[0].cleared, `level ${id}: cleared`);

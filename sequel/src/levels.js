@@ -9,6 +9,7 @@
 // build.js is the yardstick, and a test holds each level to its band).
 import { buildLevel, seeded, LIMITS } from './build.js';
 import { KINDS } from './enemies.js';
+import { planVariants } from './variants.js';
 
 // ------------------------------------------------------------------ themes
 // The look of each level: the sky, the ground and its neon edge, what grows
@@ -302,6 +303,9 @@ const PIECES = {
 
 const PUZZLES = ['bulkhead', 'chasm', 'foldroom', 'skylight', 'vault', 'chimney', 'orbit', 'switchdoor'];
 
+/** The params the seeded run wrote, as against those written out by hand in a level. */
+const AUTO = new WeakSet();
+
 /**
  * A level's seeded run: `count` pieces from its palette, harder toward the
  * end, with a checkpoint every `every` pieces and secrets at the fractions
@@ -338,7 +342,9 @@ function compose(L) {
       kinds[kind] = (kinds[kind] || 0) + 1;
     }
     prev = kind;
-    out.push(PIECES[kind](rng, d, L));
+    const piece = PIECES[kind](rng, d, L);
+    AUTO.add(piece[1]); // its shape, if it is a puzzle, is the variant plan's to choose
+    out.push(piece);
     // Breathing room: a stretch of floor after anything with a pit in it.
     if (['hop', 'long', 'plats', 'mover', 'well', 'fount', 'phase', 'spikes', 'chasm', 'bulkhead', 'shaft', 'skylight', 'orbit'].includes(kind)) out.push(['flat', { len: ri(rng, 3, 5) }]);
     since++;
@@ -560,6 +566,7 @@ export const LEVEL_DEFS = [
     secretsAt: [{ at: 0.3, kind: 'loft', reward: ['durable', 'strong'], up: 8 }, { at: 0.6, kind: 'cache', reward: ['shield', 'big'] }, { at: 0.9, kind: 'cellar', reward: ['triple', 'freeze'] }],
     features: [
       { at: 0.4, sections: [['tower', { up: 20, width: 9, e: [['wisp', 4.5, 6], ['gunner', 4.5, 11, { axis: 'x', range: 110 }], ['swooper', 4.5, 16]] }]] },
+      { at: 0.6, sections: [['sign', { text: say('A slanted plate is a launch ramp: come out of a wormhole on it, and it throws you', 'A slanted plate is a launch ramp: come out of a wormhole on it, and it throws you') }], ['launch', {}]] },
       { at: 0.78, sections: [['chimney', { e: [['wisp', 9, 2.5]] }]] },
     ],
     opening: [
@@ -630,6 +637,7 @@ export const LEVEL_DEFS = [
       { at: 0.3, sections: [['shaft', { down: 20, e: [['wisp', 4, 6], ['urchin', 4, 11, { axis: 'x', range: 90 }], ['drifter', 4, 16, { axis: 'x', range: 90 }]] }]] },
       { at: 0.45, sections: [['vault', { e: [['crab', 3]] }]] },
       { at: 0.62, sections: [['shaft', { down: 18, e: [['gunner', 4, 7, { axis: 'x', range: 90 }], ['wisp', 4, 13]] }]] },
+      { at: 0.72, sections: [['sign', { text: say('Doorways too high to climb to: shoot the switch, and open a wormhole through while the door is up', 'Doorways too high to climb to: shoot the switch, and open a wormhole through while the door is up') }], ['relay', {}]] },
       { at: 0.85, sections: [['chimney', {}]] },
     ],
     opening: [
@@ -662,6 +670,7 @@ export const LEVEL_DEFS = [
     features: [
       { at: 0.3, sections: [['sign', { text: say('A long run of the fold: watch its whole pattern before you go', 'A long run of the fold: watch its whole pattern before you go') }], ['phaseRun', { wave: 7, pairs: 7, e: [['wisp', 11, 5], ['swooper', 32, 6]] }]] },
       { at: 0.6, sections: [['tower', { up: 22, width: 9, lift: 6, e: [['wisp', 4.5, 6], ['gunner', 4.5, 11, { axis: 'x', range: 110 }], ['swooper', 4.5, 17]] }]] },
+      { at: 0.8, sections: [['launch', {}]] },
     ],
     opening: [
       ['sign', { text: say('Blinking platforms: watch their rhythm before you trust them', 'Blinking platforms: watch their rhythm before you trust them') }],
@@ -683,7 +692,7 @@ export const LEVEL_DEFS = [
     base: 0.6,
     top: 1,
     count: 58,
-    every: 12,
+    every: 11,
     puzzles: 6, // puzzles in the seeded run: wormholes and switches
     dropRate: 0.24,
     roster: { lancer: 2, gunner: 2, dasher: 2, swooper: 2, wisp: 2, boing: 1, moth: 1, urchin: 1, crab: 1, sentry: 1, wraith: 1, shade: 1 },
@@ -695,8 +704,10 @@ export const LEVEL_DEFS = [
     features: [
       { at: 0.3, sections: [['tower', { up: 22, width: 9, lift: 5, e: [['wisp', 4.5, 6], ['gunner', 4.5, 12, { axis: 'x', range: 110 }], ['moth', 4.5, 17]] }]] },
       { at: 0.5, sections: [['phaseRun', { wave: 6, pairs: 6, on: 2.2, e: [['wisp', 10, 5], ['swooper', 28, 6]] }]] },
+      { at: 0.4, sections: [['relay', {}]] },
       { at: 0.62, sections: [['orbit', { e: [['lancer', 4]] }]] },
       { at: 0.75, sections: [['shaft', { down: 20, e: [['urchin', 4, 6, { axis: 'x', range: 90 }], ['wisp', 4, 12], ['gunner', 4, 17, { axis: 'x', range: 90 }]] }]] },
+      { at: 0.85, sections: [['launch', {}]] },
     ],
     opening: [
       ['sign', { text: say('The last level. Everything you know, all at once', 'The last level. Everything you know, all at once') }],
@@ -751,14 +762,33 @@ function featuresOf(L) {
   }
   if (LAIR_LEVELS.includes(L.id)) {
     const rng = seeded(L.seed * 37 + 11);
-    out.push({ at: 0.4 + rng() * 0.35, sections: [['lair', { hide: L.hide, e: lairFoes(rng, L, 38) }]] });
+    out.push({ at: 0.4 + rng() * 0.35, sections: [['lair', { hide: L.hide, e: lairFoes(rng, L, 42) }]] });
   }
   return out.sort((a, b) => a.at - b.at);
 }
 
-/** A level definition, ready for buildLevel: its opening, then its seeded run. */
+/** A level's sections before the variant plan: its opening, then its seeded run. */
+const drafts = new Map();
+function draft(L) {
+  if (!drafts.has(L.id)) drafts.set(L.id, [...L.opening, ...compose({ ...L, features: featuresOf(L) })]);
+  return drafts.get(L.id);
+}
+
+/** Every puzzle's variant across the game (see variants.js), worked out once. */
+let plan = null;
+function variantPlan() {
+  if (!plan) plan = planVariants(LEVEL_DEFS.map(draft), AUTO);
+  return plan;
+}
+
+/** A level definition, ready for buildLevel: its opening, then its seeded run, each puzzle in its own variant. */
 export function levelDef(L) {
-  return { ...L, floor: 0, sections: [...L.opening, ...compose({ ...L, features: featuresOf(L) })] };
+  const li = LEVEL_DEFS.findIndex((l) => l.id === L.id);
+  const sections = draft(L).map((s, si) => {
+    const v = variantPlan().get(`${li}:${si}`);
+    return v ? [s[0], { ...s[1], ...v }] : s;
+  });
+  return { ...L, floor: 0, sections };
 }
 
 const cache = new Map();
@@ -774,3 +804,6 @@ export function level(id) {
 
 /** The time bands the design asks for, in seconds before the boss. */
 export const TIER_SECONDS = { early: [180, 300], mid: [240, 480], late: [480, 900] };
+
+/** The top of each band is a soft cap: a level may run up to a tenth over it. */
+export const SOFT_CAP = 1.1;

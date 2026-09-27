@@ -1127,20 +1127,24 @@ starts you on the standard charge again.
 Deflector's Wormhole Variant pair, light end and dark end, built from the
 same parts (`src/portals.js`): the same mouth, the same crossing, momentum
 kept and turned by the angle between the ends. What is new is the aim:
-**a wormhole has no range**. Its end goes wherever the line of sight first
-meets a surface that can hold it, however far, and that line bends through
-gravity fields exactly as a charge does, so the dashed aim line is the
-truth. Thin platforms let the line through; crates, glass, spikes and doors
+**a wormhole reaches two screens**, 2560 px along the line of sight. Its end
+goes wherever that line first meets a surface that can hold it within its
+reach, and the line bends through gravity fields exactly as a charge does,
+so the dashed aim line is the truth. Past the reach the aim marker is a red
+cross where the line runs out: everything on screen is in reach, but an end
+flung the length of a long corridor, to skip a stretch of the level, is not. Thin platforms let the line through; crates, glass, spikes and doors
 take no wormhole, and neither does a surface shorter than the mouth.
 
 | Rule | What it means | Source |
 | --- | --- | --- |
-| Aim | straight lines away from every well, cast in one go; inside a well's reach, flown step by step like a charge | `sightLine` in `sequel/src/wormholes.js` |
+| Aim | straight lines away from every well, cast in one go; inside a well's reach, flown step by step like a charge; two screens long at most, bends and all | `sightLine`, `WORM.maxLen` in `sequel/src/wormholes.js` |
 | Where it sits | centred where the line lands, slid along the surface so the whole 96 px mouth lies on it, never on top of its twin | `placeEnd`, same file |
 | On a moving platform | it rides with it; when a blinking platform blinks out, its end goes too | `refreshEnds`, same file |
 | Going through | the moment the robot's middle crosses the surface; out of the other end no slower than 220 px/s, so nothing hangs in a mouth | `portalStep` in `sequel/src/player.js`, `exitVelocity` |
-| Out of a floor | the robot leaves an end facing up at no less than 800 px/s, a hop that lifts its feet some 50 px clear, with time to step off the mouth onto solid ground; floor to floor it keeps walking the way it was going instead of being turned round. Two floor ends side by side no longer bounce it to and fro, half sunk in the floor | `WORM.floorExit` in `sequel/src/wormholes.js`, `portalStep` |
-| Left behind | an end more than three screens from the robot (3840 px across or 2160 up and down) closes, once the robot has been nearer to it. An end opened far off down the line of sight stays open until the robot has been near it, so there is still no range | `endsLeftBehind` in `sequel/src/wormholes.js` |
+| Out of a floor | the robot leaves an end facing up at no less than 800 px/s, a hop that lifts its feet clear, with time to step off the mouth onto solid ground; floor to floor it keeps walking the way it was going instead of being turned round. Two floor ends side by side no longer bounce it to and fro, half sunk in the floor | `WORM.floorExit` in `sequel/src/wormholes.js`, `portalStep` |
+| Flung | thrown upward out of any end, the robot rises light, as it does with jump held, until it starts to fall: the throw is kept whether or not jump is down | `flung` in `sequel/src/player.js` |
+| Out of a launch ramp | a plated wedge, its slanted face lit and chevrons in it pointing the way it throws. The robot out of an end on its face leaves at no less than 1250 px/s along the face, half again what any fall gives: up and across a chasm no jump crosses. A charge out of it goes the way the face points | `WORM.launch`, `portalStep`; the `ramp` solid, `drawSolid` in `sequel/src/render.js` |
+| Left behind | an end more than three screens from the robot (3840 px across or 2160 up and down) closes, once the robot has been nearer to it. An end opened at the far end of its reach stays open until the robot has been near it | `endsLeftBehind` in `sequel/src/wormholes.js` |
 | A boss's door | both ends close as the door shuts behind you: every fight starts without them | `stepBoss` in `sequel/src/game.js` |
 | An end going | moved, closed, or its surface gone: whatever was halfway into it is put back out in front of the surface, never left inside the floor | `ejectFrom` in `sequel/src/wormholes.js` |
 | Gravity | stays down: the robot comes out upright | same |
@@ -1150,10 +1154,12 @@ Some things only a wormhole gets you past, on purpose:
 
 | What | How it is beaten | Source |
 | --- | --- | --- |
-| A bulkhead | a wall from the floor to far above any jump, with a 52 px gap under it: too low for the 60 px robot, tall enough to see and shoot under, level or a few degrees either side. Aim an end under it at the pillar beyond, the other at your feet, and step in | `SECTIONS.bulkhead` in `sequel/src/build.js` |
-| A chasm | too wide for any jump, with a wall facing back across it. One end on that wall, the other at your feet | `SECTIONS.chasm`, same file |
+| A bulkhead | a wall from the floor to far above any jump, with a gap under it 44 to 58 px high: too low for the 60 px robot, tall enough to see and shoot under. The wall is 2 to 4 tiles thick (the thicker, the narrower the band of lines through the gap), and the room beyond is sometimes sunk a tile or two. Aim an end under it at the pillar beyond, the other at your feet, and step in | `SECTIONS.bulkhead` in `sequel/src/build.js` |
+| A chasm | too wide for any jump, with a wall facing back across it, the far side level, up to 2 tiles higher or 3 lower. One end on that wall, the other at your feet | `SECTIONS.chasm`, same file |
+| A launch | a chasm no jump crosses, to a ledge higher than any eye before it, so no end can be put over there. Before the chasm, a launch ramp: from the pad beyond it, one end on the ramp's face, the other at your feet, and it throws you across | `SECTIONS.launch`, same file |
+| A relay | two rooms under one high roof, each got into only through a doorway too high to climb to and shorter than the robot, each shut by a timed door whose switch is outside it. Shoot the first switch; while its door is up, open an end through the doorway on the room's roof and the other at your feet, and drop in. The second switch is inside, low on the wall you came through; its doorway is no higher than the first's sill, so no line from outside passes both. The same again, into the second room and on | `SECTIONS.relay`, same file |
 | A skylight | a sea cave (or a sunken room) with a cliff no jump climbs at its far end, and a hole in its roof. Through the hole, from the cave floor, a step's face is in sight on the level above; a wall over the cave's mouth keeps it out of sight from outside. One end on the face, the other at your feet | `SECTIONS.skylight`, same file |
-| A vault | a door across the way that only a switch opens, and the switch sealed in a box of armoured glass. You can see in and aim through the glass; nothing solid gets in. One end on the vault's back wall, the other on the roof over your head: fire up into it, and the charge comes out in the vault, straight at the switch | `SECTIONS.vault`, same file |
+| A vault | a door across the way that only a switch opens, and the switch sealed in a box of armoured glass. You can see in and aim through the glass; nothing solid gets in. One end on the vault's back wall, the other where a charge of yours can go into it: on the roof over your head, or, under a roof of glass, on a lintel hung behind you or in the floor ahead. Fire into it, and the charge comes out in the vault, straight at the switch. In some the back wall's foot is a launch ramp and the switch hangs up by the glass: only a charge thrown up off the ramp gets there | `SECTIONS.vault`, same file |
 | A folded enemy (Wraith, Echo, Shade, or any enemy placed folded) | it is only half here: a charge passes straight through it unless the charge has itself been through a wormhole (anyone's). Drawn doubled and flickering | `folded` in `sequel/src/enemies.js`, `stepCharges` in `sequel/src/game.js` |
 | A folded room | an ambush room that locks until its folded waves are beaten | `PIECES.foldroom` in `sequel/src/levels.js` |
 | The Conductor | its underside and ends are armoured and its back is pressed to the station roof: a wormhole in the roof is the only way to its core | `BOSSES.conductor` in `sequel/src/bosses.js` |
@@ -1192,6 +1198,25 @@ through it, so a wormhole end can open on whatever is behind it.
 Each of these records itself in `bp.portalLinks` like a wormhole puzzle,
 and the same rules hold: it is solved in the real game, and the level
 cannot be crossed without solving it.
+
+**No puzzle comes twice.** Each kind has a table of variants, gentlest
+first, and each changes something the answer turns on: the height of a
+bulkhead's gap and the thickness of its wall, which way a chasm's far side
+lies, where a vault's second end has to go, how tall and narrow a chimney
+is and how long its spikes, where an orbit's black hole hangs, how long a
+door stays up. Across the whole game, in the order it is played, each
+puzzle takes the next variant of its kind that nothing has taken, so the
+Source uses the same ideas as the rest in shapes of its own. A puzzle
+written out by hand in a level keeps its shape, and nothing else takes it.
+
+| Kind | Variants | Source |
+| --- | --- | --- |
+| Bulkhead | 10 | `VARIANTS` in `sequel/src/variants.js` |
+| Chasm, vault | 8 each | same |
+| Skylight, chimney, switch door | 7, 7 and 8 | same |
+| Orbit, relay | 4 each | same |
+| Launch | 5 | same |
+| Folded room | 9 layouts, 20 to 24 tiles by 7 to 9 | same |
 
 ### Enemies
 
@@ -1301,7 +1326,7 @@ down there counts as ground to come back to after a fall.
 | The way out | the drain (a shield), or a wormhole end left up top | `noSafe` in `sequel/src/player.js` |
 
 Three other levels from the third to the tenth (the third, fourth and ninth)
-hold a lair: a cave under the path, 38 tiles by 15, more than three times the
+hold a lair: a cave under the path, 42 tiles by 16, more than three times the
 size of the biggest ambush room, got into through a tunnel in the foot of a
 step behind a cracked panel, as a cache is. The path climbs over it in two
 steps and drops back down past it, so nothing on the way on needs it. Until
@@ -1313,7 +1338,7 @@ power-ups drop. Ledges zig-zag up the near wall back to the tunnel.
 | Lair | What it is | Source |
 | --- | --- | --- |
 | Which levels | three of the third to the tenth, none with a trove, picked by a fixed seed | `LAIR_LEVELS` in `sequel/src/levels.js` |
-| The cave | 38 tiles across and 15 high, with five ledges; the path over it two steps up | `SECTIONS.lair` in `sequel/src/build.js` |
+| The cave | 42 tiles across and 16 high, with seven ledges; the path over it two steps up | `SECTIONS.lair` in `sequel/src/build.js` |
 | Its enemies | six plus a third of the level's number, from the level's own roster (none only a folded charge touches), asleep until the panel breaks | `lairFoes` in `sequel/src/levels.js`, `sealed` in `sequel/src/game.js` |
 | The hoard | a shield, a Titan, a Trident, a Longwave and a Hammer, for each player | `stepLairs`, same file |
 
@@ -1331,22 +1356,25 @@ moving platforms, fly up climbs and towers, and walk the foot of drops.
 
 | # | Level | Estimated minutes before the boss | New | Source |
 | --- | --- | --- | --- | --- |
-| 1 | Neon Orchard | 4.6 | running, jumping, stomping, the blaster, crates, switch doors, a tower, wormholes (a secret) | `LEVEL_DEFS` in `sequel/src/levels.js` |
+| 1 | Neon Orchard | 4.7 | running, jumping, stomping, the blaster, crates, switch doors, a tower, wormholes (a secret) | `LEVEL_DEFS` in `sequel/src/levels.js` |
 | 2 | Rain Market | 4.5 | thin awnings, moving carts, the bulkhead, drains down, a timed shutter | same |
-| 3 | Transit Loop | 4.4 | shielded Lancers, crushers, lasers, the chasm, the chimney, a lift tower | same |
-| 4 | Tidepool Light | 7.3 | pulse emitters, spikes, platforms on a wheel, the skylight, cliff dives | same |
-| 5 | Greenhouse Arcology | 7.3 | springs, glass, folded enemies, armoured glass and the vault, vine towers | same |
-| 6 | Observatory Heights | 7.6 | black holes over pits, with moons circling them; white holes that lift; the orbit; observatory towers | same |
-| 7 | Carnival of Echoes | 7.4 | ambush rooms that lock until cleared, a long timed door | same |
-| 8 | Deep Relay | 13.3 | darkness: only the robot, its charges and what glows are lit; deep shafts | same |
-| 9 | Folded City | 13.8 | blinking platforms and a long blinking run, folded rooms | same |
-| 10 | The Source | 14.0 | everything | same |
+| 3 | Transit Loop | 4.8 | shielded Lancers, crushers, lasers, the chasm, the chimney, a lift tower | same |
+| 4 | Tidepool Light | 7.7 | pulse emitters, spikes, platforms on a wheel, the skylight, cliff dives | same |
+| 5 | Greenhouse Arcology | 7.5 | springs, glass, folded enemies, armoured glass and the vault, vine towers | same |
+| 6 | Observatory Heights | 8.2 | black holes over pits, with moons circling them; white holes that lift; the orbit; observatory towers; the launch ramp | same |
+| 7 | Carnival of Echoes | 7.6 | ambush rooms that lock until cleared, a long timed door | same |
+| 8 | Deep Relay | 14.0 | darkness: only the robot, its charges and what glows are lit; deep shafts; the relay | same |
+| 9 | Folded City | 14.8 | blinking platforms and a long blinking run, folded rooms | same |
+| 10 | The Source | 15.3 | everything | same |
 
 The design asks for 3 to 5 minutes on an early level, 4 to 8 on a middle one
-and 8 to 15 on a late one. The estimate is the level's length at Super Mario
-Bros. 3's careful pace of 2.6 tiles a second plus time for each enemy, pit,
-climb and lock (`estimateSeconds` in `sequel/src/build.js`); a test holds
-each level inside its band.
+and 8 to 15 on a late one, and the top of each band is a soft cap: a level
+may run up to a tenth over (`SOFT_CAP` in `sequel/src/levels.js`). The
+estimate is the way through at Super Mario Bros. 3's careful pace of 2.6
+tiles a second, plus time for each enemy, pit, climb, lock and puzzle on it
+(`estimateSeconds` in `sequel/src/build.js`). What a player does for its own
+sake is not counted: a lair's fight, the fall into a trove and the climb back,
+a secret's detour. A test holds each level inside its band.
 
 A pit with a black hole in it is felt all the way across. The hole hangs
 2.5 tiles under the lip and reaches 9 tiles, so the whole jump is inside
@@ -1487,13 +1515,15 @@ moving, the burst, the boss fights, and every level:
 | Check | What it proves | Source |
 | --- | --- | --- |
 | Crossing | a search over everything the robot can stand on, flown with its own physics (hops and leaps at walking and running speed, walking off ends), reaches the boss's arena. Moving platforms are somewhere to stand along their path, crates are shot, a wormhole puzzle is a link, and a switch's door is open (the next row proves it can be) | `sequel/tools/reach.mjs` |
-| Puzzles | every puzzle in every level is solved in the real game: wormhole ends aimed and stepped through, a vault's switch hit through a wormhole, and every other switch hit by a shot found by flying the charge's own physics (banks and black holes included), a timed door run through before it shuts. No level with a puzzle can be crossed without solving it; a chimney's switch is out of every straight line, and an orbit's out of every shot without its black hole | `sequel/tools/solve.mjs` |
+| Puzzles | every puzzle in every level is solved in the real game: wormhole ends aimed and stepped through, a vault's switch hit through a wormhole, a ramp's launch flown, both of a relay's doors opened and gone through against their clocks, and every other switch hit by a shot found by flying the charge's own physics (banks and black holes included), a timed door run through before it shuts. No level with a puzzle can be crossed without solving it; every chimney's switch is out of every straight line, every orbit's out of every shot without its black hole, every vault sealed, nothing past a launch's chasm takes an end from before it, and no line from outside a relay passes both its doorways | `sequel/tools/solve.mjs`, `sequel/test/puzzles.test.js` |
+| No repeats | no two puzzles in the game have the same shape, and no two variants of a kind are alike | `sequel/test/puzzles.test.js` |
+| Wormhole reach | an end lands up to two screens off and no further; every puzzle's answer is well inside that (the longest, a chasm's, under 1000 px) | `sequel/test/wormholes.test.js` |
 | Timing | every blinking stretch is crossed with the clock running: from each place it stands, the robot waits a beat at a time and jumps, while the platforms blink | `sequel/tools/timed.mjs` |
 | Secrets | each level hides its secrets no more plainly than the one before; every cover breaks under fire and its prize is out of sight until then, then found and taken; every loft's wall is in sight from its own floor and a wormhole puts the robot up; a hidden sky ledge is off the top of the screen and its spring still reaches it | `sequel/test/secrets.test.js` |
 | Lairs | three of them, none in a trove's level; each more than three times the biggest ambush room, with more enemies than a wave; asleep and unseen until its panel breaks; cleared, its hoard drops; its floor climbs back out to the tunnel, and with its panel left standing the path past it is still reached | `sequel/test/lairs.test.js` |
 | Troves | three of them, each a pit from above; the fall costs nothing, the wall at the foot breaks, the loot is all there, the drain puts the robot back at the rim for a shield, and a wormhole end at the rim gets it out for free | `sequel/test/troves.test.js` |
 | Bosses | every boss is beaten in the real game by a robot that aims well | `sequel/tools/fight.mjs` |
-| Lengths | each level's estimate sits in its band | `sequel/test/levels.test.js` |
+| Lengths | each level's estimate sits in its band, the top of it soft, and a lair, a trove or a secret adds nothing to it | `sequel/test/levels.test.js` |
 | Co-op | each robot on its own shields; out and back at a checkpoint or the boss; the level lost only with the whole team out; enemies after the nearest robot; a pair of wormholes each, anyone's to go through | `sequel/test/coop.test.js` |
 | Versus maps | six, no two built from the same parts; on each, every spawn and every power-up platform is reached from every spawn by the crossing search, and standing still on any of them is safe | `sequel/test/versus.test.js`, `sequel/tools/reach.mjs` |
 | Versus rules | hits and falls back to the furthest spawn, Frost, the last one standing; power-ups every 30 to 60 s and never nearer one robot than half as far as the next, checked over hundreds of placements on every map | `sequel/test/versus.test.js` |

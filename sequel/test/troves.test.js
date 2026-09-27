@@ -80,10 +80,10 @@ test('a wormhole end left at the rim is the way back up', () => {
     const t = bp.troves[0];
     const g = alone(bp);
     const bot = g.bot;
-    bot.spawn(t.rimL - 4 * T, t.floorY - 31);
+    bot.spawn(t.rimL - 2 * T, t.floorY - 31);
     run(g, 0.5);
     // One end in the floor a little back from the rim, then off the edge.
-    bot.aim = Math.PI / 2 + 0.25;
+    bot.aim = Math.PI / 2;
     assert.ok(g.deploy(0), 'an end at the rim');
     bot.spawn(t.rimL - T, t.floorY - 31);
     for (let i = 0; i < 240 * 4 && !(bot.onGround && bot.y > t.footY - 2 * T); i++) g.step(DT, { mx: 1 });
@@ -92,10 +92,12 @@ test('a wormhole end left at the rim is the way back up', () => {
     run(g, 0.3);
     bot.aim = Math.PI / 2;
     assert.ok(g.deploy(1), 'an end at the foot');
-    // Out of the rim end, steer back from the edge rather than drop in again.
+    // Out of the rim end, a step back from it rather than drop in again, and a brake.
+    const rim = g.world.portals[0][0];
+    const steer = () => (bot.y > t.floorY ? 0 : bot.x > rim.cx - rim.hw - bot.r - 10 ? -1 : bot.vx < -20 ? 1 : 0);
     let up = false;
     for (let i = 0; i < 240 * 3 && !up; i++) {
-      g.step(DT, { mx: bot.y < t.floorY ? -1 : 0 });
+      g.step(DT, { mx: steer() });
       up = bot.onGround && bot.y < t.floorY;
     }
     assert.ok(up, `level ${id}: back up at the rim`);

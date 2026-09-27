@@ -4,26 +4,27 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createWorld, box, stepWorld } from '../src/world.js';
-import { sightLine, placeEnd, refreshEnds, PORTAL } from '../src/wormholes.js';
+import { sightLine, placeEnd, refreshEnds, PORTAL, WORM } from '../src/wormholes.js';
 import { Robot, stepRobot } from '../src/player.js';
 import { Charge, stepCharge } from '../src/blaster.js';
 import { Enemy, stepEnemy } from '../src/enemies.js';
 import { Game } from '../src/game.js';
 import { buildLevel } from '../src/build.js';
 import { level, LEVEL_DEFS } from '../src/levels.js';
-import { BLASTER } from '../src/config.js';
+import { BLASTER, SCREEN } from '../src/config.js';
 import { reachability } from '../tools/reach.mjs';
 import { solve } from '../tools/solve.mjs';
 
 const DT = 1 / 240;
 
-/** A long floor with a tall wall at its far end, and a second wall far off to the left. */
+/** A long floor with a tall wall at x `far` (inside a wormhole's reach from most of it), and a second wall at the left end. */
 function hall(extra = {}) {
+  const far = extra.far ?? 2800;
   return createWorld({
     width: 9000,
     height: 2000,
     top: -2000,
-    solids: [{ pts: box(0, 1000, 9000, 1000) }, { pts: box(8000, 0, 400, 1000) }, { pts: box(0, 0, 300, 1000) }, ...(extra.solids || [])],
+    solids: [{ pts: box(0, 1000, 9000, 1000) }, { pts: box(far, 0, 400, 1000) }, { pts: box(0, 0, 300, 1000) }, ...(extra.solids || [])],
     oneWays: extra.oneWays || [],
     movers: extra.movers || [],
     wells: extra.wells || [],
@@ -40,12 +41,17 @@ function pair(w, a, b) {
   return [p, q];
 }
 
-test('an end lands where the line of sight first meets a surface, however far away', () => {
+test('an end lands where the line of sight first meets a surface, up to two screens away and no further', () => {
   const w = hall();
   const p = placeEnd(w, sightLine(w, 400, 900, 0), 0);
   assert.ok(p, 'it found the far wall');
-  assert.ok(Math.abs(p.cx - 8000) < 1 && p.nx === -1, 'it sits on the wall 7600 px away, facing back');
+  assert.ok(Math.abs(p.cx - 2800) < 1 && p.nx === -1, 'it sits on the wall 2400 px away, facing back');
   assert.ok(p.cy <= 1000 - PORTAL.halfWidth + 0.5, 'slid up so the whole mouth lies on the wall');
+  assert.equal(WORM.maxLen, 2 * SCREEN.w, 'a reach of two screens across');
+  const far = sightLine(hall({ far: 3000 }), 400, 900, 0);
+  assert.ok(!far.hit && far.short, 'a wall 2600 px off is out of reach');
+  const end = far.pts[far.pts.length - 1];
+  assert.ok(Math.abs(end[0] - 400 - WORM.maxLen) < 1, 'and the line stops where the reach runs out');
 });
 
 test('the line of sight bends round a black hole the way a charge does', () => {
@@ -63,8 +69,8 @@ test('an end will not sit on a thin platform, a crate, or on top of its twin', (
   const s = sightLine(w, 1500, 930, 0);
   assert.ok(s.hit && s.hit.seg.crate, 'the line meets the crate');
   assert.equal(placeEnd(w, s, 0), null, 'and a crate takes no wormhole');
-  w.portals[0][0] = placeEnd(w, sightLine(w, 4000, 900, Math.PI / 2), 0);
-  assert.equal(placeEnd(w, sightLine(w, 4010, 900, Math.PI / 2), 1), null, 'nor does the floor under the other end');
+  w.portals[0][0] = placeEnd(w, sightLine(w, 2000, 900, Math.PI / 2), 0);
+  assert.equal(placeEnd(w, sightLine(w, 2010, 900, Math.PI / 2), 1), null, 'nor does the floor under the other end');
 });
 
 test('the robot falls into a floor end and comes out of a wall end, moving out of it', () => {
@@ -74,7 +80,7 @@ test('the robot falls into a floor end and comes out of a wall end, moving out o
   let warped = null;
   for (let i = 0; i < 240 * 2 && !warped; i++) stepRobot(b, { mx: 0 }, w, DT, { warp: (from, to) => (warped = { from, to }) });
   assert.ok(warped, 'it went through');
-  assert.ok(b.x < 8000 && b.x > 7800, 'it came out at the far wall');
+  assert.ok(b.x < 2800 && b.x > 2600, 'it came out at the far wall');
   assert.ok(b.vx < -200, 'moving out of the wall, at least WORM.minExit');
 });
 
@@ -102,40 +108,40 @@ test('a charge goes through a wormhole, and comes out counted as warped', () => 
   let t = 0;
   while (!c.warps && stepCharge(c, w, DT, t, {}) && t < 1) t += DT;
   assert.equal(c.warps, 1);
-  assert.ok(c.x > 7800 && c.vx < 0, 'out of the far wall, heading back');
+  assert.ok(c.x > 2600 && c.vx < 0, 'out of the far wall, heading back');
 });
 
 test('an enemy walks into a floor wormhole and comes out of the other end', () => {
   const w = hall();
   pair(w, [1200, 900, Math.PI / 2], [1200, 900, 0]);
   const e = new Enemy({ kind: 'skitter', x: 1000, y: 1000 - 17, dir: 1 }, 0);
-  const bot = new Robot(4000, 960);
+  const bot = new Robot(2400, 960);
   let warped = false;
   for (let i = 0; i < 240 * 6 && !warped; i++) {
     stepEnemy(e, w, bot, DT, null);
     warped = e.warped;
   }
   assert.ok(warped, 'it went through');
-  assert.ok(e.x > 7700, 'and came out at the far wall');
+  assert.ok(e.x > 2500, 'and came out at the far wall');
 });
 
 test('a flying enemy goes through a wall wormhole in its path', () => {
   const w = hall();
   pair(w, [1000, 900, Math.PI], [1000, 900, 0]);
   const e = new Enemy({ kind: 'drifter', x: 800, y: 900, dir: -1, range: 1000 }, 0);
-  const bot = new Robot(4000, 960);
+  const bot = new Robot(2400, 960);
   let warped = false;
   for (let i = 0; i < 240 * 10 && !warped; i++) {
     stepEnemy(e, w, bot, DT, null);
     warped = e.warped;
   }
-  assert.ok(warped && e.x > 7500, 'out of the far end');
+  assert.ok(warped && e.x > 2300, 'out of the far end');
 });
 
 test('an enemy\'s shot goes through the robot\'s wormholes too', () => {
   const g = new Game(buildLevel({ id: 70, boss: 'gardener', theme: {}, sections: [['flat', { len: 60, deco: false }]] }), { shields: 5 });
   const w = g.world;
-  pair(w, [800, -40, Math.PI], [800, -40, 0]);
+  pair(w, [800, -40, Math.PI], [1200, -40, Math.PI / 2]);
   const c = g.shot(300, -60, Math.PI, 300, { bounce: false });
   for (let i = 0; i < 240 * 2 && !c.warps; i++) g.step(DT, { mx: 0 });
   assert.equal(c.warps, 1, 'the shot came through');
@@ -188,7 +194,7 @@ test('pressing an end\'s button opens it where the aim line meets a surface', ()
 test('out of a floor end the robot hops about its own height and walks on, so two floor ends never trap it', () => {
   for (const [mx, run] of [[1, false], [1, true], [-1, false]]) {
     const w = hall();
-    const [a, b] = pair(w, [3000, 900, Math.PI / 2], [3400, 900, Math.PI / 2]);
+    const [a, b] = pair(w, [1600, 900, Math.PI / 2], [2000, 900, Math.PI / 2]);
     const into = mx > 0 ? a : b;
     const bot = new Robot(into.cx - mx * 160, 960);
     let warps = 0;
