@@ -1455,6 +1455,9 @@ up.
 
 The last level plays the Antechamber's progression, Deflector's first.
 
+The music and the sound effects each have a volume slider, on the title
+screen, the pause screen, the room and the menu over a match (see "Volume").
+
 ### Multiplayer: co-op and versus
 
 Up to three can play, each on their own screen, through the same relay as
@@ -1899,7 +1902,9 @@ In a boss fight the track speeds up by less as the music gets more human:
 twice as fast in the grid, one and a half times in the middle, a quarter
 faster near the end, and not at all for the Creator, whose piece is its own.
 Voices speak their subtitles as a wordless babble: the machines ring
-modulated, the Creator warm (`speak`).
+modulated, the Creator warm (`speak`). The music and the effects (the
+ambience and the voices among them) each have a volume slider, on the title
+screen, the pause screen, the room and the menu over a match (see "Volume").
 
 | Track | Plays | Key | BPM | Humanity | Main instruments | Source |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -2570,7 +2575,8 @@ phone held upright, because most of it folds away. **Levels**, the frame's
 Mouse) each open with a click on their heading and start closed. One you
 open stays open while the screen redraws (picking a level redraws it), and a
 fresh visit starts with all of them closed. The frame's dropdown, Difficulty
-and the own-ball rule stay out, since they change every game.
+and the own-ball rule stay out, since they change every game, and so do the
+Music and Effects sliders (see "Volume").
 
 A level's card (its number, name, boss, brief and record) is a context
 overlay rather than a panel. Hover over or tab to any level in the list and
@@ -2578,6 +2584,33 @@ its card appears beside the list. The **i** next to the selected level on the
 Levels line pins that level's card, even with the list folded; this is also
 how a touch screen gets it. A click or tap elsewhere, or Esc, puts it away.
 `showTitle`, `foldHtml` and `bindLevelPop` in `src/main.js`.
+
+## Volume
+
+Each of the three games has two sliders, **Music** and **Effects**, from 0
+to 100%, and remembers them in the browser. Effects is everything that is
+not music: hits, shots, jingles, footsteps, and in Vector the ambience (rain,
+traffic, gulls) and the babbling voices. Letting go of the Effects slider
+plays one sound at the new level.
+
+| Game | Where the sliders are | Kept under | Source |
+| --- | --- | --- | --- |
+| Deflector | the title screen (under Rules), the pause screen, the menu over a golf hole's map (Esc) and the multiplayer lobby | `deflector.musicVolume`, `deflector.sfxVolume` | `volumeHtml` in `src/main.js` |
+| Defector | the title screen, the pause screen, the room and the menu over a match | `music` and `sfx` in `defector.settings` | `volumeHtml` in `sequel/src/main.js` |
+| Vector | the title screen, the pause screen, the room and the menu over a match | `music` and `sfx` in `vector.settings` | `volumeHtml` in `vector/src/main.js` |
+
+The engine all three share puts each volume after its bus: `musicVol` after
+the music bus and `sfxVol` after the effects bus, and nothing else reaches
+the speakers (`setMusicVolume` and `setSfxVolume` in `src/audio/engine.js`).
+A slider is heard on a curve, its setting squared (`volumeGain`), so half way
+is about 12 dB down, which sounds about half as loud. The effects have their
+own reverb, on the same impulse as the music's, so a hit's echo goes with
+the effects even when the music is off. M still mutes everything and keeps
+both levels. Deflector's pause screen and golf menu hold the sound with the
+game, so a change made there is heard on Resume. The tests check the routing in all
+three games: no note of the music goes through the effects' volume, and no
+effect, echo and all, through the music's (`test/audio.test.js`,
+`sequel/test/audio.test.js` and `vector/test/audio.test.js`).
 
 ## Lore
 

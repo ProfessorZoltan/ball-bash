@@ -54,7 +54,10 @@ function save(key, value) {
   }
 }
 
-const settings = { difficulty: DEFAULT_DIFFICULTY, muted: false, quality: 'auto', aimLine: true, sens: 1, invert: false, autoRun: false, ...load(STORE.settings, {}) };
+const settings = { difficulty: DEFAULT_DIFFICULTY, muted: false, music: 1, sfx: 1, quality: 'auto', aimLine: true, sens: 1, invert: false, autoRun: false, ...load(STORE.settings, {}) };
+// The volumes wait on the engine until there is sound to set them on.
+audio.setMusicVolume(settings.music);
+audio.setSfxVolume(settings.sfx);
 let run = load(STORE.run, null); // the campaign in progress, if any
 const cleared = new Set(load(STORE.cleared, []));
 const best = load(STORE.best, {});
@@ -420,6 +423,7 @@ function settingsHtml(short = false) {
   const q = settings.quality;
   return `
     ${short ? '' : `<div class="field"><label for="diff">Difficulty</label><select id="diff">${DIFFICULTIES.map((x) => `<option value="${x.id}" ${x.id === difficulty().id ? 'selected' : ''}>${x.name} · ${x.blurb}</option>`).join('')}</select></div>`}
+    ${volumeHtml()}
     <div class="field"><label for="snd">Sound</label><select id="snd"><option value="on" ${settings.muted ? '' : 'selected'}>On</option><option value="off" ${settings.muted ? 'selected' : ''}>Off</option></select>
       <label for="q">Quality</label><select id="q"><option value="auto" ${q === 'auto' ? 'selected' : ''}>Auto${autoStep ? ` (${QUALITIES[autoStep]})` : ''}</option><option value="high" ${q === 'high' ? 'selected' : ''}>High</option><option value="medium" ${q === 'medium' ? 'selected' : ''}>Medium</option><option value="low" ${q === 'low' ? 'selected' : ''}>Low</option></select></div>
     <div class="field"><label for="sens">Mouse</label><input id="sens" type="range" min="0.3" max="3" step="0.05" value="${settings.sens}" /><label for="inv">Look</label><select id="inv"><option value="no" ${settings.invert ? '' : 'selected'}>Normal</option><option value="yes" ${settings.invert ? 'selected' : ''}>Inverted</option></select></div>
@@ -427,7 +431,33 @@ function settingsHtml(short = false) {
       <label for="runmode">Run</label><select id="runmode"><option value="hold" ${settings.autoRun ? '' : 'selected'}>Hold Shift</option><option value="auto" ${settings.autoRun ? 'selected' : ''}>By default</option></select></div>`;
 }
 
+/** The music's volume and, separately, the sound effects', as two sliders: on the title, the pause screen and the room. */
+function volumeHtml() {
+  const pc = (v) => Math.round(v * 100);
+  const row = (id, label, v) => `<div class="field vols"><label for="${id}">${label}</label><input id="${id}" type="range" min="0" max="100" step="1" value="${pc(v)}" /><span class="pc" id="${id}-pc">${pc(v)}%</span></div>`;
+  return row('vol-music', 'Music', settings.music) + row('vol-sfx', 'Effects', settings.sfx);
+}
+
+function wireVolume() {
+  const slider = (id, key, set) => {
+    const el = $(id);
+    if (!el) return;
+    el.oninput = (e) => {
+      settings[key] = Number(e.target.value) / 100;
+      set(settings[key]);
+      $(`${id}-pc`).textContent = `${e.target.value}%`;
+    };
+    el.onchange = () => saveSettings();
+  };
+  slider('vol-music', 'music', (v) => audio.setMusicVolume(v));
+  slider('vol-sfx', 'sfx', (v) => audio.setSfxVolume(v));
+  // Let go of the effects slider and hear how loud they are now.
+  const sfx = $('vol-sfx');
+  if (sfx) sfx.addEventListener('change', () => cue({ s: 'powerup', me: true }));
+}
+
 function wireSettings() {
+  wireVolume();
   const on = (id, fn) => {
     const el = $(id);
     if (el) el.onchange = fn;
@@ -931,9 +961,11 @@ function showRoom() {
       <div class="share">Share the code, or the link: <a href="${escapeHtml(share)}" target="_blank" rel="noopener">${escapeHtml(share)}</a></div>
       <ul class="roster">${list}</ul>
       <div class="picks">${picks}</div>
+      ${volumeHtml()}
       <div class="row">${room.host ? `<button id="rp-start" class="primary" ${canStart ? '' : 'disabled'}>${pick && pick.mode === 'versus' && room.players.length < 2 ? 'Versus needs two' : 'Start'}</button>` : ''}<button id="rp-leave">Leave the room</button></div>
     </div>`);
   $('rp-leave').onclick = () => leaveRoom();
+  wireVolume();
   if (room.host && pick) {
     const set = (k, v) => {
       room.pick = { ...room.pick, [k]: v };
@@ -1506,6 +1538,7 @@ window.__vector = {
   get state() {
     return state;
   },
+  audio,
   get game() {
     return game;
   },

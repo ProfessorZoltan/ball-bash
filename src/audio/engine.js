@@ -26,6 +26,11 @@ export class AudioEngine {
     this.lastWall = 0;
     this.lastKickAt = 0; // audio-clock time of the most recent scheduled kick
     this.latency = 'snappy'; // a key of AUDIO_LATENCY
+    // The player's own levels, 0 to 1 each: the music, and separately the sound
+    // effects (and everything that is not music: ambience, voices). Kept while
+    // there is no context yet, and put on the graph when there is.
+    this.musicVolume = 1;
+    this.sfxVolume = 1;
   }
 
   get ready() {
@@ -80,10 +85,15 @@ export class AudioEngine {
     this.master.connect(this.comp);
     this.comp.connect(c.destination);
 
+    // Each bus has its level in the mix, and after it the player's volume for it.
+    this.musicVol = gain(volumeGain(this.musicVolume));
+    this.musicVol.connect(this.master);
+    this.sfxVol = gain(volumeGain(this.sfxVolume));
+    this.sfxVol.connect(this.master);
     this.musicBus = gain(0.7);
-    this.musicBus.connect(this.master);
+    this.musicBus.connect(this.musicVol);
     this.sfxBus = gain(0.9);
-    this.sfxBus.connect(this.master);
+    this.sfxBus.connect(this.sfxVol);
 
     // Side-chain "pump": pads, arps and bass pass through this gain, which every
     // kick ducks for a moment. It is what gives the pulsing Tron feel.
@@ -106,6 +116,16 @@ export class AudioEngine {
     this.reverb.connect(this.reverbReturn);
     this.reverbReturn.connect(this.musicBus);
     this.snareBus.connect(this.reverbSend);
+    // The effects' own hall, on the same impulse: a hit's tail belongs to the
+    // effects' volume, and goes when they do, whatever the music is doing. Its
+    // return is as loud as the tail was when it came back through the music.
+    this.sfxReverbSend = gain(1);
+    this.sfxReverb = c.createConvolver();
+    this.sfxReverb.buffer = this.reverb.buffer;
+    this.sfxReverbReturn = gain((0.55 * 0.7) / 0.9);
+    this.sfxReverbSend.connect(this.sfxReverb);
+    this.sfxReverb.connect(this.sfxReverbReturn);
+    this.sfxReverbReturn.connect(this.sfxBus);
 
     // Ping-pong delay (dotted eighth, retimed with the tempo).
     this.delaySend = gain(1);
@@ -147,6 +167,26 @@ export class AudioEngine {
     const t = this.ctx.currentTime;
     this.master.gain.cancelScheduledValues(t);
     this.master.gain.setTargetAtTime(m ? 0 : 1, t, 0.03);
+  }
+
+  /** The music's volume, 0 (silent) to 1 (as mixed). */
+  setMusicVolume(v) {
+    this.musicVolume = clamp(Number(v) || 0, 0, 1);
+    this.glideTo(this.musicVol, volumeGain(this.musicVolume));
+  }
+
+  /** The sound effects' volume (and ambience, and voices), 0 (silent) to 1 (as mixed). */
+  setSfxVolume(v) {
+    this.sfxVolume = clamp(Number(v) || 0, 0, 1);
+    this.glideTo(this.sfxVol, volumeGain(this.sfxVolume));
+  }
+
+  /** A gain eased to a level over a moment, so a slider dragged does not click. */
+  glideTo(node, v) {
+    if (!this.ctx || !node) return;
+    const t = this.ctx.currentTime;
+    node.gain.cancelScheduledValues(t);
+    node.gain.setTargetAtTime(v, t, 0.03);
   }
 
   /** Direct tempo control (the jukebox): multiplier on the track's BPM. */
@@ -788,7 +828,7 @@ export class AudioEngine {
       const rs = c.createGain();
       rs.gain.value = 0.6;
       g.connect(rs);
-      rs.connect(this.reverbSend);
+      rs.connect(this.sfxReverbSend);
       o.start(tt);
       o.stop(tt + 2.4);
     });
@@ -833,7 +873,7 @@ export class AudioEngine {
       const rs = c.createGain();
       rs.gain.value = 0.5;
       g.connect(rs);
-      rs.connect(this.reverbSend);
+      rs.connect(this.sfxReverbSend);
       o.start(tt);
       o.stop(tt + 0.55);
     });
@@ -861,7 +901,7 @@ export class AudioEngine {
       const rs = c.createGain();
       rs.gain.value = 0.5;
       g.connect(rs);
-      rs.connect(this.reverbSend);
+      rs.connect(this.sfxReverbSend);
       o.start(tt);
       o.stop(tt + 0.32);
     }
@@ -884,7 +924,7 @@ export class AudioEngine {
       const rs = c.createGain();
       rs.gain.value = 0.6;
       g.connect(rs);
-      rs.connect(this.reverbSend);
+      rs.connect(this.sfxReverbSend);
       o.start(tt);
       o.stop(tt + 0.65);
     });
@@ -906,7 +946,7 @@ export class AudioEngine {
     const rs = c.createGain();
     rs.gain.value = 0.5;
     g.connect(rs);
-    rs.connect(this.reverbSend);
+    rs.connect(this.sfxReverbSend);
     o.start(t);
     o.stop(t + 0.52);
     const th = this.osc('sine', 70, t);
@@ -941,7 +981,7 @@ export class AudioEngine {
     const rs = c.createGain();
     rs.gain.value = 0.6;
     g.connect(rs);
-    rs.connect(this.reverbSend);
+    rs.connect(this.sfxReverbSend);
     o.start(t);
     o.stop(t + 0.52);
     const th = this.osc('sine', 80, t + 0.3);
@@ -989,6 +1029,16 @@ export class AudioEngine {
 }
 
 // ------------------------------------------------------------------ helpers
+
+/**
+ * A volume setting (0 to 1) as a gain. Loudness is heard on a curve, so the
+ * setting is squared: half way is a quarter of the power, about 12 dB down,
+ * which sounds like about half as loud.
+ */
+export function volumeGain(v) {
+  const k = clamp(Number(v) || 0, 0, 1);
+  return k * k;
+}
 
 function clamp(v, lo, hi) {
   return v < lo ? lo : v > hi ? hi : v;

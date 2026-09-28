@@ -301,9 +301,10 @@ export class VectorAudio extends AudioEngine {
     this.roomSend.connect(this.room);
     this.room.connect(this.roomReturn);
     this.roomReturn.connect(this.musicBus);
-    // The ambience has its own level, and fades on its own.
+    // The ambience has its own level, and fades on its own; it is not music, so the
+    // effects' volume sets it too.
     this.ambBus = gain(0.0001);
-    this.ambBus.connect(this.master);
+    this.ambBus.connect(this.sfxVol);
     // A limiter after the engine's compressor: the engine's fullest sections
     // peak a little over full scale, and here music, ambience and cues all
     // land on top of each other.
@@ -1577,7 +1578,7 @@ export class VectorAudio extends AudioEngine {
       const rs = c.createGain();
       rs.gain.value = reverb;
       p.connect(rs);
-      rs.connect(this.reverbSend);
+      rs.connect(this.sfxReverbSend);
     }
     return p;
   }
@@ -1719,7 +1720,7 @@ export class VectorAudio extends AudioEngine {
     const c = this.ctx;
     const rs = c.createGain();
     rs.gain.value = 0.4;
-    rs.connect(this.reverbSend);
+    rs.connect(this.sfxReverbSend);
     notes.forEach((m, i) => {
       const at = t + i * gap;
       if (inst === 'synth') {
@@ -1827,7 +1828,7 @@ export class VectorAudio extends AudioEngine {
     const rs = c.createGain();
     rs.gain.value = 0.15;
     out.connect(rs);
-    rs.connect(this.reverbSend);
+    rs.connect(this.sfxReverbSend);
     const bands = this.formants(pre, env, plan.syl[0].vowel, t0);
     // Consonants are breath, not voice: one noise source, shaped a syllable at a time.
     const ns = this.noiseSrc(t0);

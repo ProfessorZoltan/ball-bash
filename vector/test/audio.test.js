@@ -2,7 +2,9 @@
 // plays them, their humanity climbs from the grid to the Creator's house,
 // every voice they name exists, and the whole of every track, every cue and
 // the babble run through the real sequencer against a strict stand-in for
-// Web Audio, which refuses what a browser would and counts what's built.
+// Web Audio, which refuses what a browser would and counts what's built. The
+// music and the effects each reach the speakers through their own volume, and
+// the ambience and the voices are effects.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { VECTOR_TRACKS, LEVEL_TRACKS } from '../src/tracks.js';
@@ -73,13 +75,16 @@ function mockContext(sampleRate = 48000) {
       return this;
     }
   }
-  const ctx = { currentTime: 0, sampleRate, nodes: 0 };
+  const ctx = { currentTime: 0, sampleRate, nodes: 0, made: [] };
   class Node {
     constructor() {
       ctx.nodes++;
+      ctx.made.push(this);
+      this.outs = [];
     }
     connect(dest) {
       if (!dest || !(dest instanceof Node || dest instanceof Param)) throw new TypeError('connect to nothing');
+      this.outs.push(dest);
       return dest;
     }
     disconnect() {}
@@ -563,4 +568,48 @@ test('speak builds its babble and returns how long it lasts, even before audio s
     assert.ok(Math.abs(l - len) < 1.5, `${who}: ${l} s`);
     assert.ok(ctx.nodes - before > 6 && ctx.nodes - before < 30, `${who}: ${ctx.nodes - before} nodes for the whole line`);
   }
+});
+
+// ------------------------------------------------------------------ the volumes
+
+/** Everything a node's sound goes on to, all the way to the speakers. */
+function downstream(node) {
+  const seen = new Set();
+  const walk = (n) => {
+    if (!n || seen.has(n)) return;
+    seen.add(n);
+    for (const d of n.outs || []) walk(d);
+  };
+  walk(node);
+  return seen;
+}
+
+test('the music and the effects each reach the speakers through their own volume, and the ambience and the voices are effects', () => {
+  const { a, ctx } = rig(VECTOR_TRACKS.harbour);
+  const feeds = ctx.made.filter((n) => n.outs.includes(a.master));
+  assert.deepEqual(new Set(feeds), new Set([a.musicVol, a.sfxVol]), 'nothing reaches the speakers round the two volumes');
+  assert.ok(downstream(a.ambBus).has(a.sfxVol) && !downstream(a.ambBus).has(a.musicVol), 'the ambience follows the effects');
+  // A minute of the track, with its ambience off: none of its notes, echoes or
+  // room goes through the effects' volume.
+  a.stopAmbience(0);
+  let from = ctx.made.length;
+  a.scheduleUntil(60);
+  const notes = ctx.made.slice(from);
+  assert.ok(notes.length > 500);
+  for (const n of notes) assert.ok(!downstream(n).has(a.sfxVol), 'a note of the music went through the effects');
+  // Every cue, a minute of the ambience's events and a line of babble: none of it, echoes included, through the music's.
+  from = ctx.made.length;
+  for (const s of CUE_NAMES) {
+    ctx.currentTime += 1;
+    a.cue({ s, pan: -0.5, vol: 0.8, kind: 'big', big: true, air: 1.2, speed: 0.7, which: 1, surface: 'snow' });
+  }
+  a.startAmbience(VECTOR_TRACKS.harbour.ambience);
+  for (let t = 60; t < 120; t += 5) {
+    ctx.currentTime = t;
+    a.ambienceTick(t + 5);
+  }
+  a.speak('Stop. Think about what you are doing!', { who: 'creator' });
+  const fx = ctx.made.slice(from);
+  assert.ok(fx.length > 200);
+  for (const n of fx) assert.ok(!downstream(n).has(a.musicVol), 'an effect went through the music');
 });

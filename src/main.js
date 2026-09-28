@@ -2022,7 +2022,9 @@ function pause() {
     <h1>PAUSED</h1>
     <p class="muted">Level ${game.def.id} · ${game.def.title}</p>
     <div class="row"><button id="btn-resume" class="primary">Resume</button><button id="btn-restart">Restart level</button><button id="btn-menu">Main menu</button>${fullscreenHint()}</div>
+    ${volumeHtml()}
   `);
+  bindVolume();
   $('btn-resume').onclick = resume;
   $('btn-restart').onclick = () => startLevel(levelIndex);
   $('btn-menu').onclick = goToMenu;
@@ -2544,6 +2546,56 @@ function applyQuality() {
   if (renderer.low === low) return;
   renderer.setQuality(low);
   renderer.resize();
+}
+
+const MUSIC_VOLUME_KEY = 'deflector.musicVolume'; // 0 to 1
+const SFX_VOLUME_KEY = 'deflector.sfxVolume'; // 0 to 1
+
+/** A saved volume, 0 to 1: full if none was ever set. */
+function volumeSetting(key) {
+  try {
+    const v = localStorage.getItem(key);
+    const n = Number(v);
+    return v === null || !Number.isFinite(n) ? 1 : Math.max(0, Math.min(1, n));
+  } catch (_) {
+    return 1;
+  }
+}
+
+function setVolumeSetting(key, v) {
+  try {
+    localStorage.setItem(key, String(v));
+  } catch (_) {
+    // storage unavailable; the level lasts for this page load only
+  }
+}
+
+audio.setMusicVolume(volumeSetting(MUSIC_VOLUME_KEY));
+audio.setSfxVolume(volumeSetting(SFX_VOLUME_KEY));
+
+/** The music's volume and, separately, the sound effects', as two sliders: on the title, the pause screen, the course's menu and the lobby. */
+function volumeHtml() {
+  const row = (id, label, key, title) => {
+    const pc = Math.round(volumeSetting(key) * 100);
+    return `<label class="opt vol" title="${title}"><b>${label}</b><input id="${id}" type="range" min="0" max="100" step="1" value="${pc}" /><span class="pc" id="${id}-pc">${pc}%</span></label>`;
+  };
+  return `<div class="vols">${row('opt-music', 'Music', MUSIC_VOLUME_KEY, 'How loud the music plays')}${row('opt-sfx', 'Effects', SFX_VOLUME_KEY, 'How loud everything else is: hits, walls, shields, the countdown')}</div>`;
+}
+
+function bindVolume() {
+  const slider = (id, key, set) => {
+    const el = $(id);
+    if (!el) return;
+    el.oninput = () => {
+      set(Number(el.value) / 100);
+      $(`${id}-pc`).textContent = `${el.value}%`;
+    };
+    el.onchange = () => setVolumeSetting(key, Number(el.value) / 100);
+  };
+  slider('opt-music', MUSIC_VOLUME_KEY, (v) => audio.setMusicVolume(v));
+  slider('opt-sfx', SFX_VOLUME_KEY, (v) => audio.setSfxVolume(v));
+  // Let go of the effects slider and hear a shield hit at the new level.
+  $('opt-sfx')?.addEventListener('change', () => audio.sfxPaddle(0.6, false));
 }
 
 const AUDIO_KEY = 'deflector.audio'; // 'snappy' | 'steady'
@@ -3270,6 +3322,7 @@ async function openLobby(prefillCode = '') {
       <button id="btn-menu">${exitLabel()}</button>
     </div>
     <div id="mp-status" class="mp-status"></div>
+    ${volumeHtml()}
     <details class="mp-adv"><summary>Relay</summary>
       <p class="small muted">For play over the internet, paste the address of a deployed relay (see the README); it is remembered in this browser. Enter <b>local</b> to use the server that serves this page instead (${IS_DESKTOP ? 'the app\'s built-in LAN server' : `LAN play with <code>npm start</code>`}), a friend's LAN address such as <b>192.168.1.20:27411</b> when they host from the desktop app, or leave it empty for the game's default.</p>
       <div class="row"><label class="mp-field">Relay <input id="mp-relay" maxlength="120" value="${relay ? relay.label.replace(/"/g, '') : ''}" placeholder="deflector-relay.example.workers.dev" style="width:20em" /></label><button id="mp-relay-set">Use</button></div>
@@ -3277,6 +3330,7 @@ async function openLobby(prefillCode = '') {
     ${netcodeHtml()}
   `);
   bindNetcode();
+  bindVolume();
   if (lanInfo && lanInfo.unreachable) lobbyStatus(`<span class="small">The relay at <b>${lanInfo.unreachable}</b> did not answer, so this is same-network play through ${IS_DESKTOP ? 'the app\'s built-in server' : 'this page\'s server'}.</span>`);
   if (online && (lanInfo.v || 1) < RELAY_PROTOCOL) lobbyStatus(`<span class="mp-error">This relay is out of date (protocol ${lanInfo.v || 1}, the game needs ${RELAY_PROTOCOL}). Redeploy it: see "Online multiplayer" in the README.</span>`);
   $('btn-menu').onclick = exitAction();
@@ -4570,6 +4624,7 @@ function showTitle() {
         <h3>Rules</h3>
         ${difficultySelectHtml()}
         ${ownBallToggleHtml()}
+        ${volumeHtml()}
         ${foldHtml('settings', '<h3>Settings</h3>', `${qualitySelectHtml()}${audioSelectHtml()}${mouseSelectHtml()}`)}
       </div>
     </div>
@@ -4585,6 +4640,7 @@ function showTitle() {
   bindQualitySelect();
   bindAudioSelect();
   bindMouseSelect();
+  bindVolume();
   $('btn-record').onclick = (e) => {
     e.preventDefault();
     showRecord();
@@ -5245,8 +5301,9 @@ function golfMap(mode) {
     showCourse(golfRound ? golfRound.course : courseShown);
   };
   if (mode === 'menu') {
-    showOverlay(`<div class="row"><button id="btn-resume" class="primary">Resume</button><button id="btn-restart">Restart hole</button><button id="btn-course">The course</button><button id="btn-menu">Main menu</button></div>`);
-    $('overlay').classList.add('map', 'slim'); // the map, and only the buttons over it
+    showOverlay(`<div class="row"><button id="btn-resume" class="primary">Resume</button><button id="btn-restart">Restart hole</button><button id="btn-course">The course</button><button id="btn-menu">Main menu</button></div>${volumeHtml()}`);
+    $('overlay').classList.add('map', 'slim'); // the map, and only the buttons (and the volumes) over it
+    bindVolume();
     $('btn-resume').onclick = resume;
     $('btn-restart').onclick = () => startGolfHole(golfRound.holeIndex);
     $('btn-course').onclick = course;

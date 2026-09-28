@@ -59,7 +59,7 @@ export class DefectorAudio extends AudioEngine {
       const rs = c.createGain();
       rs.gain.value = 0.4;
       g.connect(rs);
-      rs.connect(this.reverbSend);
+      rs.connect(this.sfxReverbSend);
       o.start(t);
       o.stop(t + dur + 0.02);
     });

@@ -42,13 +42,41 @@ function save(key, value) {
   }
 }
 
-const settings = { difficulty: DEFAULT_DIFFICULTY, muted: false, quality: 'high', aimLine: true, controls: 'mouse', autoRun: false, ...load(STORE.settings, {}) };
+const settings = { difficulty: DEFAULT_DIFFICULTY, muted: false, music: 1, sfx: 1, quality: 'high', aimLine: true, controls: 'mouse', autoRun: false, ...load(STORE.settings, {}) };
 let run = load(STORE.run, null); // the campaign in progress, if any
 const cleared = new Set(load(STORE.cleared, []));
 const best = load(STORE.best, {});
 
+audio.setMusicVolume(settings.music);
+audio.setSfxVolume(settings.sfx);
+
 function saveSettings() {
   save(STORE.settings, settings);
+}
+
+/** The music's volume and, separately, the sound effects', as two sliders: on the title, the pause screen, the room and the match's menu. */
+function volumeHtml() {
+  const pc = (v) => Math.round(v * 100);
+  const row = (id, label, v) => `<div class="field vols"><label for="${id}">${label}</label><input id="${id}" type="range" min="0" max="100" step="1" value="${pc(v)}" /><span class="pc" id="${id}-pc">${pc(v)}%</span></div>`;
+  return row('vol-music', 'Music', settings.music) + row('vol-sfx', 'Effects', settings.sfx);
+}
+
+function wireVolume() {
+  const slider = (id, key, set) => {
+    const el = $(id);
+    if (!el) return;
+    el.oninput = (e) => {
+      settings[key] = Number(e.target.value) / 100;
+      set(settings[key]);
+      $(`${id}-pc`).textContent = `${e.target.value}%`;
+    };
+    el.onchange = () => saveSettings();
+  };
+  slider('vol-music', 'music', (v) => audio.setMusicVolume(v));
+  slider('vol-sfx', 'sfx', (v) => audio.setSfxVolume(v));
+  // Let go of the effects slider and hear how loud they are now.
+  const sfx = $('vol-sfx');
+  if (sfx) sfx.addEventListener('change', () => audio.cue({ s: 'powerup' }));
 }
 
 function difficulty() {
@@ -291,9 +319,11 @@ function pause() {
       <div class="eyebrow">PAUSED</div>
       <h2>${def(levelId).title}</h2>
       <div class="row"><button id="resume" class="primary">Resume</button><button id="restart">Back to the last checkpoint</button><button id="menu">Title</button>${fullscreenButton()}</div>
+      ${volumeHtml()}
       <details><summary>Controls</summary>${controlsTable()}</details>
     </div>`, true);
   wireFullscreen();
+  wireVolume();
   $('resume').onclick = resume;
   $('restart').onclick = () => {
     const g = game;
@@ -345,6 +375,7 @@ function showTitle(note = '') {
             <button id="new" class="${resumeLabel ? '' : 'primary'}">New campaign</button>
           </div>
           <div class="field"><label for="diff">Difficulty</label><select id="diff">${DIFFICULTIES.map((x) => `<option value="${x.id}" ${x.id === d.id ? 'selected' : ''}>${x.name} · ${x.blurb}</option>`).join('')}</select></div>
+          ${volumeHtml()}
           <div class="field"><label for="snd">Sound</label><select id="snd"><option value="on" ${settings.muted ? '' : 'selected'}>On</option><option value="off" ${settings.muted ? 'selected' : ''}>Off</option></select><label for="q">Quality</label><select id="q"><option value="high" ${settings.quality === 'high' ? 'selected' : ''}>High</option><option value="low" ${settings.quality === 'low' ? 'selected' : ''}>Low</option></select></div>
           <div class="field"><label for="aimline">Aim line</label><select id="aimline"><option value="on" ${settings.aimLine ? 'selected' : ''}>On</option><option value="off" ${settings.aimLine ? '' : 'selected'}>Off</option></select>${fullscreenButton()}</div>
           <div class="field"><label for="ctl">Controls</label><select id="ctl"><option value="mouse" ${settings.controls === 'keys' ? '' : 'selected'}>Mouse and keyboard</option><option value="keys" ${settings.controls === 'keys' ? 'selected' : ''}>Keyboard only</option></select><label for="runmode">Run</label><select id="runmode"><option value="hold" ${settings.autoRun ? '' : 'selected'}>Hold to run</option><option value="auto" ${settings.autoRun ? 'selected' : ''}>Run by default</option></select></div>
@@ -370,6 +401,7 @@ function showTitle(note = '') {
       </div>
     </div>`);
   wireFullscreen();
+  wireVolume();
   $('new').onclick = async () => {
     await unlockAudio();
     beginCampaign(true);
@@ -749,9 +781,11 @@ function showRoom() {
       <div class="share">Share the code, or the link: <a href="${escapeHtml(share)}" target="_blank" rel="noopener">${escapeHtml(share)}</a></div>
       <ul class="roster">${list}</ul>
       <div class="picks">${picks}</div>
+      ${volumeHtml()}
       <div class="row">${room.host ? `<button id="rp-start" class="primary" ${canStart ? '' : 'disabled'}>${pick && pick.mode === 'versus' && room.players.length < 2 ? 'Versus needs two' : 'Start'}</button>` : ''}<button id="rp-leave">Leave the room</button></div>
     </div>`);
   $('rp-leave').onclick = () => leaveRoom();
+  wireVolume();
   if (room.host && pick) {
     const set = (k, v) => {
       room.pick = { ...room.pick, [k]: v };
@@ -970,9 +1004,11 @@ function mpMenu() {
       <div class="eyebrow">MULTIPLAYER · THE MATCH PLAYS ON</div>
       <h2>${escapeHtml(game.mode === 'versus' ? 'Versus' : def(levelId).title)}</h2>
       <div class="row"><button id="mm-back" class="primary">Back to it</button>${room && room.host ? '<button id="mm-end">End the match (everyone back to the room)</button>' : ''}<button id="mm-leave">Leave the room</button>${fullscreenButton()}</div>
+      ${volumeHtml()}
       <details><summary>Controls</summary>${controlsTable()}</details>
     </div>`, true);
   wireFullscreen();
+  wireVolume();
   $('mm-back').onclick = () => {
     state = 'play';
     $('overlay').hidden = true;
@@ -1239,6 +1275,7 @@ window.__defector = {
   get state() {
     return state;
   },
+  audio,
   get game() {
     return game;
   },
