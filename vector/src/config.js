@@ -18,6 +18,8 @@ export const STORE = {
   run: 'vector.run',
   cleared: 'vector.cleared',
   best: 'vector.best',
+  name: 'vector.name', // the name shown over your robot in multiplayer
+  room: 'vector.room', // what the host last picked for a room
 };
 
 /** The physics runs in whole steps of this, whatever the display's rate. */
@@ -150,3 +152,36 @@ export const BOSS_INTRO = 2.6;
 
 /** A fall below the level's floor by this much is a fall into a pit. */
 export const PIT_DEPTH = 14;
+
+/**
+ * Multiplayer's robots, one colour each for the whole match: the robot's body,
+ * the name over it, its standard charge, and its pair of wormhole ends (a
+ * light and a dark of its own colour), so every charge and every end says
+ * whose it is. The first is the robot of the campaign.
+ */
+export const PLAYERS = [
+  { name: 'Cyan', color: '#7fe9ff', trim: '#ffb347', charge: '#dffbff', ends: ['#e6fbff', '#3c96be'] },
+  { name: 'Rose', color: '#ff8ad8', trim: '#ffe066', charge: '#ffd6f3', ends: ['#ffe3f6', '#b0467f'] },
+  { name: 'Lime', color: '#b8ff6a', trim: '#ff9f43', charge: '#ecffcf', ends: ['#f1ffd9', '#5f9a26'] },
+];
+export const MAX_PLAYERS = PLAYERS.length;
+
+/** Co-op: each robot on its own shields; one that runs out is out until a teammate reaches a checkpoint or the boss. */
+export const COOP = {
+  revive: 1, // shields a robot comes back with
+  spread: 1.5, // m between robots put down side by side
+  retarget: 2.5, // seconds a boss keeps its eye on one robot before it looks for the nearest again
+};
+
+/** Versus: every robot for itself, in an arena (maps.js). */
+export const VERSUS = {
+  shields: 5, // each, unless the host picks otherwise
+  shieldChoices: [3, 5, 7],
+  powerMin: 30, // seconds between power-ups appearing: at least
+  powerMax: 60, // and at most
+  powerCap: 3, // lying about at once, and no more
+  fair: 0.5, // a power-up appears where the nearest robot is at least this share as far as the next nearest
+  frozen: 2, // seconds a Frost charge holds a robot
+  ready: 2.4, // seconds of countdown before a match starts, every robot held on its spawn
+  hammer: 2, // shields a Hammer charge takes
+};

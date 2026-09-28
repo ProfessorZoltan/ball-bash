@@ -38,6 +38,10 @@ export class Robot {
     this.invuln = 0;
     this.frozen = 0;
     this.bob = 0; // the view's walking sway, a phase
+    // Each time the robot is put somewhere or turned by something other than its
+    // own look (a wormhole, a respawn), this counts one more: a guest's look made
+    // before then is not laid over the new one (netplay.js).
+    this.turns = (this.turns || 0) + 1;
   }
 
   get feet() {
@@ -164,7 +168,10 @@ export function stepRobot(bot, it, world, dt, ends = []) {
   const wasGround = bot.onGround;
   bot.pos = madd(bot.pos, bot.vel, dt);
   const warp = portalRobot(bot, ends, dt);
-  if (warp) ev.push({ s: 'warp', from: warp.from, to: warp.to });
+  if (warp) {
+    bot.turns++;
+    ev.push({ s: 'warp', from: warp.from, to: warp.to });
+  }
   bot.onGround = false;
   bot.ground = null;
   resolve(bot, world, ev, wasGround);

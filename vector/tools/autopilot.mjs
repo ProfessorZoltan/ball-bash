@@ -189,9 +189,12 @@ export class Autopilot {
           return { worm };
         }
         if (S.phase === 'check') {
+          // A guest in multiplayer sees its ends a round trip after the press: give them a moment.
+          S.wait += DT;
           for (const a of st.aims) {
             const e = g.ends[a.which];
             if (!e) {
+              if (S.wait < 1) return {};
               this.fail(`end ${a.which} did not open at ${a.at.map((v) => v.toFixed(1))}`);
               return {};
             }
@@ -385,7 +388,9 @@ export class Autopilot {
         S.aimT = (S.aimT || 0) - DT;
         if (S.aimT <= 0 && g.cooldown <= 0 && g.mine() < BLASTER.maxAlive) {
           S.aimT = 0.15;
-          const foes = a.foes.filter((e) => !e.dead && e.frozen <= 0).sort((p, q) => dist(p.pos, b.pos) - dist(q.pos, b.pos));
+          // A guest in multiplayer has no list of the wave: it fights what it sees in the room.
+          const inRoom = (e) => e.pos[0] >= a.min[0] && e.pos[0] <= a.max[0] && e.pos[2] >= a.min[2] && e.pos[2] <= a.max[2];
+          const foes = (a.foes || g.enemies.filter(inRoom)).filter((e) => !e.dead && e.frozen <= 0).sort((p, q) => dist(p.pos, b.pos) - dist(q.pos, b.pos));
           for (const e of foes.slice(0, 3)) {
             const shot = shotAt(g, e, this.r);
             if (shot) {

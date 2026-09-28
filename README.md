@@ -1618,6 +1618,8 @@ are still **shields**, and the pool carries from level to level of a campaign.
 Saves use their own `vector.*` keys. It is drawn with WebGL2 by a renderer
 written for it (`vector/src/render.js`), with no library and no build step,
 like the rest of the repo; a browser without WebGL2 gets a message instead.
+Up to three can play it together, co-op through the levels or versus in four
+arenas of its own (see **Multiplayer: co-op and versus** below).
 
 | Difficulty | Shields | Source |
 | --- | --- | --- |
@@ -1889,13 +1891,93 @@ one the grid's record left blank: a vector is a quantity with a size and a
 direction, and the direction is its own. The text is in
 `vector/src/story.js`, the bosses' lines in `vector/src/bosses.js`.
 
+### Multiplayer: co-op and versus
+
+Up to three can play, each on their own screen, through the same relay as
+Deflector's and Defector's multiplayer: the online relay by default, or on
+one Wi-Fi the LAN server of `npm start` (put `local` under **Relay** on the
+title screen, or open the game with `?relay=local`). Under **Multiplayer** on
+the title screen, one player hosts a room and gets a four-letter code and a
+share link (`?room=CODE` fills the code in); the others join with it. The
+room lasts until you leave it: a match ends back in it, with the same people.
+
+The host picks the mode. **Co-op** is a campaign level, at a difficulty;
+**versus** is an arena, at 3, 5 or 7 shields each, and needs two robots. Each
+player keeps one colour for the match (cyan, rose, lime) and wears it on the
+robot, the name over its head, its standard charge, the blaster in hand and
+its pair of wormhole ends, a light and a dark of its own colour. A match
+cannot be paused, since others are playing it: Esc opens a menu over it
+while it plays on. At the end, the host chooses what next (the next level,
+a continue, a rematch, another arena, or back to the room) and everyone else
+sees the same screen.
+
+| Co-op rule | What happens | Source |
+| --- | --- | --- |
+| The start | the team is put down side by side across the way the level goes, 1.5 m apart, on firm ground | `besideSpot` in `vector/src/game.js` |
+| Shields | each robot has its own at the difficulty's number, and a hit costs only the robot that took it | `Player`, `hurt`, same file |
+| Out | a robot with no shields left is out: gone from the level, its wormhole ends shut, its charges gone, its view on the nearest teammate. The level goes on | `knockOut`, same file |
+| Back in | when a teammate still in reaches a checkpoint, or the boss's arena, everyone who was out comes back there with one shield | `revive`, same file |
+| Together | an ambush room locks with the whole team in it, and the boss's door with the whole team in the arena: whoever is outside when the doors shut is brought in beside the one who walked in | `stepAmbushes`, `startBoss`, same file |
+| Lost | the level is lost only when the whole team is out. A continue brings everyone back at the last checkpoint with full shields | `knockOut`, same file |
+| Enemies | each goes after the robot nearest it, and wakes and sleeps by that one. A boss watches the nearest robot and looks again every 2.5 s | `stepEnemies`, `target`, same file |
+| Charges | six in the air each; a teammate's charge goes straight through you | `mine`, `stepCharges`, same file |
+| Wormholes | each robot has a pair of its own, and anyone (enemies and charges included) can go through anyone's | `openEnd`, `openEnds`, same file |
+| Drops | what a machine or an ambush drops, drops once for each robot still in, and only that robot can take it | `dropAt`, same file |
+| Switches and signs | a switch takes a charge while any robot is within 70 m of it; a sign reads out to whoever stands by it | `flip`, `updateSign`, same file |
+
+| Versus rule | What happens | Source |
+| --- | --- | --- |
+| The start | every robot on its spawn, facing the middle of the arena, held through a 2.4 s countdown | `stepVersus` in `vector/src/game.js` |
+| A hit | another robot's charge costs a shield (a Hammer's, two) and puts the robot back at the spawn furthest from everyone else, flickering for 1.6 s so anything goes through it. Your own charges never hurt you | `chargeVsRobots`, `hurt`, `respawn`, same file |
+| Frost | holds the robot fast for 2 s instead: it can neither move nor fire, and loses no shield | `chargeVsRobots`, same file |
+| A fall | a pit, the molten channel, the harbour water or the black hole costs a shield and puts the robot back at the spawn furthest from everyone else | `putBack`, `respawn`, same file |
+| The end | a robot with no shields left is out; the last one standing wins | `knockOut`, same file |
+| Power-ups | one appears every 30 to 60 seconds, at random, on one of the arena's spots, and anyone can take it. Never more than three lie about at once | `stepVersus`, `VERSUS` in `vector/src/config.js` |
+| Where they appear | only where the nearest robot is at least half as far away as the next nearest, so nobody gets one dropped at their feet; if everyone is bunched so that nowhere is, the fairest spot there is | `powerSpot`, `fairness` in `vector/src/game.js` |
+
+The four arenas are walled so a charge always has something to bank off,
+and each wears the look and the music of one of the campaign's levels:
+
+| Arena | Look | What it is | Source |
+| --- | --- | --- | --- |
+| Crossfire | Edge of the Grid | a pillar in the middle of the floor with low walls round it, a tier in each corner up a ramp along the wall, and posts hung from the roof to bank off. Nowhere to hide for long | `MAPS` in `vector/src/maps.js` |
+| Event Horizon | Wireframe Wilds | a black hole hangs 7 m over a pit in the middle: every shot past it bends, and a robot that jumps under it is drawn up and taken. One bridge crosses beneath it; islands north and south up ramps; springs throw you up to the high corners | same |
+| Foundry Floor | The Foundry | a channel of molten metal down the middle with two bridges over it, one under a crusher, and a catwalk up each long wall, reached by a lift at one end and a ramp at the other, one of them across a laser gate | same |
+| Container Yard | Harbour at Dawn | open to the sky: harbour water down the middle, two bridges over it, a stack of containers either side with a spring at its foot, and a gantry between the stacks' tops, over the water | same |
+
+How it plays over a network is Defector's way, in three dimensions. The
+host's page runs the one real game, and the guests' pages mirror it. A guest
+sends its inputs, one record a frame for exactly the physics steps it
+covered, the last six repeated in every message so a lost one costs nothing;
+the host keeps them in a small queue, like a jitter buffer, and plays each for
+exactly those steps (Deflector's input queue, in Vector's shape). Every record
+carries the look it was made with, and the guest's view is always its own:
+the host lays a record's look on the robot only while the robot has been
+turned (by a wormhole, or a respawn) as often as the guest had seen when it
+made the record (`Robot.turns`), so a look from before a wormhole is never
+laid over the turned one. So that a guest never waits a round trip to see its
+own robot move, it predicts it, stepping it with the same physics in its own
+copy of the level on the same clock. Each snapshot (30 a second) says how far
+through the guest's inputs the host has got and where the robot was then; the
+guest puts it there and plays again what the host has not played yet, and
+what is left of any difference fades out on screen. What its robot stands on
+or goes through (doors, broken crates, ice, everyone's wormhole ends) it takes
+from the newest snapshot; everything else, the other robots, enemies, charges
+and the boss, it shows a tenth of a second behind, between the two snapshots
+either side of then, with their sounds and flashes as they come on screen.
+Its own robot's sounds (a step, a jump, a shot) it plays at once. Every match
+in a room has its own number, carried by every input and snapshot, and each
+end drops any that are for another match. All of Vector's messages start with
+`vx`, so a Vector room never reads a Deflector or a Defector one
+(`vector/src/netplay.js`; the room and the match are in `vector/src/main.js`).
+
 ### Checking it
 
 `npm test` runs Vector's tests in `vector/test/` with the rest.
 
 | Check | What it proves | Source |
 | --- | --- | --- |
-| The robot | it stands, jumps as high and as far as MOVE says and no further, walks up stairs and ramps and not walls, rides platforms, and walks or falls through wormholes | `vector/test/robot.test.js` |
+| The robot | it stands, jumps as high and as far as MOVE says and no further, walks up stairs and ramps and not walls, walks off a floor onto the top of a ramp without catching on its edge, rides platforms, and walks or falls through wormholes | `vector/test/robot.test.js` |
 | Crossing | every level is crossed by the autopilot, which flies the robot's own physics along each section's route (running jumps, platforms boarded as they arrive, blinking floors taken as they light, gates run through while dark, wormholes aimed and walked into, switches shot, the orbit's shot found by flying the charge round the hole), without losing a shield; and again with every machine awake (the robot untouchable), fighting each ambush room's waves with shots it has flown ahead, banks off the walls round a guard's shield included, until the doors open | `vector/tools/autopilot.mjs`, `vector/test/levels.test.js` |
 | Puzzles | each kind fails the obvious way: a bulkhead cannot be walked or jumped under, a chasm or a launch cannot be jumped at a full run, a vault's switch takes no shot from anywhere without a wormhole, an orbit's none without its black hole, a door stays shut; and the same full-run charge does clear an ordinary gap, so none of that is vacuous | `vector/test/puzzles.test.js` |
 | Wormholes | where an end may sit and how; through a pair, speed kept and the way turned; out of a floor fast enough to clear it; charges and machines through; a launch throws past any jump; a sight line bends round a black hole | `vector/test/wormholes.test.js` |
@@ -1903,20 +1985,28 @@ direction, and the direction is its own. The text is in
 | The trilogy's order | each level is more real than the one before and sounds more human; every level has its own track, as human as the level | `vector/test/levels.test.js` |
 | Music and sound | every track is well formed and humanity rises across it; every voice a track names exists; every cue sounds at every humanity, placed and scaled as the game asks, and once however often it is fired at once | `vector/test/audio.test.js` |
 | The art | every machine in every roster and every boss draws, with nothing but numbers in what it asks the renderer for | `vector/test/art.test.js` |
+| Co-op | the team side by side; each robot on its own shields; out, and back at a checkpoint or the boss with one; the level lost only with the whole team out; the team locked into an ambush room and the arena together; enemies after the nearest robot; a pair of wormhole ends each, anyone's to go through; a teammate's charge through you; a drop for each | `vector/test/coop.test.js` |
+| Versus arenas | four, no two built from the same parts or wearing the same level; on each, the autopilot flies the arena's tour from every spawn and reaches every spawn and every power-up spot without losing a shield; standing still on any of them is safe for 12 s | `vector/tools/tour.mjs`, `vector/test/versus.test.js` |
+| Versus rules | the countdown; a hit and the furthest spawn; flickering; your own charges; a Hammer; Frost; a fall; the last one standing; power-ups every 30 to 60 s, never more than three and never nearer one robot than half as far as the next, over hundreds of placements on every arena; standing under the black hole safe and a jump there taken | `vector/test/versus.test.js` |
+| Netcode | a host and a guest over a pretend network (late by 40 to 90 ms, one message in twenty lost): the guest's predicted robot agrees with the host's to under a centimetre running, jumping and turning; through a wormhole, turned the same way with no correction; riding the Foundry's lifts and timing its crusher and laser; crossing three levels' doors, switches and wormholes to the boss; its look its own except after a respawn; its shots made in the host's game; every boss fight comes through whole and draws | `vector/test/netplay.test.js` |
 
 Each tool also runs on its own: `node vector/tools/autopilot.mjs 4`,
-`node vector/tools/fight.mjs 8 noportals`, and
-`node vector/tools/shots.mjs level 4 out/` (or `boss 4`, `portal 1`,
-`title`) screenshots the real game in headless Chromium. `window.__vector` is
-the browser handle (`state`, `game`, `startLevel(id, opts)`, `renderer`,
-`input`, `audio`, `art`, `fx`, `level`).
+`node vector/tools/fight.mjs 8 noportals`, `node vector/tools/tour.mjs
+foundry`, and `node vector/tools/shots.mjs level 4 out/` (or `boss 4`,
+`portal 1`, `title`) screenshots the real game in headless Chromium.
+`node vector/tools/play.mjs all` plays every level in the real page with the
+autopilot (`BUDGET=900` gives each longer than its 420 s), and
+`node vector/tools/multi.mjs versus 2 foundry out/` plays a multiplayer match
+in real browser pages through the LAN relay and checks each guest's robot
+against the host's. `window.__vector` is the browser handle (`state`,
+`game`, `startLevel(id, opts)`, `renderer`, `input`, `audio`, `art`, `fx`,
+`level`, `arenaMap`, and for multiplayer `room`, `mp`, `net`, `host(name)`,
+`join(code, name)`, `pick(p)`, `startMatch()`).
 
 ### Roadmap
 
-1. **Multiplayer**, co-op and versus as in Defector, through the same relay
-   with its own `vx` messages.
-2. **Shadows** from the sun in the real-world levels.
-3. **Bloom** for the grid's neon at high quality.
+1. **Shadows** from the sun in the real-world levels.
+2. **Bloom** for the grid's neon at high quality.
 
 ## Online multiplayer (different networks)
 

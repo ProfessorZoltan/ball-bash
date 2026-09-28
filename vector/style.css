@@ -181,3 +181,26 @@ summary { cursor: pointer; font-family: var(--display); font-size: 12px; letter-
 .clicktoplay { font-family: var(--display); letter-spacing: 0.3em; font-size: 14px; color: var(--orange); text-align: center; margin-top: 10px; animation: pulse 1.6s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: 0.45; } }
 .panel.narrow .mark { font-size: clamp(20px, 3.6vw, 38px); }
+
+/* Multiplayer: the title's box, the room, the team on the HUD, names over the other robots. */
+.mp { margin-top: 16px; padding-top: 12px; border-top: 1px solid rgba(127, 233, 255, 0.15); }
+.mp .status { font-size: 13px; color: var(--muted); min-height: 1.4em; margin-top: 6px; }
+.mp .hint { text-align: left; }
+input[type='text'] { background: rgba(0, 0, 0, 0.35); color: var(--text); border: 1px solid rgba(127, 233, 255, 0.3); border-radius: 8px; padding: 7px 10px; font: 14px var(--body); }
+input.code { font-family: var(--display); letter-spacing: 0.3em; text-transform: uppercase; width: 7.5em; }
+.roomcode { font-family: var(--display); font-size: 44px; letter-spacing: 0.35em; text-align: center; color: #fff; text-shadow: 0 0 18px var(--orange); margin: 6px 0; }
+.share { text-align: center; font-size: 12px; color: var(--muted); word-break: break-all; }
+.share a { color: var(--cyan); }
+.roster { list-style: none; margin: 14px 0; padding: 0; display: grid; gap: 6px; }
+.roster li { display: grid; grid-template-columns: 18px 1fr auto; gap: 10px; align-items: center; padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(127, 233, 255, 0.15); font-size: 15px; }
+.roster li.empty { color: var(--muted); font-style: italic; }
+.roster .dot { width: 14px; height: 14px; border-radius: 50%; box-shadow: 0 0 10px currentColor; background: currentColor; }
+.roster .tag { font-size: 11px; color: var(--muted); font-family: var(--display); letter-spacing: 0.12em; }
+.picks { margin-top: 10px; }
+.picks .blurb { font-size: 13px; color: var(--muted); margin: 6px 0 10px; }
+.team { display: flex; gap: 16px; justify-content: center; font-size: 12px; margin-top: 6px; font-family: var(--display); letter-spacing: 0.06em; }
+.team:empty { display: none; }
+.team .out { opacity: 0.45; text-decoration: line-through; }
+#tags { position: fixed; inset: 0; pointer-events: none; z-index: 4; overflow: hidden; }
+#tags .tag { position: absolute; transform: translate(-50%, -100%); font: 600 12px var(--display); letter-spacing: 0.08em; text-shadow: 0 0 6px rgba(0, 0, 0, 0.9), 0 0 12px currentColor; white-space: nowrap; }
+#tags .tag i { display: block; font-style: normal; font-size: 9px; text-align: center; letter-spacing: 0.15em; }

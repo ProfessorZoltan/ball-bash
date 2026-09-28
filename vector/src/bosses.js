@@ -110,7 +110,7 @@ class Boss {
         if (Math.abs(d[0]) < p.h[0] + bot.r && Math.abs(d[1]) < p.h[1] + bot.half + bot.r && Math.abs(d[2]) < p.h[2] + bot.r) return true;
         continue;
       }
-      if (g.touchesBot(p.p, (p.r || 1) * 0.92)) return true;
+      if (g.touchesRobot(bot, p.p, (p.r || 1) * 0.92)) return true;
     }
     for (const w of this.waves) {
       const h = Math.hypot(bot.pos[0] - w.c[0], bot.pos[2] - w.c[2]);
@@ -151,7 +151,7 @@ class Boss {
   }
 
   target(game) {
-    return game.bot.pos;
+    return game.target.pos;
   }
 
   shoot(game, from, dir, o = {}) {
@@ -171,7 +171,7 @@ class Boss {
 
   /** A fan of shots at the robot. */
   fan(game, from, n, spread, o = {}) {
-    const aim = norm(sub(game.bot.pos, from));
+    const aim = norm(sub(game.target.pos, from));
     for (let i = 0; i < n; i++) {
       const a = (i - (n - 1) / 2) * spread;
       this.shoot(game, from, rotY(aim, a), o);
@@ -193,10 +193,9 @@ class Boss {
   }
 
   summon(game, spec) {
-    const e = new Enemy(spec);
+    const e = game.addEnemy(new Enemy(spec));
     e.awake = true;
     e.summoned = true;
-    game.enemies.push(e);
     return e;
   }
 
@@ -244,7 +243,7 @@ class Warden extends Boss {
   }
   step(game, dt) {
     const ev = this.tick(dt);
-    const bot = game.bot;
+    const bot = game.target;
     const k = this.rate;
     this.spin += dt * k * (this.phase === 2 ? 0.95 : 0.55);
     // It drifts toward you, never onto you.
@@ -291,7 +290,7 @@ class Stag extends Boss {
   step(game, dt) {
     const ev = this.tick(dt);
     const k = this.rate;
-    const bot = game.bot;
+    const bot = game.target;
     this.st += dt * k;
     if (this.state === 'watch') {
       this.turnTo(bot.pos, 2.2, dt);
@@ -352,7 +351,7 @@ class Scheduler extends Boss {
   step(game, dt) {
     const ev = this.tick(dt);
     const k = this.rate;
-    const bot = game.bot;
+    const bot = game.target;
     // Along its rail (x), and the rail along the hall (z), after the robot, slowly.
     const want = this.keepIn([bot.pos[0], this.pos[1], bot.pos[2]], 4);
     const d = sub(want, this.pos);
@@ -404,7 +403,7 @@ class Forgewright extends Boss {
   step(game, dt) {
     const ev = this.tick(dt);
     const k = this.rate;
-    const bot = game.bot;
+    const bot = game.target;
     this.turnTo(bot.pos, this.phase === 2 ? 0.95 : 0.7, dt);
     // A slow step toward the middle, so it cannot be pinned in a corner.
     const home = sub(this.c, this.pos);
@@ -545,7 +544,7 @@ class Borer extends Boss {
   step(game, dt) {
     const ev = this.tick(dt);
     const k = this.rate;
-    const bot = game.bot;
+    const bot = game.target;
     const A = this.A;
     this.st += dt * k;
     const zEnd = (s) => (s > 0 ? A.max[2] - 4.2 : A.min[2] + 4.2);
@@ -606,7 +605,7 @@ class Gantry extends Boss {
   step(game, dt) {
     const ev = this.tick(dt);
     const k = this.rate;
-    const bot = game.bot;
+    const bot = game.target;
     // The spreader swings under the boom: a heavy thing on a cable.
     this.swingT += dt * k * (this.phase === 2 ? 1.25 : 0.9);
     const sw = this.A.swing;
@@ -644,7 +643,7 @@ class Lookout extends Boss {
   step(game, dt) {
     const ev = this.tick(dt);
     const k = this.rate;
-    const bot = game.bot;
+    const bot = game.target;
     this.turnTo(bot.pos, this.phase === 2 ? 1.5 : 1.1, dt);
     this.beamT -= dt * k;
     if (this.beamT <= 0) {
@@ -781,7 +780,7 @@ class Creator extends Boss {
         this.parts.push(this.plate(madd(p, n, 1.1 * swing), n, u, 1.1, 1.1));
       }
     });
-    const bot = game.bot;
+    const bot = game.target;
     this.t1 -= dt * k;
     if (this.t1 <= 0) {
       if (phase === 1) {

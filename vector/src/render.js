@@ -557,4 +557,4 @@ function invert(m) {
   return inv;
 }
 
-export { STRIDE };
+export { STRIDE, FOV };

@@ -4,10 +4,9 @@
 // the blaster in your hand. A machine's look is its roster name; how it
 // moves is enemies.js's business.
 import { modelYPR, model, add, sub, scale, norm, cross, rotY, lookDir, camBasis, dist, len } from './math.js';
-import { POWERUPS, BLASTER, WORM, PICKUP } from './config.js';
+import { POWERUPS, BLASTER, WORM, PICKUP, PLAYERS } from './config.js';
 import { guideLine } from './blaster.js';
 import { sightLine, placeEnd } from './wormholes.js';
-import { END_COLORS } from './game.js';
 
 const TAU = Math.PI * 2;
 const PCOL = Object.fromEntries(POWERUPS.map((p) => [p.id, p.color]));
@@ -44,7 +43,13 @@ export class Art {
     for (const f of g.world.fans) this.fan(f);
     this.checkpoints(g);
     if (g.boss) this.boss(g.boss, g);
-    this.robotBody(g.bot, g);
+    // Every robot: your own only through a wormhole, everyone else's always, flickering after a hit.
+    for (const pl of g.players) {
+      if (pl.out) continue;
+      const mine = pl.slot === g.local;
+      if (!mine && pl.bot.invuln > 0 && Math.sin(this.t * 40) > 0.3) continue;
+      this.robotBody(pl.bot, PLAYERS[pl.slot], mine);
+    }
     // The aim line and where a wormhole end would open, from the eye.
     if (view.aimLine && g.state === 'play') this.aim(g, view);
     for (const q of fx.parts) this.r.point(q.p, q.size * Math.min(1, q.t / q.life * 2), q.col, Math.min(1, q.t / q.life * 1.6));
@@ -518,18 +523,28 @@ export class Art {
     }
   }
 
-  /** The robot as others see it: through a wormhole, you may see yourself. */
-  robotBody(b) {
-    const o = { onlyPortal: true, mat: 'panel', glow: 0.3 };
+  /**
+   * A robot's body in its player's colours. Your own is drawn only in a
+   * wormhole's view (through one, you may see yourself); everyone else's
+   * always. A robot held by Frost is iced over.
+   */
+  robotBody(b, look = PLAYERS[0], mine = true) {
+    const only = mine ? { onlyPortal: true } : {};
+    const o = { ...only, mat: 'panel', glow: 0.3 };
+    const col = b.frozen > 0 ? '#cfefff' : look.color;
     const yaw = b.yaw;
     const at = (x, y, z) => add(b.pos, rotY([x, y, z], yaw));
-    this.d('box', at(0, 0.25, 0), yaw, 0, 0, [0.62, 0.8, 0.46], '#7fe9ff', o);
-    this.d('box', at(0, 0.82, 0.02), yaw, 0, 0, [0.5, 0.36, 0.42], '#7fe9ff', o);
-    this.d('box', at(0, 0.84, 0.22), yaw, 0, 0, [0.36, 0.1, 0.04], '#e8fdff', { onlyPortal: true, glow: 2 });
-    this.d('box', at(0.18, -0.45, 0), yaw, 0, 0, [0.14, 0.6, 0.14], '#7fe9ff', o);
-    this.d('box', at(-0.18, -0.45, 0), yaw, 0, 0, [0.14, 0.6, 0.14], '#7fe9ff', o);
-    this.d('ball', at(0, -0.85, 0), 0, 0, 0, [0.3, 0.1, 0.3], '#4fb8ff', { onlyPortal: true, glow: 3 });
-    this.d('box', at(-0.38, 0.35, 0.2), yaw, 0, 0, [0.14, 0.14, 0.6], '#ffb347', o);
+    this.d('box', at(0, 0.25, 0), yaw, 0, 0, [0.62, 0.8, 0.46], col, o);
+    this.d('box', at(0, 0.82, 0.02), yaw, 0, 0, [0.5, 0.36, 0.42], col, o);
+    this.d('box', at(0, 0.84, 0.22), yaw, 0, 0, [0.36, 0.1, 0.04], '#e8fdff', { ...only, glow: 2 });
+    this.d('box', at(0.18, -0.45, 0), yaw, 0, 0, [0.14, 0.6, 0.14], col, o);
+    this.d('box', at(-0.18, -0.45, 0), yaw, 0, 0, [0.14, 0.6, 0.14], col, o);
+    this.d('ball', at(0, -0.85, 0), 0, 0, 0, [0.3, 0.1, 0.3], look.charge, { ...only, glow: 3 });
+    // The blaster, pointing where the robot looks.
+    const aim = lookDir(yaw, b.pitch || 0);
+    this.d('box', add(at(-0.38, 0.35, 0), scale(aim, 0.25)), yaw, -(b.pitch || 0), 0, [0.14, 0.14, 0.6], look.trim, o);
+    if (b.frozen > 0) this.d('box', b.pos, yaw, 0, 0, [1, 2, 1], '#bfefff', { ...only, mat: 'glass', alpha: 0.35, glow: 0.4 });
+    if (!mine) this.r.light(at(0, 0.84, 0.3), look.color, 2.5);
   }
 
   // ------------------------------------------------------------ the aim
@@ -571,7 +586,9 @@ export class Art {
     const sway = Math.sin(b.bob) * 0.008 * k;
     const bobY = Math.abs(Math.cos(b.bob)) * 0.006 * k;
     const base = [0.17 + sway, -0.17 - bobY, -0.56 + kick * 0.04];
-    const col = g.loaded === 'std' ? '#4fd8ff' : PCOL[g.loaded] || '#4fd8ff';
+    // The standard charge's colour: cyan alone, and each player's own with more than one robot about.
+    const std = g.multi ? PLAYERS[g.local].color : '#4fd8ff';
+    const col = g.loaded === 'std' ? std : PCOL[g.loaded] || std;
     const metal = { mat: 'metal' };
     // A part at (x, y, z) from the gun's middle, turned with its muzzle up by the kick.
     const P = (shape, x, y, z, sx, sy, sz, c, o = metal, pitch = 0) => r.draw(shape, modelYPR([base[0] + x, base[1] + y, base[2] + z], Math.PI, pitch + kick * 0.25, 0, [sx, sy, sz]), c, o);
@@ -581,8 +598,9 @@ export class Art {
     P('ball', 0, 0.005, -0.225, 0.035 + kick * 0.03, 0.035 + kick * 0.03, 0.035 + kick * 0.03, col, { glow: 3 + kick * 10 });
     P('box', 0, 0.027, -0.01, 0.012, 0.005, 0.18, col, { glow: 0.8 });
     // The two wormhole lamps on its side: lit while that end is open.
-    P('ball', -0.033, 0.012, 0.06, 0.016, 0.016, 0.016, g.ends[0] ? END_COLORS[0] : '#222831', { glow: g.ends[0] ? 3 : 0 });
-    P('ball', -0.033, 0.012, 0.09, 0.016, 0.016, 0.016, g.ends[1] ? END_COLORS[1] : '#222831', { glow: g.ends[1] ? 3 : 0 });
+    const ends = PLAYERS[g.local || 0].ends;
+    P('ball', -0.033, 0.012, 0.06, 0.016, 0.016, 0.016, g.ends[0] ? ends[0] : '#222831', { glow: g.ends[0] ? 3 : 0 });
+    P('ball', -0.033, 0.012, 0.09, 0.016, 0.016, 0.016, g.ends[1] ? ends[1] : '#222831', { glow: g.ends[1] ? 3 : 0 });
     // The charges free: a row of pips along its top.
     const free = BLASTER.maxAlive - g.mine();
     for (let i = 0; i < BLASTER.maxAlive; i++) P('box', 0.02, 0.033, 0.11 - i * 0.022, 0.008, 0.006, 0.012, i < free ? col : '#222831', { glow: i < free ? 1 : 0 });

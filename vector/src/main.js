@@ -3,11 +3,14 @@
 // HUD and the menus. With the renderer, the art and the input it is the only
 // part of the third game that touches the page: the game itself (game.js)
 // never does.
-import { PHYSICS_DT, DIFFICULTIES, DEFAULT_DIFFICULTY, GAME_MARK, GAME_VERSION, VECTOR_NAME, VECTOR_TAGLINE, VECTOR_LIT, STORE, POWERUPS, PICKS, BLASTER, MOVE, BOSS_INTRO } from './config.js';
+import { PHYSICS_DT, DIFFICULTIES, DEFAULT_DIFFICULTY, GAME_MARK, GAME_VERSION, VECTOR_NAME, VECTOR_TAGLINE, VECTOR_LIT, STORE, POWERUPS, PICKS, BLASTER, MOVE, BOSS_INTRO, PLAYERS, MAX_PLAYERS, VERSUS } from './config.js';
 import { LEVEL_DEFS, level, levelDef } from './levels.js';
+import { MAPS, arenaMap } from './maps.js';
+import { NET, MSG, HostLink, Mirror, GuestInputs } from './netplay.js';
+import { NetClient, relayConfig, saveRelay } from '../../src/net.js';
 import { BOSSES } from './bosses.js';
 import { Game } from './game.js';
-import { Renderer } from './render.js';
+import { Renderer, FOV } from './render.js';
 import { Art } from './art.js';
 import { FX } from './fx.js';
 import { Input } from './input.js';
@@ -80,7 +83,7 @@ function difficulty() {
 
 // ------------------------------------------------------------------ state
 
-let state = 'title'; // title, story, card, play, paused, down, cleared, done
+let state = 'title'; // title, story, card, play, paused, down, cleared, done; room, mpmenu, mpend in multiplayer
 let game = null;
 let bp = null;
 let mode = 'single'; // 'campaign' or 'single'
@@ -92,6 +95,7 @@ let prevPos = null; // where the robot was a step ago, for drawing between steps
 let sayUntil = 0;
 let lastBoss = false;
 let frames = { n: 0, t: 0, fps: 0 };
+let clickPick = null; // a power-up picked on the HUD with the mouse or a finger, for the next step
 
 function fmt(s) {
   const m = Math.floor(s / 60);
@@ -480,7 +484,7 @@ function controlsTable() {
   return `<table class="controls"><thead><tr><th>Action</th><th>Mouse and keyboard</th><th>Controller</th><th>Touch</th></tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
 }
 
-function showTitle() {
+function showTitle(note = '') {
   state = 'title';
   mode = 'single';
   input.unlock();
@@ -512,6 +516,18 @@ function showTitle() {
           </div>
           ${settingsHtml()}
           <details><summary>Controls</summary>${controlsTable()}</details>
+          <div class="mp">
+            <h3>Multiplayer</h3>
+            <p class="small muted">Up to three, each on their own screen: co-op through the campaign's levels, each robot on its own shields, or versus in four arenas of their own.</p>
+            <div class="field"><label for="mp-name">Your name</label><input id="mp-name" type="text" maxlength="16" value="${escapeHtml(myName())}" /></div>
+            <div class="row" style="justify-content:flex-start">
+              <button id="mp-host">Host a room</button>
+              <input id="mp-code" class="code" type="text" maxlength="4" placeholder="CODE" aria-label="Room code" value="${escapeHtml(joinCode)}" />
+              <button id="mp-join">Join</button>
+            </div>
+            <div id="mp-status" class="status">${escapeHtml(note)}</div>
+            <details><summary>Relay</summary><div class="field"><label for="mp-relay">Address</label><input id="mp-relay" type="text" placeholder="the default, or 'local'" value="${escapeHtml(savedRelay())}" /></div><p class="hint">Friends on other networks meet through the online relay; on one Wi-Fi, open the game from <code>npm start</code> and put <code>local</code> here.</p></details>
+          </div>
           <div class="row" style="justify-content:flex-start"><button id="deflector" title="Back to the first game">← Deflector</button><button id="defector" title="The second game">Defector</button><button id="full">${document.fullscreenElement ? 'Leave fullscreen' : 'Fullscreen'}</button></div>
         </div>
         <div>
@@ -529,6 +545,31 @@ function showTitle() {
     await unlockAudio();
     beginCampaign(false);
   };
+  const keepName = () => save(STORE.name, $('mp-name').value.trim().slice(0, 16));
+  $('mp-name').onchange = keepName;
+  $('mp-relay').onchange = (e) => saveRelay(e.target.value.trim());
+  $('mp-host').onclick = async () => {
+    keepName();
+    await unlockAudio();
+    openRoom(true);
+  };
+  $('mp-join').onclick = async () => {
+    keepName();
+    const code = $('mp-code').value.trim().toUpperCase();
+    if (code.length !== 4) {
+      $('mp-status').textContent = 'A room code is four letters.';
+      return;
+    }
+    await unlockAudio();
+    openRoom(false, code);
+  };
+  // Typing a name or a code is not playing: keys there are not the game's.
+  $('mp-code').onkeydown = (e) => {
+    if (e.key === 'Enter') $('mp-join').click();
+    e.stopPropagation();
+  };
+  $('mp-name').onkeydown = (e) => e.stopPropagation();
+  $('mp-relay').onkeydown = (e) => e.stopPropagation();
   $('deflector').onclick = () => (location.href = '../');
   $('defector').onclick = () => (location.href = '../sequel/');
   $('full').onclick = () => toggleFullscreen();
@@ -597,10 +638,18 @@ function put(id, value, html = false) {
 function hud() {
   if (!game) return;
   const g = game;
-  const L = levelDef(levelId);
-  put('hud-level', `${levelId} · ${L.title}`);
-  put('hud-time', fmt(g.stats.time));
+  if (g.mode === 'versus') {
+    put('hud-level', `VERSUS · ${bp.title}`);
+    put('hud-time', fmt(g.time));
+  } else {
+    const L = levelDef(levelId);
+    put('hud-level', `${levelId} · ${L.title}${g.mode === 'coop' ? ' · CO-OP' : ''}`);
+    put('hud-time', fmt(g.stats.time));
+  }
+  $('hud-secrets').hidden = $('hud-secrets-label').hidden = g.mode === 'versus';
   put('hud-secrets', `${g.stats.secrets}/${bp.secrets}`);
+  // Everyone's shields, in their colours, under your own.
+  put('hud-team', g.multi ? g.players.map((p) => `<span class="who ${p.out ? 'out' : ''}" style="color:${PLAYERS[p.slot].color}">${escapeHtml(p.name)} ${p.out ? 'OUT' : Number.isFinite(p.shields) ? '◆'.repeat(Math.min(p.shields, 9)) : '∞'}</span>`).join('') : '', true);
   const max = g.maxShields;
   put('hud-shields', Number.isFinite(max) ? Array.from({ length: max }, (_, i) => `<span class="${i < g.shields ? '' : 'gone'}">◆</span>`).join('') : '∞', true);
   const B = g.boss;
@@ -632,9 +681,10 @@ function hud() {
 
 $('hud-ammo').addEventListener('click', (e) => {
   const s = e.target.closest('[data-pick]');
-  if (s && game) game.load(s.dataset.pick);
+  // Through the next physics step, as a key would: in multiplayer the host's game is the one that loads it.
+  if (s && game) clickPick = PICKS.indexOf(s.dataset.pick);
 });
-$('hud-pause').onclick = () => pause();
+$('hud-pause').onclick = () => (mp ? mpMenu() : pause());
 $('hud-full').onclick = () => toggleFullscreen();
 
 function subtitle(who, text, name) {
@@ -653,11 +703,560 @@ function subtitle(who, text, name) {
   sayUntil = performance.now() + len * 1000;
 }
 
+// ------------------------------------------------------------ multiplayer
+//
+// A room is a relay room (src/net.js) with Vector's own messages in it
+// (netplay.js). It lasts until you leave it: a match ends back in the room,
+// with the same people. The host picks the mode (co-op on a level, or versus
+// in an arena) and starts; the host's page runs the one real game and the
+// guests' pages mirror it, each predicting its own robot.
+
+let net = null; // the connection, while in a room
+let room = null; // { host, code, players: [{ slot, id, name }], pick, playing, match }
+let mp = null; // the match being played: { host, msg, link | mirror and inputs, ... }
+let joinCode = (new URLSearchParams(location.search).get('room') || '').toUpperCase().slice(0, 4);
+let helloTimer = 0;
+
+function escapeHtml(t) {
+  return String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+}
+
+function myName() {
+  return String(load(STORE.name, '') || 'Player').slice(0, 16) || 'Player';
+}
+
+function savedRelay() {
+  try {
+    return localStorage.getItem('deflector.relay') || '';
+  } catch (_) {
+    return '';
+  }
+}
+
+/** What the host last picked, or co-op on the first level. */
+function defaultPick() {
+  return { mode: 'coop', level: 1, difficulty: settings.difficulty, map: MAPS[0].id, shields: VERSUS.shields, ...load(STORE.room, {}) };
+}
+
+function mpStatus(text) {
+  const el = $('mp-status');
+  if (el) el.textContent = text;
+}
+
+/** Open the connection and make (host) or join (guest, with `code`) a room. */
+async function openRoom(host, code = '') {
+  if (net) return;
+  mpStatus('Looking for the relay…');
+  const info = await NetClient.available();
+  if (!info) {
+    mpStatus('No relay answers, so there is nowhere to meet. Check the relay address, or play on one Wi-Fi from npm start.');
+    return;
+  }
+  const where = info.online ? `the online relay (${relayConfig()?.label || 'default'})` : "this machine's LAN server";
+  mpStatus(`Connecting through ${where}…`);
+  const n = new NetClient();
+  try {
+    await n.connect(host ? { create: true } : { room: code });
+  } catch (e) {
+    mpStatus(e.message || 'Could not connect.');
+    return;
+  }
+  net = n;
+  wireNet(n);
+  if (host) n.create(myName());
+  else n.join(code, myName());
+}
+
+function wireNet(n) {
+  n.on('created', () => {
+    room = { host: true, code: n.code, players: [{ slot: 0, id: 'a', name: myName() }], pick: defaultPick(), playing: false, match: 0 };
+    showRoom();
+  });
+  n.on('joined', () => {
+    room = { host: false, code: n.code, players: [], pick: null, playing: false };
+    n.send({ t: MSG.hello, v: NET.version, id: n.id, name: myName() });
+    clearTimeout(helloTimer);
+    // A room whose host never answers is not a Vector room (or not this version of it).
+    helloTimer = setTimeout(() => room && !room.players.length && leaveRoom('That room did not answer: it is not a Vector room, or its host is on another version.'), 5000);
+    showRoom();
+  });
+  n.on('error', (m) => {
+    if (!room) {
+      leaveRoom(m.msg || 'The relay refused.');
+      return;
+    }
+    banner('ROOM', 'Relay', m.msg || '');
+  });
+  n.on('close', () => net === n && leaveRoom('The connection closed.'));
+  n.on('peer-left', (m) => {
+    if (!room) return;
+    if (!room.host) {
+      if (m.id === 'a') leaveRoom('The host left, and the room with them.');
+      return;
+    }
+    const gone = room.players.find((p) => p.id === m.id);
+    if (!gone) return;
+    room.players = room.players.filter((p) => p.id !== m.id);
+    if (mp && game) {
+      // In a match, their robot simply goes; out of one, everyone after them moves up a place.
+      const pl = game.players[mp.slotOf.get(m.id)];
+      if (pl && !pl.out) {
+        pl.out = true;
+        game.closeEnd(0, pl, true);
+        game.closeEnd(1, pl, true);
+        game.emit({ s: 'left', slot: pl.slot, name: pl.name });
+      }
+    } else room.players.forEach((p, i) => (p.slot = i));
+    sendRoom();
+    if (state === 'room') showRoom();
+    else banner('ROOM', `${gone.name} left`, '');
+  });
+  n.on(MSG.hello, (m) => room && room.host && onHello(m));
+  n.on(MSG.room, (m) => {
+    if (!room || room.host) return;
+    clearTimeout(helloTimer);
+    room.players = m.players;
+    room.pick = m.pick;
+    room.playing = m.playing;
+    if (state === 'room') showRoom();
+  });
+  n.on(MSG.no, (m) => room && !room.host && m.to === n.id && leaveRoom(m.why));
+  n.on(MSG.start, (m) => room && !room.host && beginMatch(m));
+  n.on(MSG.input, (m) => {
+    if (!mp || !mp.host) return;
+    const slot = mp.slotOf.get(m.id);
+    if (slot != null) mp.link.input(slot, m);
+  });
+  n.on(MSG.snap, (m) => mp && !mp.host && mp.mirror.receive(m, performance.now() / 1000));
+  n.on(MSG.end, (m) => room && !room.host && mp && showResult(m.result));
+  n.on(MSG.back, () => room && !room.host && backToRoom());
+}
+
+/** Host: a guest has said hello. Into the room if there is a place and they are on this version. */
+function onHello(m) {
+  const refuse = (why) => net.send({ t: MSG.no, to: m.id, why });
+  if (m.v !== NET.version) return refuse(`This room is on a different version of Vector (${GAME_VERSION}). Reload the page to get the same one.`);
+  if (room.players.some((p) => p.id === m.id)) return sendRoom();
+  if (room.players.length >= MAX_PLAYERS) return refuse('That room is full.');
+  const used = new Set(room.players.map((p) => p.slot));
+  const slot = [0, 1, 2].find((k) => !used.has(k));
+  room.players.push({ slot, id: m.id, name: String(m.name || 'Player').slice(0, 16) });
+  room.players.sort((a, b) => a.slot - b.slot);
+  sendRoom();
+  if (state === 'room') showRoom();
+  else banner('ROOM', `${m.name || 'A player'} joined`, 'in the next match');
+}
+
+function sendRoom() {
+  if (net && room && room.host) net.send({ t: MSG.room, v: NET.version, players: room.players, pick: room.pick, playing: !!mp });
+}
+
+/** Leave the room (and the match, if one is on) for the title, saying why. */
+function leaveRoom(why = '') {
+  clearTimeout(helloTimer);
+  const n = net;
+  net = null;
+  room = null;
+  mp = null;
+  if (n) {
+    try {
+      n.leave();
+      n.close();
+    } catch (_) {
+      // already gone
+    }
+  }
+  audio.bossTime?.(false);
+  game = null;
+  showTitle(why);
+}
+
+/** The room: who is in it, and (for the host) what to play. */
+function showRoom() {
+  state = 'room';
+  mp = null;
+  input.unlock();
+  document.body.classList.remove('playing');
+  $('hud').hidden = true;
+  $('crosshair').hidden = true;
+  $('tags').innerHTML = '';
+  const pick = room && room.pick;
+  const want = pick && pick.mode === 'versus' ? `vs-${pick.map === 'random' ? MAPS[0].id : pick.map}` : (pick && pick.level) || 1;
+  if (!game || game.bp.id !== want) {
+    bp = pick && pick.mode === 'versus' ? arenaMap(pick.map === 'random' ? MAPS[0].id : pick.map) : level((pick && pick.level) || 1);
+    game = new Game(bp, { shields: 1, maxShields: 1 });
+    renderer.setLevel(bp, game.world);
+  }
+  renderer.resize();
+  if (!room) return;
+  const me = net && net.id;
+  const list = [0, 1, 2]
+    .map((k) => {
+      const p = room.players.find((q) => q.slot === k);
+      if (!p) return `<li class="empty"><span class="dot" style="color:${PLAYERS[k].color};opacity:0.25"></span><span>Waiting for a player…</span><span></span></li>`;
+      const tags = [p.id === 'a' ? 'HOST' : '', p.id === me ? 'YOU' : ''].filter(Boolean).join(' · ');
+      return `<li><span class="dot" style="color:${PLAYERS[k].color}"></span><span style="color:${PLAYERS[k].color}">${escapeHtml(p.name)}</span><span class="tag">${tags}</span></li>`;
+    })
+    .join('');
+  const share = `${location.origin}${location.pathname}?room=${room.code}`;
+  let picks = '';
+  if (!pick) picks = '<p class="muted">Joining…</p>';
+  else if (room.host) {
+    const levels = LEVEL_DEFS.map((L) => `<option value="${L.id}" ${L.id === pick.level ? 'selected' : ''}>${L.id} · ${L.title}</option>`).join('');
+    const diffs = DIFFICULTIES.map((x) => `<option value="${x.id}" ${x.id === pick.difficulty ? 'selected' : ''}>${x.name}</option>`).join('');
+    const maps = [...MAPS.map((m) => `<option value="${m.id}" ${m.id === pick.map ? 'selected' : ''}>${m.title}</option>`), `<option value="random" ${pick.map === 'random' ? 'selected' : ''}>A different one each match</option>`].join('');
+    const shields = VERSUS.shieldChoices.map((n) => `<option value="${n}" ${n === pick.shields ? 'selected' : ''}>${n}</option>`).join('');
+    const map = MAPS.find((m) => m.id === pick.map);
+    picks =
+      `<div class="field"><label for="rp-mode">Mode</label><select id="rp-mode"><option value="coop" ${pick.mode === 'coop' ? 'selected' : ''}>Co-op · the campaign's levels, together</option><option value="versus" ${pick.mode === 'versus' ? 'selected' : ''}>Versus · every robot for itself</option></select></div>` +
+      (pick.mode === 'coop'
+        ? `<div class="field"><label for="rp-level">Level</label><select id="rp-level">${levels}</select></div><div class="field"><label for="rp-diff">Difficulty</label><select id="rp-diff">${diffs}</select></div><p class="blurb">Each robot has its own shields. One who runs out is out until a teammate reaches a checkpoint or the boss, then back with one shield.</p>`
+        : `<div class="field"><label for="rp-map">Arena</label><select id="rp-map">${maps}</select></div>${map ? `<p class="blurb">${map.blurb}</p>` : ''}<div class="field"><label for="rp-shields">Shields</label><select id="rp-shields">${shields}</select></div><p class="blurb">Last robot with shields wins. A power-up appears every 30 to 60 seconds, never nearer one robot than half as far as the next.</p>`);
+  } else {
+    const L = LEVEL_DEFS.find((x) => x.id === pick.level);
+    const map = MAPS.find((m) => m.id === pick.map);
+    picks =
+      pick.mode === 'coop'
+        ? `<p><b>Co-op</b> · level ${pick.level}, ${escapeHtml(L ? L.title : '')} · ${escapeHtml((DIFFICULTIES.find((x) => x.id === pick.difficulty) || {}).name || '')}</p>`
+        : `<p><b>Versus</b> · ${pick.map === 'random' ? 'a different arena each match' : escapeHtml(map ? map.title : '')} · ${pick.shields} shields each</p>`;
+    picks += `<p class="muted">${room.playing ? 'A match is on: you are in the next one.' : 'Waiting for the host to start.'}</p>`;
+  }
+  const canStart = room.host && pick && (pick.mode === 'coop' || room.players.length >= 2);
+  overlay(`
+    <div class="panel narrow">
+      <div class="eyebrow">MULTIPLAYER · ROOM</div>
+      <div class="roomcode">${escapeHtml(room.code || '····')}</div>
+      <div class="share">Share the code, or the link: <a href="${escapeHtml(share)}" target="_blank" rel="noopener">${escapeHtml(share)}</a></div>
+      <ul class="roster">${list}</ul>
+      <div class="picks">${picks}</div>
+      <div class="row">${room.host ? `<button id="rp-start" class="primary" ${canStart ? '' : 'disabled'}>${pick && pick.mode === 'versus' && room.players.length < 2 ? 'Versus needs two' : 'Start'}</button>` : ''}<button id="rp-leave">Leave the room</button></div>
+    </div>`);
+  $('rp-leave').onclick = () => leaveRoom();
+  if (room.host && pick) {
+    const set = (k, v) => {
+      room.pick = { ...room.pick, [k]: v };
+      save(STORE.room, room.pick);
+      sendRoom();
+      showRoom();
+    };
+    $('rp-mode').onchange = (e) => set('mode', e.target.value);
+    if ($('rp-level')) $('rp-level').onchange = (e) => set('level', Number(e.target.value));
+    if ($('rp-diff')) $('rp-diff').onchange = (e) => set('difficulty', e.target.value);
+    if ($('rp-map')) $('rp-map').onchange = (e) => set('map', e.target.value);
+    if ($('rp-shields')) $('rp-shields').onchange = (e) => set('shields', Number(e.target.value));
+    $('rp-start').onclick = () => startMatch();
+  }
+  focusFirst();
+  playMusic('vector');
+}
+
+/** Host: start a match with everyone in the room, with the picks (and, for a continue, a checkpoint). */
+function startMatch(extra = {}) {
+  if (!room || !room.host) return;
+  const pick = room.pick;
+  const roster = room.players.slice().sort((a, b) => a.slot - b.slot).map((p, i) => ({ id: p.id, name: p.name, slot: i }));
+  const d = DIFFICULTIES.find((x) => x.id === pick.difficulty) || difficulty();
+  let map = null;
+  if (pick.mode === 'versus') {
+    map = extra.map || pick.map;
+    if (map === 'random') {
+      const others = MAPS.filter((m) => !mp || !mp.msg || m.id !== mp.msg.map);
+      map = others[Math.floor(Math.random() * others.length)].id;
+    }
+  }
+  const shields = pick.mode === 'versus' ? pick.shields : d.shields;
+  room.match = (room.match || 0) + 1; // each match its own number: see netplay.js
+  const msg = { t: MSG.start, v: NET.version, match: room.match, mode: pick.mode, level: pick.level, map, roster, shields: shields === Infinity ? -1 : shields, checkpoint: extra.checkpoint ?? -1 };
+  net.send(msg);
+  beginMatch(msg);
+  sendRoom();
+}
+
+/** Everyone: a match starts. */
+async function beginMatch(msg) {
+  const meEntry = msg.roster.find((p) => p.id === net.id);
+  if (!meEntry) {
+    // Joined while it was on: this one goes on without us.
+    room.playing = true;
+    if (state !== 'room') showRoom();
+    return;
+  }
+  await unlockAudio();
+  bp = msg.mode === 'versus' ? arenaMap(msg.map) : level(msg.level);
+  const shields = msg.shields === -1 ? Infinity : msg.shields;
+  game = new Game(bp, { mode: msg.mode, players: msg.roster.map((p) => ({ name: p.name })), local: meEntry.slot, shields, maxShields: shields, checkpoint: msg.checkpoint });
+  mp = { host: room.host, msg, slotOf: new Map(msg.roster.map((p) => [p.id, p.slot])), snapT: 0, sendT: 0, ended: false };
+  if (mp.host) mp.link = new HostLink(game, msg.match);
+  else {
+    mp.mirror = new Mirror(game, meEntry.slot, msg.match);
+    mp.inputs = new GuestInputs(msg.match);
+  }
+  room.playing = true;
+  if (msg.mode === 'coop') levelId = msg.level;
+  renderer.setLevel(bp, game.world);
+  renderer.resize();
+  fx.clear();
+  acc = 0;
+  pending = null;
+  prevPos = [...game.bot.pos];
+  lastBoss = false;
+  state = 'play';
+  input.reset();
+  overlay(null);
+  $('hud').hidden = false;
+  $('crosshair').hidden = false;
+  document.body.classList.add('playing');
+  audio.setHumanity?.(bp.humanity);
+  audio.bossTime?.(false);
+  if (msg.mode === 'versus') {
+    const m = MAPS.find((x) => x.id === msg.map);
+    banner('VERSUS', m.title, `${msg.roster.length} robots · ${msg.shields === -1 ? '∞' : msg.shields} shields each`);
+    playMusic(bp.track);
+  } else {
+    const L = levelDef(msg.level);
+    banner(`CO-OP · LEVEL ${msg.level}`, L.title, msg.roster.map((p) => p.name).join(', '), L.humanity > 0.85);
+    playMusic(L.key);
+  }
+  input.lock();
+  hud();
+}
+
+/**
+ * One frame of a match: the host steps the game and sends snapshots; a guest
+ * predicts its own robot and sends its inputs. Returns the camera.
+ */
+function mpFrame(dt, now) {
+  const g = game;
+  const me = g.me;
+  let it = input.intent(dt);
+  if (state === 'play' && it.pausePress) {
+    mpMenu();
+    it = input.intent(0);
+  }
+  if (clickPick != null) {
+    it.pick = clickPick;
+    clickPick = null;
+  }
+  const playing = state === 'play' && !me.out && g.state === 'play';
+  if (playing) {
+    me.bot.yaw += it.look[0];
+    me.bot.pitch = clamp(me.bot.pitch + it.look[1], -MOVE.lookMax, MOVE.lookMax);
+    pending = mergePress(pending, it);
+  }
+  const hold = playing ? { ...it, jumpPress: false, firePress: false, worm: [false, false], cycle: 0, pick: null } : { mx: 0, mz: 0 };
+  acc += dt;
+  if (mp.host) {
+    let steps = 0;
+    while (acc >= PHYSICS_DT && steps < 30) {
+      prevPos = [...me.bot.pos];
+      g.step(PHYSICS_DT, mp.link.intents(pending ? { ...hold, ...pending } : hold));
+      pending = null;
+      acc -= PHYSICS_DT;
+      steps++;
+    }
+    if (steps >= 30) acc = 0;
+    mp.link.events(g.events);
+    mp.snapT += dt;
+    if (mp.snapT >= 1 / NET.snapHz) {
+      mp.snapT = Math.min(mp.snapT - 1 / NET.snapHz, 1 / NET.snapHz);
+      net.sendFast(mp.link.snapshot());
+    }
+    if (!mp.ended && g.state !== 'play') {
+      mp.ended = true;
+      setTimeout(() => mp && game === g && hostEnd(), 1400);
+    }
+  } else {
+    let steps = 0;
+    while (acc >= PHYSICS_DT && steps < 30) {
+      acc -= PHYSICS_DT;
+      steps++;
+    }
+    if (steps >= 30) acc = 0;
+    // A long frame goes as several records: the host takes at most 16 steps in one.
+    const look = { yaw: me.bot.yaw, pitch: me.bot.pitch, turns: me.bot.turns };
+    let first = true;
+    while (steps > 0 || first) {
+      const n = Math.min(steps, 8);
+      const x = first && pending ? { ...hold, ...pending } : hold;
+      const rec = mp.inputs.record({ ...x, ...look }, n);
+      if (rec) {
+        prevPos = [...me.bot.pos];
+        mp.mirror.predict(rec);
+      }
+      steps -= n;
+      first = false;
+    }
+    pending = null;
+    mp.sendT += dt;
+    if (mp.sendT >= 1 / NET.sendHz) {
+      mp.sendT = 0;
+      const m = mp.inputs.message();
+      m.id = net.id;
+      net.sendFast(m);
+    }
+    mp.mirror.show(now / 1000);
+    mp.mirror.fade(dt);
+  }
+  events();
+  fx.step(dt);
+  hud();
+  if (performance.now() > sayUntil) $('subtitle').hidden = true;
+  // The camera: your own robot's eye, or while you are out, the nearest teammate's.
+  let b = me.bot;
+  if (me.out) {
+    const n = g.nearest(b.pos);
+    if (n) b = n.pl.bot;
+  }
+  const off = b === me.bot && b.drawOff ? b.drawOff : [0, 0, 0];
+  const k = mp.host ? acc / PHYSICS_DT : 1;
+  const pos = b === me.bot && prevPos && dist(prevPos, b.pos) < 2 ? lerp(prevPos, b.pos, k) : b.pos;
+  const bob = b.onGround ? Math.sin(b.bob * 2) * 0.035 * Math.min(1, Math.hypot(b.vel[0], b.vel[2]) / 6) : 0;
+  const shake = fx.shake > 0 ? [(Math.random() - 0.5) * fx.shake * 0.2, (Math.random() - 0.5) * fx.shake * 0.2] : [0, 0];
+  return { eye: [pos[0] + off[0], pos[1] + off[1] + b.eye + bob, pos[2] + off[2]], yaw: b.yaw + shake[0] * 0.1, pitch: b.pitch + shake[1] * 0.1 };
+}
+
+/** Names over the other robots, where they are on screen. */
+function nameTags(cam) {
+  const box = $('tags');
+  if (!game || !game.multi || !cam) {
+    if (box.innerHTML) box.innerHTML = '';
+    return;
+  }
+  const B = camBasis(cam.yaw, cam.pitch);
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  const f = h / 2 / Math.tan(FOV / 2);
+  let html = '';
+  for (const pl of game.players) {
+    if (pl.slot === game.local || pl.out) continue;
+    const p = [pl.bot.pos[0], pl.bot.pos[1] + 1.35, pl.bot.pos[2]];
+    const d = sub(p, cam.eye);
+    const z = dot(d, B.fwd);
+    if (z < 0.5) continue;
+    const x = w / 2 + (dot(d, B.right) / z) * f;
+    const y = h / 2 - (dot(d, B.up) / z) * f;
+    if (x < -50 || x > w + 50 || y < -20 || y > h + 20) continue;
+    const L = Math.hypot(...d);
+    const shields = Number.isFinite(pl.shields) ? '◆'.repeat(Math.min(pl.shields, 9)) : '∞';
+    html += `<div class="tag" style="left:${x.toFixed(0)}px;top:${y.toFixed(0)}px;color:${PLAYERS[pl.slot].color};opacity:${clamp(1.4 - L / 60, 0.35, 1).toFixed(2)}">${escapeHtml(pl.name)}<i>${shields}</i></div>`;
+  }
+  if (box.innerHTML !== html) box.innerHTML = html;
+}
+
+/** Host: the level or the match is over. Tell everyone how it went. */
+function hostEnd() {
+  const g = game;
+  const rows = g.players.map((p) => ({ slot: p.slot, name: p.name, lost: p.stats.lost, falls: p.stats.falls, powerups: p.stats.powerups, kills: p.stats.kills, hits: p.stats.hits, out: p.out }));
+  let result;
+  if (g.mode === 'versus') result = { kind: 'over', mode: 'versus', map: mp.msg.map, winner: g.winner, time: g.time, rows };
+  else if (g.state === 'cleared') result = { kind: 'cleared', mode: 'coop', level: mp.msg.level, time: g.stats.time, secrets: g.stats.secrets, secretsTotal: g.bp.secrets, kills: g.stats.kills, rows };
+  else result = { kind: 'down', mode: 'coop', level: mp.msg.level, checkpoint: g.checkpoint, time: g.time, rows };
+  net.send({ t: MSG.end, result });
+  showResult(result);
+}
+
+/** The end of a match, on every screen; the host chooses what next. */
+function showResult(r) {
+  state = 'mpend';
+  input.unlock();
+  document.body.classList.remove('playing');
+  $('crosshair').hidden = true;
+  $('tags').innerHTML = '';
+  audio.bossTime?.(false);
+  const who = (slot) => r.rows.find((x) => x.slot === slot);
+  const colored = (row) => `<span style="color:${PLAYERS[row.slot].color}">${escapeHtml(row.name)}</span>`;
+  let head;
+  let table;
+  if (r.kind === 'over') {
+    const w = r.winner == null ? null : who(r.winner);
+    head = `<div class="eyebrow">VERSUS · ${escapeHtml((MAPS.find((m) => m.id === r.map) || {}).title || '')}</div><h2>${w ? `${colored(w)} wins` : 'A draw'}</h2>`;
+    table = `<table class="stats"><thead><tr><th>Robot</th><th>Hits</th><th>Shields lost</th><th>Falls</th><th>Power-ups</th></tr></thead><tbody>${r.rows.map((x) => `<tr><td>${colored(x)}</td><td>${x.hits}</td><td>${x.lost}</td><td>${x.falls}</td><td>${x.powerups}</td></tr>`).join('')}</tbody></table>`;
+  } else {
+    const L = levelDef(r.level);
+    head = r.kind === 'cleared' ? `<div class="eyebrow">CO-OP · LEVEL ${r.level} CLEARED</div><h2>${escapeHtml(L.title)}</h2><p class="record">${BOSSES[L.boss].name} is stopped. ${fmt(r.time)}, ${r.secrets} of ${r.secretsTotal} secrets.</p>` : `<div class="eyebrow">CO-OP · OUT OF SHIELDS</div><h2>The whole team is out</h2><p class="intro">A continue brings everyone back at ${r.checkpoint >= 0 ? 'the last checkpoint' : 'the start of the level'} with full shields.</p>`;
+    table = `<table class="stats"><thead><tr><th>Robot</th><th>Machines stopped</th><th>Shields lost</th><th>Falls</th><th>Power-ups</th></tr></thead><tbody>${r.rows.map((x) => `<tr><td>${colored(x)}</td><td>${x.kills}</td><td>${x.lost}</td><td>${x.falls}</td><td>${x.powerups}</td></tr>`).join('')}</tbody></table>`;
+  }
+  let buttons = '';
+  if (room && room.host) {
+    if (r.kind === 'over') buttons = '<button id="re-again" class="primary">Rematch</button><button id="re-other">Another arena</button>';
+    else if (r.kind === 'cleared') buttons = `${r.level < LEVEL_DEFS.length ? `<button id="re-next" class="primary">Level ${r.level + 1}: ${escapeHtml(levelDef(r.level + 1).title)}</button>` : ''}<button id="re-again" ${r.level < LEVEL_DEFS.length ? '' : 'class="primary"'}>Play it again</button>`;
+    else buttons = '<button id="re-cont" class="primary">Continue</button>';
+    buttons += '<button id="re-room">Back to the room</button>';
+  } else buttons = '<button id="re-leave">Leave the room</button>';
+  overlay(`
+    <div class="panel narrow">
+      ${head}
+      ${table}
+      ${room && room.host ? '' : '<p class="hint">The host chooses what happens next.</p>'}
+      <div class="row">${buttons}</div>
+    </div>`, true);
+  if ($('re-again')) $('re-again').onclick = () => startMatch(r.kind === 'over' ? { map: r.map } : {});
+  if ($('re-other')) $('re-other').onclick = () => startMatch({ map: 'random' });
+  if ($('re-next')) $('re-next').onclick = () => {
+    room.pick = { ...room.pick, level: r.level + 1 };
+    save(STORE.room, room.pick);
+    startMatch();
+  };
+  if ($('re-cont')) $('re-cont').onclick = () => startMatch({ checkpoint: r.checkpoint });
+  if ($('re-room')) $('re-room').onclick = () => {
+    net.send({ t: MSG.back });
+    backToRoom();
+  };
+  if ($('re-leave')) $('re-leave').onclick = () => leaveRoom();
+  focusFirst();
+}
+
+function backToRoom() {
+  mp = null;
+  if (room) {
+    room.playing = false;
+    // Anyone who left during the match leaves a gap: everyone after them moves up a place.
+    if (room.host) room.players.forEach((p, i) => (p.slot = i));
+  }
+  sendRoom();
+  showRoom();
+}
+
+/** Esc in a match: nobody can pause a game others are playing, so this is a menu over it, and it plays on. */
+function mpMenu() {
+  if (state !== 'play') return;
+  state = 'mpmenu';
+  input.unlock();
+  document.body.classList.remove('playing');
+  overlay(`
+    <div class="panel narrow">
+      <div class="eyebrow">MULTIPLAYER · THE MATCH PLAYS ON</div>
+      <h2>${escapeHtml(game.mode === 'versus' ? (MAPS.find((m) => m.id === mp.msg.map) || {}).title || 'Versus' : levelDef(levelId).title)}</h2>
+      ${settingsHtml(true)}
+      <div class="row"><button id="mm-back" class="primary">Back to it</button>${room && room.host ? '<button id="mm-end">End the match (everyone back to the room)</button>' : ''}<button id="mm-leave">Leave the room</button></div>
+      <details><summary>Controls</summary>${controlsTable()}</details>
+    </div>`, 'clear');
+  wireSettings();
+  $('mm-back').onclick = () => mpBack();
+  if ($('mm-end')) $('mm-end').onclick = () => {
+    net.send({ t: MSG.back });
+    backToRoom();
+  };
+  $('mm-leave').onclick = () => leaveRoom();
+  focusFirst();
+}
+
+function mpBack() {
+  if (state !== 'mpmenu') return;
+  state = 'play';
+  overlay(null);
+  document.body.classList.add('playing');
+  input.reset();
+  input.lock();
+}
+
 // ---------------------------------------------------------------- events
 
 function events() {
   const g = game;
   for (const e of g.events) {
+    // Whose it was: this client's own robot's, or someone else's (or the world's).
+    if (e.slot != null) e.me = e.slot === g.local;
     cue(e);
     switch (e.s) {
       case 'pop':
@@ -673,6 +1272,7 @@ function events() {
         fx.sparks(e.at, e.n || [0, 1, 0], e.color || '#ffd070', 10);
         break;
       case 'hurt': {
+        if (!e.me) break;
         const d = $('damage');
         d.hidden = false;
         d.style.animation = 'none';
@@ -697,7 +1297,7 @@ function events() {
         break;
       case 'checkpoint':
         fx.ring(e.at, '#9dff5c', 6);
-        if (mode === 'campaign' && run) {
+        if (mode === 'campaign' && run && !mp) {
           run.checkpoint = g.checkpoint;
           persistRun();
         }
@@ -709,8 +1309,39 @@ function events() {
         if (e.me) fx.shake = Math.max(fx.shake, 0.15);
         break;
       case 'portal':
-        if (e.at) fx.ring(e.at, e.which ? '#3c96be' : '#e6fbff', 3, 0.4);
+        if (e.at) fx.ring(e.at, PLAYERS[e.slot ?? 0].ends[e.which ? 1 : 0], 3, 0.4);
         break;
+      // Multiplayer.
+      case 'out':
+        banner(e.me ? 'OUT OF SHIELDS' : 'A ROBOT IS DOWN', `${e.name} is out`, g.mode === 'coop' ? 'Back at the next checkpoint a teammate reaches, or the boss.' : '');
+        break;
+      case 'revive':
+        banner('BACK IN', `${e.name} is back`, 'with one shield');
+        if (e.at) fx.ring(e.at, PLAYERS[e.slot].color, 5);
+        break;
+      case 'left':
+        banner('ROOM', `${e.name} left`, '');
+        break;
+      case 'go':
+        banner('VERSUS', 'Go', '');
+        break;
+      case 'respawn':
+      case 'brought':
+        if (e.at) fx.ring(e.at, PLAYERS[e.slot].color, 4);
+        break;
+      case 'hitRobot':
+        fx.burst(e.at, PLAYERS[e.by ?? 0].charge, 16, 4, 0.5, 0.12);
+        break;
+      case 'spawnPower': {
+        const P = POWERUPS.find((x) => x.id === e.power);
+        if (e.at) fx.ring(e.at, P ? P.color : '#ffffff', 4);
+        break;
+      }
+      case 'over': {
+        const w = e.winner == null ? null : g.players[e.winner];
+        banner('VERSUS', w ? `${w.name} wins` : 'A draw', '');
+        break;
+      }
       case 'swallow':
         fx.burst(e.at, '#c9a2ff', 12, 2, 0.5, 0.1);
         break;
@@ -761,11 +1392,17 @@ function frame(now) {
   menuKeys();
   const g = game;
   let cam;
-  if (state === 'play' && g) {
+  if ((state === 'play' || state === 'mpmenu') && mp && g) {
+    cam = mpFrame(dt, now);
+  } else if (state === 'play' && g) {
     const it = input.intent(dt);
     if (it.pausePress) {
       pause();
       return;
+    }
+    if (clickPick != null) {
+      it.pick = clickPick;
+      clickPick = null;
     }
     // Looking answers the mouse at the display's rate, not the physics'.
     g.bot.yaw += it.look[0];
@@ -810,11 +1447,13 @@ function frame(now) {
   const weather = g.bp.theme.rain ? 'rain' : g.bp.def.key === 'ridge' ? 'snow' : null;
   fx.weatherStep(dt, cam.eye, weather, now / 1000);
   art.lastEye = cam.eye;
-  art.frame(g, fx, { time: now / 1000, aimLine: settings.aimLine && state === 'play', eye: cam.eye, weather });
+  const inPlay = (state === 'play' || state === 'mpmenu') && !g.me.out;
+  art.frame(g, fx, { time: now / 1000, aimLine: settings.aimLine && state === 'play' && !g.me.out, eye: cam.eye, weather });
   renderer.frame(cam, g.openEnds, {
     time: now / 1000,
-    viewmodel: state === 'play' || state === 'paused' ? (r) => art.viewmodel(r, g, { time: now / 1000 }) : null,
+    viewmodel: inPlay || state === 'paused' ? (r) => art.viewmodel(r, g, { time: now / 1000 }) : null,
   });
+  nameTags(mp && (state === 'play' || state === 'mpmenu') ? cam : null);
 }
 
 // --------------------------------------------------------------- the keys
@@ -827,14 +1466,19 @@ function menuKeys() {
   }
   if (input.took('f') || input.took('F')) toggleFullscreen();
   if (input.took('p') || input.took('P') || input.took('Escape')) {
-    if (state === 'play') pause();
+    if (state === 'play' && mp) mpMenu();
+    else if (state === 'mpmenu') mpBack();
+    else if (state === 'play') pause();
     else if (state === 'paused') resume();
   }
 }
 
 // When the mouse is let go (Esc in the browser), play pauses rather than going on blind.
 document.addEventListener('pointerlockchange', () => {
-  if (!document.pointerLockElement && state === 'play' && input.device !== 'touch') pause();
+  if (!document.pointerLockElement && state === 'play' && input.device !== 'touch') {
+    if (mp) mpMenu();
+    else pause();
+  }
 });
 canvas.addEventListener('click', () => {
   if (state === 'play') input.lock();
@@ -851,7 +1495,7 @@ async function toggleFullscreen() {
 
 window.addEventListener('resize', () => renderer.resize());
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) pause();
+  if (document.hidden && !mp) pause();
 });
 
 // For the tools: the state, the game, and a way to start any level.
@@ -866,6 +1510,31 @@ window.__vector = {
     mode = 'single';
     startLevel(id, opts);
   },
+  // Multiplayer, for the browser tools: make or join a room, pick, start.
+  get room() {
+    return room;
+  },
+  get mp() {
+    return mp;
+  },
+  get net() {
+    return net;
+  },
+  host: (name) => {
+    if (name) save(STORE.name, name);
+    return openRoom(true);
+  },
+  join: (code, name) => {
+    if (name) save(STORE.name, name);
+    return openRoom(false, code);
+  },
+  pick: (p) => {
+    room.pick = { ...room.pick, ...p };
+    sendRoom();
+    showRoom();
+  },
+  startMatch: (extra) => startMatch(extra),
+  arenaMap,
   showTitle,
   showCard,
   showEnding,

@@ -154,3 +154,21 @@ test('a jump never reaches past what MOVE promises', () => {
   const vy = MOVE.runJump;
   assert.ok(peak <= (vy * vy) / (2 * MOVE.gUp) + 0.05);
 });
+
+test('walking off a floor level with the top of a ramp, the robot goes on down it rather than catching on its edge', () => {
+  for (const dir of [1, -1]) {
+    const W = new World();
+    W.box([-30, -2, -30], [30, 0, 30], {});
+    if (dir > 0) {
+      W.box([13, 0, 0], [22, 2.4, 6], {});
+      W.ramp([5, 0, 0], [13, 2.4, 6], 'x', 1, {});
+    } else {
+      W.box([-22, 0, 0], [-13, 2.4, 6], {});
+      W.ramp([-13, 0, 0], [-5, 2.4, 6], 'x', -1, {});
+    }
+    const b = new Robot(standAt(dir * 17, 2.4, 3), dir > 0 ? -Math.PI / 2 : Math.PI / 2);
+    for (let t = 0; t < 3 && Math.abs(b.pos[0]) > 6; t += 1 / 120) stepRobot(b, { mz: 1 }, W, 1 / 120, []);
+    assert.ok(Math.abs(b.pos[0]) <= 6, `down the ramp to its foot (at x = ${b.pos[0].toFixed(2)})`);
+    assert.ok(b.onGround);
+  }
+});

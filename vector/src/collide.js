@@ -223,6 +223,22 @@ export function capsuleVs(s, c, half, r) {
       bn = p.n;
     }
   }
+  // Past a ramp's high end with the body's foot above its top edge, what it
+  // meets is that edge, not the end's face: the faces alone would call it a
+  // wall and stop a robot walking off a floor flush with the ramp's top.
+  if (s.shape === 'ramp' && ya > s.max[1]) {
+    const ai = s.axis === 'x' ? 0 : 2;
+    if (Math.abs(bn[1]) < 1e-6 && bn[ai] * s.dir > 0.999) {
+      const edge = s.dir > 0 ? s.max[ai] : s.min[ai];
+      const dv = (c[ai] - edge) * s.dir;
+      const dy = ya - s.max[1];
+      const d = Math.hypot(dv, dy);
+      if (d >= r) return null;
+      const n = [0, dy / d, 0];
+      n[ai] = (s.dir * dv) / d;
+      return { n, depth: r - d };
+    }
+  }
   return { n: bn, depth: r - best };
 }
 
