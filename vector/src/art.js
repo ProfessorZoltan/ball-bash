@@ -500,13 +500,38 @@ export class Art {
     }
   }
 
+  /**
+   * A fan, so it reads as a way up: a grille with blades turning under it, a
+   * faint column of air over it, and streaks rising through the column, fast
+   * and bright at the bottom and fading at the top.
+   */
   fan(f) {
     const t = this.t;
-    for (let i = 0; i < 10; i++) {
-      const k = (t * 0.5 + i / 10) % 1;
-      const x = f.min[0] + ((i * 0.37) % 1) * (f.max[0] - f.min[0]);
-      const z = f.min[2] + ((i * 0.61) % 1) * (f.max[2] - f.min[2]);
-      this.r.point([x, f.min[1] + k * (f.max[1] - f.min[1]), z], 0.1, '#bfe6ff', 0.6 * (1 - k));
+    const sx = f.max[0] - f.min[0];
+    const sz = f.max[2] - f.min[2];
+    const sy = f.max[1] - f.min[1];
+    const c = [(f.min[0] + f.max[0]) / 2, f.min[1], (f.min[2] + f.max[2]) / 2];
+    const r = Math.min(sx, sz) / 2;
+    // The blades, under the grille, turning fast.
+    for (let i = 0; i < 4; i++) {
+      const a = t * 9 + (i * Math.PI) / 2;
+      this.d('box', add(c, [Math.sin(a) * r * 0.45, 0.02, Math.cos(a) * r * 0.45]), a, 0, 0.35, [0.22, 0.03, r * 0.85], '#8a96a4', { mat: 'metal' });
+    }
+    this.d('cyl', add(c, [0, 0.03, 0]), 0, 0, 0, [0.35, 0.06, 0.35], '#c8d4e0', { mat: 'metal', glow: 0.3 });
+    // The grille's bars across it, and a ring of light round the shaft.
+    for (let i = 1; i < 6; i++) this.d('box', [f.min[0] + (sx * i) / 6, c[1] + 0.06, c[2]], 0, 0, 0, [0.05, 0.04, sz], '#2a3038', { mat: 'metal' });
+    this.d('box', [c[0], c[1] + 0.1, c[2]], 0, 0, 0, [sx, 0.02, sz], '#bfe6ff', { glow: 1.2, alpha: 0.25 });
+    // The column of rising air.
+    this.d('box', [c[0], c[1] + sy / 2, c[2]], 0, 0, 0, [sx * 0.96, sy, sz * 0.96], '#bfe6ff', { glow: 0.8, alpha: 0.05 });
+    for (let i = 0; i < 40; i++) {
+      const k = (t * 0.9 + i / 40) % 1;
+      const x = f.min[0] + 0.2 + ((i * 0.37) % 1) * (sx - 0.4);
+      const z = f.min[2] + 0.2 + ((i * 0.61) % 1) * (sz - 0.4);
+      const y = f.min[1] + k * sy;
+      const a = 0.9 * (1 - k);
+      this.r.point([x, y, z], 0.16, '#dff4ff', a);
+      this.r.point([x, y - 0.35, z], 0.1, '#bfe6ff', a * 0.6);
+      this.r.point([x, y - 0.7, z], 0.07, '#bfe6ff', a * 0.3);
     }
   }
 

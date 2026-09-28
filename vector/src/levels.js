@@ -464,7 +464,7 @@ export const LEVEL_DEFS = [
       ['run', { len: 14, foes: 2 }],
       ['arena', { boss: 'scheduler', height: 12, roofed: true, roofPortal: true, size: 36 }],
     ],
-    signs: { 6: 'Armoured glass: you can see through it, and open an end on what is behind it. Nothing solid gets in.' },
+    signs: { 4: 'A fan. Step off the edge into its draft: it carries you up to the lit ledge.', 6: 'Armoured glass: you can see through it, and open an end on what is behind it. Nothing solid gets in.' },
   },
   {
     id: 4,
@@ -515,7 +515,7 @@ export const LEVEL_DEFS = [
       ['run', { len: 10, foes: 1 }],
       ['arena', { boss: 'forgewright', height: 14, size: 40 }],
     ],
-    signs: { 5: 'A launch ramp. One end on its face and one at your feet: out of the face, you are thrown.', 6: 'That one carries a shield. Come at it from the side.' },
+    signs: { 5: 'A launch ramp. One end on its face and one at your feet: out of the face, you are thrown.', 6: 'That one carries a shield. Come at it from the side.', 13: 'A fan. Step off the edge into its draft: it carries you up to the lit ledge.' },
   },
   {
     id: 5,

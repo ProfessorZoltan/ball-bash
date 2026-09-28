@@ -607,17 +607,24 @@ export const SECTIONS = {
     b.advance(18, h);
   },
 
-  /** A fan's updraft over a pit, up to a ledge. */
+  /**
+   * A fan's updraft over a pit, up to a ledge. The fan fills the pit wall to
+   * wall, so a step off the edge anywhere is caught and carried up; its
+   * grille, its spinning blades and the column of rising air are drawn
+   * (art.js), and the ledge's lip is lit, so it reads as a way up and not
+   * as the end of the hall.
+   */
   fans(b, o = {}) {
     const h = o.h || 7;
+    const w = b.W / 2;
     b.floor(0, 6);
-    b.box([-2, -3.4, 6], [2, -3, 10], { role: 'trim', mat: 'metal', color: '#444a52' });
-    const [min, max] = b.aabb([-2, -3, 6], [2, h + 4, 10]);
+    b.box([-w, -3.4, 6], [w, -3, 10], { role: 'trim', mat: 'metal', color: '#444a52', noSafe: true });
+    const [min, max] = b.aabb([-w, -3, 6], [w, h + 4, 10]);
     b.world.fans.push({ min, max, lift: 44 });
     b.floor(10, 18, h);
-    b.box([-b.W / 2, -2, 10], [b.W / 2, h - 2, 11], { role: 'wall' });
+    b.box([-w, -2, 10], [w, h - 2, 11], { role: 'wall' });
+    b.box([-w, h - 0.22, 9.95], [w, h - 0.04, 10], { mat: 'lamp', color: b.def.accent || '#9dff5c', glow: 0.8, noPortal: true, passCharges: true });
     b.sides(0, 18, -3, b.roof ? b.roof + h + 3 : 0);
-    pit(b, 6, 10, -3);
     b.dress(0, 18);
     mark(b, 'fans', 0, 18, { h });
     b.go(0, 0, 5);
