@@ -1173,9 +1173,9 @@ Some things only a wormhole gets you past, on purpose:
 
 Level 1 teaches wormholes with an optional secret up on a loft; every level
 after it has at least one of these on the main path. Signs are the first
-level's alone (with one more, on the awnings, at the start of the second),
-and only the first boss says at its door how it is beaten: after that nothing
-explains itself.
+level's, bar three: the awnings at the start of the second, and at the start
+of the Greenhouse Arcology its springs and its folded things. Only the first
+boss says at its door how it is beaten; after that nothing explains itself.
 
 A locked room left through a wormhole while its waves are unbeaten stays
 locked as long as one of your ends is inside it, the way back. With none,

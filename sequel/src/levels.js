@@ -527,8 +527,10 @@ export const LEVEL_DEFS = [
     secretsAt: [{ at: 0.2, kind: 'cache', reward: ['strong', 'big'] }, { at: 0.55, kind: 'cellar', reward: ['shield', 'triple'] }, { at: 0.85, kind: 'loft', reward: ['freeze', 'durable'], up: 8 }],
     features: [{ at: 0.45, sections: [['tower', { up: 20, width: 9, lift: 6, e: [['moth', 4.5, 6], ['flitter', 4.5, 11], ['moth', 4.5, 16]] }]] }],
     opening: [
+      ['sign', { text: say('Springs throw you high · hold jump for higher still', 'Springs throw you high · hold A for higher still') }],
       ['spring', { up: 7, run: 5, after: 5 }],
       ['glass', { n: 2, len: 10, hp: 2 }],
+      ['sign', { text: say('A folded thing is only half here: your charge passes through it, unless the charge has been through a wormhole first', 'A folded thing is only half here: your charge passes through it, unless the charge has been through a wormhole first') }],
       ['flat', { len: 16, e: [['echo', 12]] }],
       ['vault', {}],
     ],
