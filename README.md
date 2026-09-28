@@ -1826,6 +1826,54 @@ corrugated steel are painted in the shader from the surface's position
 The sky goes the same way: a banded sun over a grid on the void, a wire
 moon, a night city, dawn over water, a clear sky over snow.
 
+### Music
+
+Each level has its own track on Deflector's engine (`src/audio/engine.js`),
+played by `VectorAudio`, which gives the engine's voices new instruments and
+chooses among them by the track's **humanity**, from 0 to 1. At 0 it is
+Deflector's own sound: saw arpeggios, synth pads and bass, and the kick's
+side-chain pump. The pump fades out as humanity rises, since people don't
+duck to a kick. In between come mallets, electric piano, plucked bass, and
+hand and factory percussion. At 1 it is piano, a bowed string ensemble with
+solo cello and violin, guitar fingerpicked or strummed, upright bass, flute,
+a wordless choir, and a kit played with brushes. Plucked strings, piano and
+mallets are rendered note by note in JavaScript (Karplus-Strong and additive
+partials) ahead of when a song needs them; the human voices get a little
+timing and velocity drift, late vibrato and spread strums. A quiet bed plays
+under the music: fan hum, rain, trains, gulls and water, wind, a ticking
+clock.
+
+The sound effects follow the level's humanity too (`setHumanity`): crisp
+blips in the grid, a real click, thud and whoosh by the end, and footsteps
+that sound like the floor (grid, metal, concrete, wood, grass, snow, water).
+In a boss fight the track speeds up by less as the music gets more human:
+twice as fast in the grid, one and a half times in the middle, a quarter
+faster near the end, and not at all for the Creator, whose piece is its own.
+Voices speak their subtitles as a wordless babble: the machines ring
+modulated, the Creator warm (`speak`).
+
+| Track | Plays | Key | BPM | Humanity | Main instruments | Source |
+| --- | --- | --- | --- | --- | --- | --- |
+| Vector (Title) | the title screen | F# minor | 84 | 0.5 | a synth lead answered by piano, then strings | `VECTOR_TRACKS` in `vector/src/tracks.js` |
+| Edge of the Grid (Warden Theme) | level 1 | A minor | 104 | 0 | Deflector's synths and pumping pads | same |
+| Wireframe Wilds (Stag Theme) | level 2 | D dorian | 92 | 0.1 | synths and a first kalimba; a stream of data | same |
+| Render Farm (Scheduler Theme) | level 3 | C minor | 112 | 0.22 | marimba in sixteenths, synths, relay ticks; fan hum | same |
+| The Foundry (Forgewright Theme) | level 4 | D phrygian | 96 | 0.35 | anvil and press, congas and bongos, synth bass, glockenspiel | same |
+| Night Freeway (Interceptor Theme) | level 5 | F minor | 100 | 0.45 | electric piano, plucked bass, half-acoustic kit, vibraphone; traffic | same |
+| Rain City (Broadcaster Theme) | level 6 | E-flat major | 76 | 0.55 | electric piano, brushes, vibraphone; rain | same |
+| Underline (Borer Theme) | level 7 | B minor | 104 | 0.66 | walking upright bass, kit, cello, piano; trains | same |
+| Harbour at Dawn (Gantry Theme) | level 8 | D major | 88 | 0.78 | guitar, accordion, violin, frame drum, harp; gulls and water | same |
+| Pine Ridge (Lookout Theme) | level 9 | E minor | 80 | 0.9 | Travis-picked guitar, flute, cello, strings, brushes; wind | same |
+| The Workshop (Lamplight) | level 10 | A minor | 60 | 1 | piano, strings, cello and violin, music box; a clock | same |
+| The Loom (Creator Theme) | the last fight | D minor | 126 | 1 | a piano toccata, strings, choir, timpani | same |
+| Morning (Ending) | the ending | D major | 72 | 1 | solo piano, then strings, choir and a sung line; birds | same |
+
+`node vector/tools/listen.mjs` renders every track, every cue and the
+babble offline in Chromium and reports each one's peak and loudness, so none
+clips, goes silent or turns to NaN (`--full <key>` renders a whole
+arrangement, `--wav out/` writes the renders to files). A limiter after the
+engine's compressor keeps every peak under full scale.
+
 ### The story
 
 The record changes hands as the robot goes: the grid's **LOG** in the first
@@ -1851,7 +1899,9 @@ direction, and the direction is its own. The text is in
 | Puzzles | each kind fails the obvious way: a bulkhead cannot be walked or jumped under, a chasm or a launch cannot be jumped at a full run, a vault's switch takes no shot from anywhere without a wormhole, an orbit's none without its black hole, a door stays shut; and the same full-run charge does clear an ordinary gap, so none of that is vacuous | `vector/test/puzzles.test.js` |
 | Wormholes | where an end may sit and how; through a pair, speed kept and the way turned; out of a floor fast enough to clear it; charges and machines through; a launch throws past any jump; a sight line bends round a black hole | `vector/test/wormholes.test.js` |
 | Bosses | every boss is beaten by a robot that aims well; the Gantry not without wormholes; the Creator's glass turns every charge | `vector/tools/fight.mjs`, `vector/test/bosses.test.js` |
-| The trilogy's order | each level is more real than the one before and sounds more human; every level has its own track | `vector/test/levels.test.js` |
+| The trilogy's order | each level is more real than the one before and sounds more human; every level has its own track, as human as the level | `vector/test/levels.test.js` |
+| Music and sound | every track is well formed and humanity rises across it; every voice a track names exists; every cue sounds at every humanity, placed and scaled as the game asks, and once however often it is fired at once | `vector/test/audio.test.js` |
+| The art | every machine in every roster and every boss draws, with nothing but numbers in what it asks the renderer for | `vector/test/art.test.js` |
 
 Each tool also runs on its own: `node vector/tools/autopilot.mjs 4`,
 `node vector/tools/fight.mjs 8 noportals`, and

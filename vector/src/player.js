@@ -198,7 +198,7 @@ export function stepRobot(bot, it, world, dt, ends = []) {
       bot.bob += hs * dt * 2.6;
       if (bot.stride > 1.9) {
         bot.stride = 0;
-        ev.push({ s: 'step', surface: s && s.mat });
+        ev.push({ s: 'step', surface: s && s.mat, role: s && s.role });
       }
       // Remember firm ground to come back to after a fall.
       if (s && firm(s) && !bot.mouth) {

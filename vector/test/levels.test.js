@@ -33,8 +33,11 @@ test('every level is further from the grid than the one before: its look, its mu
   assert.equal(level(10).theme.real, 1, 'the last is the world');
 });
 
-test('every level has its own track', () => {
-  for (const L of LEVEL_DEFS) assert.ok(VECTOR_TRACKS[L.key], `a track for ${L.title}`);
+test('every level has its own track, as human as the level', () => {
+  for (const L of LEVEL_DEFS) {
+    assert.ok(VECTOR_TRACKS[L.key], `a track for ${L.title}`);
+    assert.equal(VECTOR_TRACKS[L.key].humanity, L.humanity, `${L.title}'s music and its sounds agree`);
+  }
   for (const k of ['vector', 'creator', 'ending']) assert.ok(VECTOR_TRACKS[k], `a ${k} track`);
 });
 

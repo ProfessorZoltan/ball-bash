@@ -121,9 +121,19 @@ async function unlockAudio() {
   }
 }
 
+// What a footstep sounds like, by what the floor is made of.
+const STEP_SURFACE = { grid: 'grid', panel: 'grid', wire: 'grid', screen: 'grid', lamp: 'grid', metal: 'metal', container: 'metal', hazard: 'metal', concrete: 'concrete', asphalt: 'concrete', brick: 'concrete', tile: 'concrete', rock: 'concrete', cracked: 'concrete', wood: 'wood', crate: 'wood', paper: 'wood', cloth: 'wood', grass: 'grass', leaf: 'grass', snow: 'snow', water: 'water', glass: 'metal' };
+
 /** A cue from the game, placed in space: panned toward where it happened, quieter far off. */
 function cue(e) {
   if (!audio.ready) return;
+  // A boss's own moves that sound like something the audio already knows.
+  if (e.s === 'pour') e = { ...e, s: 'rumble' };
+  if (e.s === 'step') {
+    const roles = (bp && bp.theme.roles) || {};
+    const mat = e.surface || (roles[e.role] && roles[e.role].mat) || 'panel';
+    e.surface = STEP_SURFACE[mat] || 'concrete';
+  }
   if (e.at && !e.me && game) {
     const b = game.bot;
     const d = sub(e.at, b.pos);
