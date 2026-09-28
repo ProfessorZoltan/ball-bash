@@ -199,8 +199,10 @@ export function stepEnemy(e, world, bot, ends, dt, shots) {
     want = scale(sub(add(a, scale(sub(b, a), k)), e.pos), 3);
   }
   if (e.seen || M === 'turret') {
+    // A shield turns slower than the machine behind it could: circle it and you get round.
     const tgt = Math.atan2(toBot[0], toBot[2]);
-    e.yaw += clamp(wrap(tgt - e.yaw), -3 * dt, 3 * dt);
+    const rate = e.shield ? 1.5 : 3;
+    e.yaw += clamp(wrap(tgt - e.yaw), -rate * dt, rate * dt);
   } else if (want && Math.hypot(want[0], want[2]) > 0.3) {
     e.yaw += clamp(wrap(Math.atan2(want[0], want[2]) - e.yaw), -6 * dt, 6 * dt);
   }

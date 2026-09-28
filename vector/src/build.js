@@ -200,8 +200,8 @@ export class Builder {
   }
 
   /** A roster pick: one of the level's enemies, by the way it moves. */
-  foe(moves) {
-    const R = this.def.roster.filter((f) => moves.includes(f.move));
+  foe(moves, o = {}) {
+    const R = this.def.roster.filter((f) => moves.includes(f.move) && !(o.solid && f.folded));
     if (!R.length) return null;
     return this.r.pick(R);
   }

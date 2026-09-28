@@ -717,7 +717,8 @@ export const SECTIONS = {
       const wave = [];
       const n = 3 + i;
       for (let j = 0; j < n; j++) {
-        const f = b.foe(j % 2 ? ['flier', 'zigzag', 'gunner', 'circler'] : ['walker', 'chaser', 'hopper', 'lancer', 'trundle']) || b.foe(['walker']);
+        // A locked room's waves are machines a plain charge touches: never folded ones.
+        const f = b.foe(j % 2 ? ['flier', 'zigzag', 'gunner', 'circler'] : ['walker', 'chaser', 'hopper', 'lancer', 'trundle'], { solid: true }) || b.foe(['walker'], { solid: true });
         if (!f) continue;
         const a = (j / n) * Math.PI * 2;
         const air = ['flier', 'zigzag', 'gunner', 'circler', 'diver'].includes(f.move);

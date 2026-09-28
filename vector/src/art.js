@@ -371,7 +371,17 @@ export class Art {
         break;
       case 'creator': {
         // The loom: a great ring of screens and brass arms, the man in the middle behind glass.
-        this.d('torus', B.pos, B.spin, 0, 0, [10.4, 10.4, 10.4], '#b8903a', { mat: 'metal' });
+        // A slender ring above his head and one below, and an arm out to each cell.
+        this.d('ring', add(B.pos, [0, 1.6, 0]), B.spin, 0, 0, [10.4, 10.4, 10.4], '#b8903a', { mat: 'metal' });
+        this.d('ring', add(B.pos, [0, -1.6, 0]), -B.spin, 0, 0, [10.4, 10.4, 10.4], '#8a6a2a', { mat: 'metal' });
+        for (const p of B.parts) {
+          if (p.type !== 'core') continue;
+          const d = sub(p.p, B.pos);
+          const L = len(d);
+          const z = norm(d);
+          const x = norm(cross([0, 1, 0], z));
+          this.r.draw('box', model(add(B.pos, scale(d, 0.5)), x, cross(z, x), z, [0.12, 0.12, L]), '#b8903a', { mat: 'metal' });
+        }
         for (let i = 0; i < 12; i++) {
           const a = B.spin * 0.5 + (i * TAU) / 12;
           const p = add(B.pos, [Math.sin(a) * 7.5, 2.2 + Math.sin(t + i) * 0.2, Math.cos(a) * 7.5]);

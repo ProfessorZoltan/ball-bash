@@ -9,9 +9,9 @@
 //   node vector/tools/autopilot.mjs all      every level
 import { Game } from '../src/game.js';
 import { level, LEVEL_DEFS } from '../src/levels.js';
-import { PHYSICS_DT, ROBOT, MOVE } from '../src/config.js';
-import { sub, norm, len, dot, lookDir, yawPitch, add, dist } from '../src/math.js';
-import { guideLine } from '../src/blaster.js';
+import { PHYSICS_DT, ROBOT, MOVE, BLASTER } from '../src/config.js';
+import { sub, norm, len, dot, lookDir, yawPitch, add, dist, scale, rng } from '../src/math.js';
+import { guideLine, makeCharge, stepCharge } from '../src/blaster.js';
 import { crusherOffset } from '../src/world.js';
 
 const DT = PHYSICS_DT;
@@ -28,6 +28,7 @@ export class Autopilot {
     this.log = [];
     this.failed = null;
     this.done = false;
+    this.r = rng(7);
   }
 
   fail(why) {
@@ -117,7 +118,7 @@ export class Autopilot {
       return {};
     }
     return { ...airSteer(b, st.to), run: st.run, jump: true };
-    }
+  }
 
   /** The intent for this step, the look set on the robot directly. */
   intent() {
@@ -129,267 +130,323 @@ export class Autopilot {
     const S = this.s;
     switch (st.a) {
       case 'go': {
-    if (this.t > 20) {
-      this.fail(`never got to ${st.to.map((v) => v.toFixed(1))}, at ${b.pos.map((v) => v.toFixed(1))}`);
-      return {};
-    }
-    const r = this.steer(st.to, st.run);
-    if (r.there && b.onGround) this.next();
-    return r.it;
+        if (this.t > 20) {
+          this.fail(`never got to ${st.to.map((v) => v.toFixed(1))}, at ${b.pos.map((v) => v.toFixed(1))}`);
+          return {};
+        }
+        const r = this.steer(st.to, st.run);
+        if (r.there && b.onGround) this.next();
+        return r.it;
       }
       case 'jump':
-    return this.jump(st, S);
+        return this.jump(st, S);
       case 'waitFor': {
-    const s = g.world.solids.find((x) => x.id === st.solid);
-    const c = centre(s);
-    this.face(c);
-    // Board it as it arrives (or waits) at the stop, never as it leaves.
-    const toward = dot(s.vel || [0, 0, 0], sub(st.near, c)) >= -0.02;
-    if (dist(c, st.near) < st.tol && toward) this.next();
-    if (this.t > 30) this.fail('the platform never came');
-    return {};
-      }
-      case 'ride': {
-    const s = g.world.solids.find((x) => x.id === st.solid);
-    const c = centre(s);
-    const top = [c[0], s.max[1] + ROBOT.half + ROBOT.r, c[2]];
-    if (this.t > 30) this.fail('never got off the platform');
-    const r = this.steer(top, false, 0.25);
-    if (b.onGround && b.ground === s && flatDist(c, st.until) < st.tol && Math.abs(c[1] - st.until[1]) < 0.6) this.next();
-    if (!S.boarded && b.ground === s) S.boarded = true;
-    if (S.boarded && !b.onGround && b.vel[1] < -6) this.fail('fell off the platform');
-    return r.it;
-      }
-      case 'portal': {
-    if (!S.phase) S.phase = 'walk';
-    if (this.t > 25) {
-      this.fail(`wormhole step stuck in ${S.phase}`);
-      return {};
-    }
-    if (S.phase === 'walk') {
-      const r = this.steer(st.from, false, 0.3);
-      if (r.there && b.onGround && Math.hypot(b.vel[0], b.vel[2]) < 0.4) {
-        S.phase = 'aim';
-        S.k = 0;
-        S.wait = 0;
-      }
-      return r.it;
-    }
-    if (S.phase === 'aim') {
-      const aim = st.aims[S.k];
-      this.face(aim.at, true);
-      S.wait += DT;
-      if (S.wait < 0.05) return {};
-      const worm = [false, false];
-      worm[aim.which] = true;
-      S.wait = 0;
-      S.k++;
-      if (S.k >= st.aims.length) S.phase = 'check';
-      return { worm };
-    }
-    if (S.phase === 'check') {
-      for (const a of st.aims) {
-        const e = g.ends[a.which];
-        if (!e) {
-          this.fail(`end ${a.which} did not open at ${a.at.map((v) => v.toFixed(1))}`);
-          return {};
-        }
-      }
-      b.pitch = 0;
-      S.phase = st.enter ? 'enter' : 'out';
-      S.warps = g.warps || 0;
-      S.et = 0;
-      if (!st.enter) this.next();
-      return {};
-    }
-    if (S.phase === 'enter') {
-      S.et += DT;
-      if ((g.warps || 0) > S.warps) {
-        this.next();
+        const s = g.world.solids.find((x) => x.id === st.solid);
+        const c = centre(s);
+        this.face(c);
+        // Board it as it arrives (or waits) at the stop, never as it leaves.
+        const toward = dot(s.vel || [0, 0, 0], sub(st.near, c)) >= -0.02;
+        if (dist(c, st.near) < st.tol && toward) this.next();
+        if (this.t > 30) this.fail('the platform never came');
         return {};
       }
-      if (S.et > 5) this.fail('walked onto the end and never went through');
-      const r = this.steer(st.enter, false, 0.05);
-      return { ...r.it, mz: Math.max(0.5, r.it.mz) };
-    }
-    return {};
+      case 'ride': {
+        const s = g.world.solids.find((x) => x.id === st.solid);
+        const c = centre(s);
+        const top = [c[0], s.max[1] + ROBOT.half + ROBOT.r, c[2]];
+        if (this.t > 30) this.fail('never got off the platform');
+        const r = this.steer(top, false, 0.25);
+        if (b.onGround && b.ground === s && flatDist(c, st.until) < st.tol && Math.abs(c[1] - st.until[1]) < 0.6) this.next();
+        if (!S.boarded && b.ground === s) S.boarded = true;
+        if (S.boarded && !b.onGround && b.vel[1] < -6) this.fail('fell off the platform');
+        return r.it;
       }
-      case 'spring': {
-    // Walk onto the pad; once it throws, steer at the ledge.
-    if (!S.left) {
-      if (!b.onGround && b.vel[1] > 4) S.left = true;
-      if (this.t > 8) this.fail('the spring never threw');
-      return this.steer(st.pad, false, 0.05).it;
-    }
-    if (b.onGround) {
-      if (flatDist(b.pos, st.to) < 5 && Math.abs(b.pos[1] - st.to[1]) < 0.8) this.next();
-      else this.fail(`came down off the spring at ${b.pos.map((v) => v.toFixed(1))}`);
-      return {};
-    }
-    if (this.t > 8) this.fail('never came down');
-    return { ...airSteer(b, st.to), jump: true };
-      }
-      case 'settle': {
-    if (b.onGround && Math.hypot(b.vel[0], b.vel[2]) < 0.6) this.next();
-    if (this.t > 4) this.fail('never settled');
-    return {};
-      }
-      case 'fly': {
-    // Thrown (a launch, a spring): steer at the landing with jump held.
-    if (!S.left) {
-      if (!b.onGround) S.left = true;
-      if (this.t > 3) this.fail('never thrown');
-      return {};
-    }
-    if (b.onGround) {
-      if (flatDist(b.pos, st.to) < 5 && Math.abs(b.pos[1] - st.to[1]) < 0.8) this.next();
-      else this.fail(`came down at ${b.pos.map((v) => v.toFixed(1))}, not ${st.to.map((v) => v.toFixed(1))}`);
-      return {};
-    }
-    if (this.t > 6) this.fail('never came down');
-    return { ...airSteer(b, st.to), jump: true };
-      }
-      case 'updraft': {
-    if (this.t > 15) {
-      this.fail('the updraft never carried it up');
-      return {};
-    }
-    if (!S.up) {
-      if (b.feet > st.to[1] - FEETUP + 0.9) S.up = true;
-      const r = this.steer(st.in, false, 0.3);
-      return { ...r.it, jump: true };
-    }
-    if (b.onGround && this.t > 0.3) {
-      if (Math.abs(b.pos[1] - st.to[1]) < 0.7) this.next();
-      else this.fail('fell out of the updraft');
-      return {};
-    }
-    const r = this.steer(st.to, false, 0.3);
-    return { ...r.it, jump: true };
-      }
-      case 'shoot': {
-    const sw = g.world.switches.find((x) => x.id === st.sw);
-    if (sw.on) {
-      this.next();
-      return {};
-    }
-    if (this.t > 20) {
-      this.fail('the switch never came on');
-      return {};
-    }
-    if (!S.phase) S.phase = 'walk';
-    if (S.phase === 'walk') {
-      const r = this.steer(st.from, false, 0.3);
-      if (r.there && b.onGround && Math.hypot(b.vel[0], b.vel[2]) < 0.3) {
-        S.phase = 'aim';
-        S.tries = 0;
-      }
-      return r.it;
-    }
-    if (S.phase === 'aim') {
-      if (st.search) {
-        const shot = searchShot(g, sw, st.near);
-        if (!shot) {
-          this.fail('no shot found');
+      case 'portal': {
+        if (!S.phase) S.phase = 'walk';
+        if (this.t > 25) {
+          this.fail(`wormhole step stuck in ${S.phase}`);
           return {};
         }
-        b.yaw = shot.yaw;
-        b.pitch = shot.pitch;
-      } else {
-        let at = st.at;
-        if (at === 'end1') {
-          const e = g.ends[1];
-          if (!e) {
-            this.fail('no end to fire into');
+        if (S.phase === 'walk') {
+          const r = this.steer(st.from, false, 0.3);
+          if (r.there && b.onGround && Math.hypot(b.vel[0], b.vel[2]) < 0.4) {
+            S.phase = 'aim';
+            S.k = 0;
+            S.wait = 0;
+          }
+          return r.it;
+        }
+        if (S.phase === 'aim') {
+          const aim = st.aims[S.k];
+          this.face(aim.at, true);
+          S.wait += DT;
+          if (S.wait < 0.05) return {};
+          const worm = [false, false];
+          worm[aim.which] = true;
+          S.wait = 0;
+          S.k++;
+          if (S.k >= st.aims.length) S.phase = 'check';
+          return { worm };
+        }
+        if (S.phase === 'check') {
+          for (const a of st.aims) {
+            const e = g.ends[a.which];
+            if (!e) {
+              this.fail(`end ${a.which} did not open at ${a.at.map((v) => v.toFixed(1))}`);
+              return {};
+            }
+          }
+          b.pitch = 0;
+          S.phase = st.enter ? 'enter' : 'out';
+          S.warps = g.warps || 0;
+          S.et = 0;
+          if (!st.enter) this.next();
+          return {};
+        }
+        if (S.phase === 'enter') {
+          S.et += DT;
+          if ((g.warps || 0) > S.warps) {
+            this.next();
             return {};
           }
-          at = add(e.c, [0, 0, 0]);
-          at = [e.c[0], b.eyePos()[1], e.c[2]];
+          if (S.et > 5) this.fail('walked onto the end and never went through');
+          const r = this.steer(st.enter, false, 0.05);
+          return { ...r.it, mz: Math.max(0.5, r.it.mz) };
         }
-        this.face(at, true);
+        return {};
       }
-      S.phase = 'fire';
-      S.ft = 0;
-      return {};
-    }
-    if (S.phase === 'fire') {
-      S.phase = 'watch';
-      S.ft = 0;
-      S.tries++;
-      return { firePress: true };
-    }
-    S.ft += DT;
-    if (S.ft > 3) {
-      if (S.tries > 3) this.fail('three shots and the switch still off');
-      S.phase = 'aim';
-    }
-    return {};
+      case 'spring': {
+        // Walk onto the pad; once it throws, steer at the ledge.
+        if (!S.left) {
+          if (!b.onGround && b.vel[1] > 4) S.left = true;
+          if (this.t > 8) this.fail('the spring never threw');
+          return this.steer(st.pad, false, 0.05).it;
+        }
+        if (b.onGround) {
+          if (flatDist(b.pos, st.to) < 5 && Math.abs(b.pos[1] - st.to[1]) < 0.8) this.next();
+          else this.fail(`came down off the spring at ${b.pos.map((v) => v.toFixed(1))}`);
+          return {};
+        }
+        if (this.t > 8) this.fail('never came down');
+        return { ...airSteer(b, st.to), jump: true };
+      }
+      case 'settle': {
+        if (b.onGround && Math.hypot(b.vel[0], b.vel[2]) < 0.6) this.next();
+        if (this.t > 4) this.fail('never settled');
+        return {};
+      }
+      case 'fly': {
+        // Thrown (a launch, a spring): steer at the landing with jump held.
+        if (!S.left) {
+          if (!b.onGround) S.left = true;
+          if (this.t > 3) this.fail('never thrown');
+          return {};
+        }
+        if (b.onGround) {
+          if (flatDist(b.pos, st.to) < 5 && Math.abs(b.pos[1] - st.to[1]) < 0.8) this.next();
+          else this.fail(`came down at ${b.pos.map((v) => v.toFixed(1))}, not ${st.to.map((v) => v.toFixed(1))}`);
+          return {};
+        }
+        if (this.t > 6) this.fail('never came down');
+        return { ...airSteer(b, st.to), jump: true };
+      }
+      case 'updraft': {
+        if (this.t > 15) {
+          this.fail('the updraft never carried it up');
+          return {};
+        }
+        if (!S.up) {
+          if (b.feet > st.to[1] - FEETUP + 0.9) S.up = true;
+          const r = this.steer(st.in, false, 0.3);
+          return { ...r.it, jump: true };
+        }
+        if (b.onGround && this.t > 0.3) {
+          if (Math.abs(b.pos[1] - st.to[1]) < 0.7) this.next();
+          else this.fail('fell out of the updraft');
+          return {};
+        }
+        const r = this.steer(st.to, false, 0.3);
+        return { ...r.it, jump: true };
+      }
+      case 'shoot': {
+        const sw = g.world.switches.find((x) => x.id === st.sw);
+        if (sw.on) {
+          this.next();
+          return {};
+        }
+        if (this.t > 20) {
+          this.fail('the switch never came on');
+          return {};
+        }
+        if (!S.phase) S.phase = 'walk';
+        if (S.phase === 'walk') {
+          const r = this.steer(st.from, false, 0.3);
+          if (r.there && b.onGround && Math.hypot(b.vel[0], b.vel[2]) < 0.3) {
+            S.phase = 'aim';
+            S.tries = 0;
+          }
+          return r.it;
+        }
+        if (S.phase === 'aim') {
+          if (st.search) {
+            const shot = searchShot(g, sw, st.near);
+            if (!shot) {
+              this.fail('no shot found');
+              return {};
+            }
+            b.yaw = shot.yaw;
+            b.pitch = shot.pitch;
+          } else {
+            let at = st.at;
+            if (at === 'end1') {
+              const e = g.ends[1];
+              if (!e) {
+                this.fail('no end to fire into');
+                return {};
+              }
+              at = add(e.c, [0, 0, 0]);
+              at = [e.c[0], b.eyePos()[1], e.c[2]];
+            }
+            this.face(at, true);
+          }
+          S.phase = 'fire';
+          S.ft = 0;
+          return {};
+        }
+        if (S.phase === 'fire') {
+          S.phase = 'watch';
+          S.ft = 0;
+          S.tries++;
+          return { firePress: true };
+        }
+        S.ft += DT;
+        if (S.ft > 3) {
+          if (S.tries > 3) this.fail('three shots and the switch still off');
+          S.phase = 'aim';
+        }
+        return {};
       }
       case 'gate': {
-    const h = g.world.hazards.find((x) => x.id === st.hazard);
-    const L = h.laser;
-    const u = (((g.world.time + L.phase) % L.period) + L.period) % L.period;
-    if (!S.go) {
-      this.face(st.to);
-      if (u >= L.on + 0.05 && L.period - u > 0.9) S.go = true;
-      if (this.t > 12) this.fail('the gate never went dark');
-      return {};
-    }
-    const r = this.steer(st.to, true, 0.4);
-    if (r.there) this.next();
-    if (this.t > 15) this.fail('stuck at a gate');
-    return { ...r.it, run: true, mz: r.there ? 0 : 1 };
+        const h = g.world.hazards.find((x) => x.id === st.hazard);
+        const L = h.laser;
+        const u = (((g.world.time + L.phase) % L.period) + L.period) % L.period;
+        if (!S.go) {
+          this.face(st.to);
+          if (u >= L.on + 0.05 && L.period - u > 0.9) S.go = true;
+          if (this.t > 12) this.fail('the gate never went dark');
+          return {};
+        }
+        const r = this.steer(st.to, true, 0.4);
+        if (r.there) this.next();
+        if (this.t > 15) this.fail('stuck at a gate');
+        return { ...r.it, run: true, mz: r.there ? 0 : 1 };
       }
       case 'crush': {
-    const s = g.world.solids.find((x) => x.id === st.solid);
-    const c = s.crush;
-    const u = (((g.world.time + (c.phase || 0)) % c.period) + c.period) % c.period / c.period;
-    if (!S.go) {
-      this.face(st.to);
-      if (u < 0.05 && crusherOffset(c, g.world.time)[1] === 0) S.go = true;
-      if (this.t > 12) this.fail('the crusher never rose');
-      return {};
-    }
-    const r = this.steer(st.to, true, 0.4);
-    if (r.there) this.next();
-    if (this.t > 15) this.fail('stuck at a crusher');
-    return { ...r.it, run: true, mz: r.there ? 0 : 1 };
+        const s = g.world.solids.find((x) => x.id === st.solid);
+        const c = s.crush;
+        const u = (((g.world.time + (c.phase || 0)) % c.period) + c.period) % c.period / c.period;
+        if (!S.go) {
+          this.face(st.to);
+          if (u < 0.05 && crusherOffset(c, g.world.time)[1] === 0) S.go = true;
+          if (this.t > 12) this.fail('the crusher never rose');
+          return {};
+        }
+        const r = this.steer(st.to, true, 0.4);
+        if (r.there) this.next();
+        if (this.t > 15) this.fail('stuck at a crusher');
+        return { ...r.it, run: true, mz: r.there ? 0 : 1 };
       }
       case 'hop': {
-    // A blinking platform: wait on the edge for it to light, then jump.
-    const s = g.world.solids.find((x) => x.id === st.solid);
-    const bl = s.blink;
-    const u = (((g.world.time + bl.phase) % bl.period) + bl.period) % bl.period;
-    if (!S.phase) S.phase = 'wait';
-    if (S.phase === 'wait') {
-      const r = this.steer(st.from, false, 0.3);
-      // Go when it is lit and will stay lit long enough to land on and jump on from.
-      if (r.there && !s.hidden && bl.off - u > 1.5 && b.onGround) S.phase = 'run';
-      if (this.t > 15) this.fail('the platform never lit');
-      return r.it;
-    }
-    return this.jump({ ...st, run: false }, S);
+        // A blinking platform: wait on the edge for it to light, then jump.
+        const s = g.world.solids.find((x) => x.id === st.solid);
+        const bl = s.blink;
+        const u = (((g.world.time + bl.phase) % bl.period) + bl.period) % bl.period;
+        if (!S.phase) S.phase = 'wait';
+        if (S.phase === 'wait') {
+          const r = this.steer(st.from, false, 0.3);
+          // Go when it is lit and will stay lit long enough to land on and jump on from.
+          if (r.there && !s.hidden && bl.off - u > 1.5 && b.onGround) S.phase = 'run';
+          if (this.t > 15) this.fail('the platform never lit');
+          return r.it;
+        }
+        return this.jump({ ...st, run: false }, S);
       }
       case 'clear': {
-    const a = g.ambushes.find((x) => x.state === 'fight');
-    if (!a) {
-      if (g.ambushes.some((x) => x.state === 'done') || this.t > 1) this.next();
-      return {};
-    }
-    if (this.t > 60) this.fail('the ambush never ended');
-    return {};
+        const a = g.ambushes.find((x) => x.state === 'fight');
+        if (!a) {
+          if (g.ambushes.some((x) => x.state === 'done') || this.t > 1) this.next();
+          return {};
+        }
+        if (this.t > 120) {
+          this.fail('the ambush never ended');
+          return {};
+        }
+        // Fight: the nearest machine it has a shot at, banks included; if none, move on round the room.
+        S.aimT = (S.aimT || 0) - DT;
+        if (S.aimT <= 0 && g.cooldown <= 0 && g.mine() < BLASTER.maxAlive) {
+          S.aimT = 0.15;
+          const foes = a.foes.filter((e) => !e.dead && e.frozen <= 0).sort((p, q) => dist(p.pos, b.pos) - dist(q.pos, b.pos));
+          for (const e of foes.slice(0, 3)) {
+            const shot = shotAt(g, e, this.r);
+            if (shot) {
+              b.yaw = shot.yaw;
+              b.pitch = shot.pitch;
+              return { firePress: true };
+            }
+          }
+          S.wander = null;
+        }
+        if (!S.wander || flatDist(b.pos, S.wander) < 0.8) {
+          const c = a.dropAt;
+          const ang = this.r() * Math.PI * 2;
+          S.wander = [c[0] + Math.cos(ang) * 5, b.pos[1], c[2] + Math.sin(ang) * 5];
+        }
+        return this.steer(S.wander, true, 0.5).it;
       }
       case 'boss':
-    this.done = true;
-    return {};
+        this.done = true;
+        return {};
       default:
-    this.fail(`unknown step ${st.a}`);
-    return {};
+        this.fail(`unknown step ${st.a}`);
+        return {};
     }
   }
 }
 
 const FEETUP = 0;
+
+/**
+ * A shot at a machine: straight at where it will be first, then a spray of
+ * aims, each flown ahead with the charge's own physics; one counts when it
+ * reaches the machine clear of any shield it carries (a bank off a wall
+ * comes at a guard from the side).
+ */
+export function shotAt(g, e, r = Math.random) {
+  const b = g.bot;
+  const eye = b.eyePos();
+  const lead = add(e.pos, scale(e.vel, dist(eye, e.pos) / BLASTER.speed));
+  const base = yawPitch(sub(lead, eye));
+  const cands = [[base.yaw, base.pitch]];
+  for (let i = 0; i < 70; i++) cands.push([base.yaw + (r() - 0.5) * 2.4, base.pitch + (r() - 0.5) * 0.6]);
+  for (const [yaw, pitch] of cands) {
+    const dir = lookDir(yaw, pitch);
+    const c = makeCharge(g.muzzle(dir), dir, 'std', 'test');
+    c.trail = null;
+    for (let t = 0; t < 1.3 && !c.dead; t += DT) {
+      stepCharge(c, g.world, g.openEnds, DT, (s) => (s.crate || s.cover || s.switchRef ? 'stop' : null));
+      const at = add(e.pos, scale(e.vel, t));
+      if (dist(c.pos, at) < e.r + c.r) {
+        if (e.folded && !c.portaled) break;
+        if (e.shield) {
+          const face = [Math.sin(e.yaw), 0, Math.cos(e.yaw)];
+          if (dot(face, norm(sub(c.pos, at))) > 0.3) break;
+        }
+        return { yaw, pitch };
+      }
+    }
+  }
+  return null;
+}
 
 /**
  * Steering in the air: the horizontal velocity that would bring it down on
@@ -449,7 +506,7 @@ export function fly(id, opts = {}) {
   let game = opts.game;
   if (!game) {
     const bp = level(id, { noEnemies: opts.enemies !== true });
-    game = new Game(bp, { shields: Infinity, maxShields: Infinity, noWaves: opts.enemies !== true });
+    game = new Game(bp, { shields: Infinity, maxShields: Infinity, noWaves: opts.enemies !== true, invulnerable: !!opts.invulnerable });
   }
   const ap = new Autopilot(game);
   let hurts = 0;

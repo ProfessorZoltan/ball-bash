@@ -1745,7 +1745,8 @@ laser gates on a clock, crushers, floors that blink in a wave travelling at a
 jumping pace, springs, fans whose updraft lifts, pits with a black hole under
 the jump, corners, ambush rooms that lock until their waves are beaten, and
 secrets behind cracked panels (a few charges break one) or up on a loft only
-a wormhole reaches.
+a wormhole reaches. An ambush room's waves are never folded machines: a room
+you are locked in is beaten with the blaster alone.
 
 ### Machines
 
@@ -1758,7 +1759,7 @@ Every machine moves one of eleven ways; what it looks like is its level's.
 | flier, circler, zigzag | 1, 2, 1 | no | a line, a loop, or side to side drifting to your height | same |
 | diver | 2 | no | hangs, then dives through where you stood | same |
 | turret, gunner | 3, 2 | no | shoot at you when they see you | same |
-| lancer | 3 | no | carries a Deflector shield that turns to face you and turns a charge away: come at it from the side | same |
+| lancer | 3 | no | carries a Deflector shield that turns to face you (at 1.5 rad/s, slower than you can circle it) and turns a charge away: come at it from the side, or bank the shot | same |
 
 | Levels | Looks | Source |
 | --- | --- | --- |
@@ -1895,7 +1896,7 @@ direction, and the direction is its own. The text is in
 | Check | What it proves | Source |
 | --- | --- | --- |
 | The robot | it stands, jumps as high and as far as MOVE says and no further, walks up stairs and ramps and not walls, rides platforms, and walks or falls through wormholes | `vector/test/robot.test.js` |
-| Crossing | every level is crossed by the autopilot, which flies the robot's own physics along each section's route (running jumps, platforms boarded as they arrive, blinking floors taken as they light, gates run through while dark, wormholes aimed and walked into, switches shot, the orbit's shot found by flying the charge round the hole), without losing a shield | `vector/tools/autopilot.mjs`, `vector/test/levels.test.js` |
+| Crossing | every level is crossed by the autopilot, which flies the robot's own physics along each section's route (running jumps, platforms boarded as they arrive, blinking floors taken as they light, gates run through while dark, wormholes aimed and walked into, switches shot, the orbit's shot found by flying the charge round the hole), without losing a shield; and again with every machine awake (the robot untouchable), fighting each ambush room's waves with shots it has flown ahead, banks off the walls round a guard's shield included, until the doors open | `vector/tools/autopilot.mjs`, `vector/test/levels.test.js` |
 | Puzzles | each kind fails the obvious way: a bulkhead cannot be walked or jumped under, a chasm or a launch cannot be jumped at a full run, a vault's switch takes no shot from anywhere without a wormhole, an orbit's none without its black hole, a door stays shut; and the same full-run charge does clear an ordinary gap, so none of that is vacuous | `vector/test/puzzles.test.js` |
 | Wormholes | where an end may sit and how; through a pair, speed kept and the way turned; out of a floor fast enough to clear it; charges and machines through; a launch throws past any jump; a sight line bends round a black hole | `vector/test/wormholes.test.js` |
 | Bosses | every boss is beaten by a robot that aims well; the Gantry not without wormholes; the Creator's glass turns every charge | `vector/tools/fight.mjs`, `vector/test/bosses.test.js` |

@@ -57,7 +57,7 @@ test('every level from the second holds wormhole puzzles of at least two kinds',
   for (const L of LEVEL_DEFS.slice(1)) {
     const bp = level(L.id);
     const have = new Set(bp.sections.map((s) => s.type).filter((t) => kinds.has(t)));
-    assert.ok(have.size >= 1, `${L.title} has a puzzle`);
+    assert.ok(have.size >= 2, `${L.title} has puzzles of two kinds: ${[...have].join(', ')}`);
     assert.ok(bp.links.length >= 1, `${L.title} records its puzzles`);
   }
 });
@@ -77,5 +77,15 @@ test('scenery and solids build into meshes with no holes in the numbers', () => 
     for (const s of bp.world.solids) solidFaces(m, s, [1, 1, 1], 0);
     assert.ok(m.count > 1000, `${L.title} has something to draw`);
     assert.ok(m.v.every(Number.isFinite), `${L.title}: every vertex is a number`);
+  }
+});
+
+test('with its machines awake, every level is still crossed, and every ambush room fought and cleared', () => {
+  for (const L of LEVEL_DEFS) {
+    const bp = level(L.id);
+    const r = fly(L.id, { enemies: true, invulnerable: true });
+    assert.ok(r.ok, `${L.title}: ${r.why}`);
+    for (const a of r.game.ambushes) assert.equal(a.state, 'done', `${L.title}: an ambush room left locked`);
+    assert.equal(r.game.ambushes.length, bp.ambushes.length);
   }
 });
