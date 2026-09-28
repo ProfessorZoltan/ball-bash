@@ -20,8 +20,13 @@
 // by where they are on the keyboard, not by the letter on them, so W A S D
 // sit under the hand on any layout; menu shortcuts (M, F, P) go by letter.
 //
+// A touchscreen: a move stick under the left thumb, and under the right the
+// fire pad and the two wormhole pads, each dragged to aim and let go to act
+// (touch.js has the sums). Tapping a slot in the HUD loads that power-up.
+//
 // Nothing is held to aim: the aim line is always up, and a press acts.
 import { PICKS } from './config.js';
+import { TOUCH, stickIntent, padAim } from './touch.js';
 
 const DEAD = 0.25; // stick travel ignored round the centre
 const AIM_DEAD = 0.45; // the right stick has to be pushed this far to point
@@ -51,10 +56,13 @@ export class Input {
     this.wheel = 0; // a trackpad's wheel travel not yet turned into a cycle
     this.notches = 0; // cycles the wheel has asked for, taken one a frame
     this.pad = { connected: false, id: '', buttons: [], axes: [], rt: false, lt: false };
-    this.device = 'kb'; // what was used last: 'kb' or 'pad', for the signs and the help
+    this.device = 'kb'; // what was used last: 'kb', 'pad' or 'touch', for the signs and the help
     this.scheme = 'mouse'; // 'mouse' (mouse and keyboard) or 'keys' (keyboard only)
     this.autoRun = false; // Run by default: the run button walks instead
-    this.aimSource = 'none'; // 'mouse', 'keys', 'stick' or 'none'
+    this.aimSource = 'none'; // 'mouse', 'keys', 'stick', 'touch' or 'none'
+    // Touch: the move stick (where the thumb landed, and where it is now), the pads being
+    // dragged (by pointer), the aim a drag gives, and presses let go since the last intent.
+    this.touch = { stick: null, pads: new Map(), aim: null, fire: false, worm: [false, false], pick: null, layer: null };
     this.aimHeld = 0; // seconds an aim key has been held, for the swing's ramp
     this.prevFacing = 1;
     this.prev = { fire: false, worm: [false, false], jump: false, cycle: 0, pick: null };
@@ -133,6 +141,121 @@ export class Input {
     );
   }
 
+  /**
+   * Touch play on `layer`, the element over the canvas that holds the pads:
+   * a touch on the left half is the move stick, wherever it lands; one on a
+   * wormhole pad ([data-pad="0"] or "1") drags that pad; anywhere else on the
+   * right half is the fire pad ([data-pad="fire"]).
+   */
+  attachTouch(layer) {
+    const t = this.touch;
+    t.layer = layer;
+    const base = layer.querySelector('.stick');
+    const knob = layer.querySelector('.stick .knob');
+    const idle = () => {
+      base.classList.remove('live');
+      base.style.left = '';
+      base.style.top = '';
+      knob.style.transform = '';
+    };
+    // A menu over play: every thumb on the layer is let go of, and nothing of it acts.
+    t.drop = () => {
+      if (t.stick) idle();
+      t.stick = null;
+      for (const pd of t.pads.values()) if (pd.el) {
+        pd.el.classList.remove('live');
+        pd.el.style.removeProperty('--nub');
+      }
+      t.pads.clear();
+      t.aim = null;
+    };
+    // Any touch at all says this is a touchscreen, so the signs and the help speak to one.
+    window.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'touch') this.device = 'touch';
+    }, true);
+    const nub = (pd, dx, dy) => {
+      const d = Math.hypot(dx, dy) || 1;
+      const k = Math.min(1, 30 / d);
+      if (pd.el) pd.el.style.setProperty('--nub', `translate(${dx * k}px, ${dy * k}px)`);
+    };
+    layer.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse') return;
+      e.preventDefault();
+      this.device = 'touch';
+      try {
+        layer.setPointerCapture(e.pointerId);
+      } catch (_) {
+        // a synthetic pointer cannot be captured; nothing lost
+      }
+      const el = e.target.closest && e.target.closest('[data-pad]');
+      if (el && el.dataset.pad !== 'fire') {
+        t.pads.set(e.pointerId, { pad: Number(el.dataset.pad), x0: e.clientX, y0: e.clientY, el });
+        el.classList.add('live');
+      } else if (!el && e.clientX < window.innerWidth / 2) {
+        if (t.stick) return;
+        t.stick = { id: e.pointerId, ox: e.clientX, oy: e.clientY, x: e.clientX, y: e.clientY };
+        base.style.left = `${e.clientX}px`;
+        base.style.top = `${e.clientY}px`;
+        knob.style.transform = 'translate(-50%, -50%)';
+        base.classList.add('live');
+      } else {
+        const fire = layer.querySelector('[data-pad="fire"]');
+        t.pads.set(e.pointerId, { pad: 'fire', x0: e.clientX, y0: e.clientY, el: fire });
+        fire.classList.add('live');
+      }
+    });
+    layer.addEventListener('pointermove', (e) => {
+      if (t.stick && t.stick.id === e.pointerId) {
+        t.stick.x = e.clientX;
+        t.stick.y = e.clientY;
+        const dx = e.clientX - t.stick.ox;
+        const dy = e.clientY - t.stick.oy;
+        const d = Math.hypot(dx, dy) || 1;
+        const k = Math.min(1, TOUCH.stick / d);
+        knob.style.transform = `translate(calc(-50% + ${dx * k}px), calc(-50% + ${dy * k}px))`;
+        return;
+      }
+      const pd = t.pads.get(e.pointerId);
+      if (!pd) return;
+      const dx = e.clientX - pd.x0;
+      const dy = e.clientY - pd.y0;
+      const a = padAim(dx, dy);
+      if (a != null) {
+        // The blaster points the way the drag goes.
+        t.aim = a;
+        pd.aimed = true;
+      }
+      nub(pd, dx, dy);
+    });
+    const end = (e) => {
+      if (t.stick && t.stick.id === e.pointerId) {
+        t.stick = null;
+        idle();
+        return;
+      }
+      const pd = t.pads.get(e.pointerId);
+      if (!pd) return;
+      t.pads.delete(e.pointerId);
+      if (pd.el) {
+        pd.el.classList.remove('live');
+        pd.el.style.removeProperty('--nub');
+      }
+      // Let go: fire, or open that end, along the aim (a tap leaves it as it was).
+      if (e.type === 'pointerup') {
+        if (pd.pad === 'fire') t.fire = true;
+        else t.worm[pd.pad] = true;
+      }
+      if (!t.pads.size) t.aim = null;
+    };
+    layer.addEventListener('pointerup', end);
+    layer.addEventListener('pointercancel', end);
+  }
+
+  /** Load a power-up from a tap on its slot in the HUD. */
+  touchPick(i) {
+    if (PICKS[i]) this.touch.pick = PICKS[i];
+  }
+
   consume(k) {
     if (this.pressed.has(k)) {
       this.pressed.delete(k);
@@ -199,6 +322,12 @@ export class Input {
     if (c.has('KeyD')) mx += 1;
     let down = c.has('KeyS');
     let up = false;
+    const t = this.touch;
+    const ts = t.stick ? stickIntent(t.stick.x - t.stick.ox, t.stick.y - t.stick.oy) : null;
+    if (ts) {
+      if (!mx) mx = ts.mx;
+      if (ts.down) down = true;
+    }
     if (pad) {
       const lx = ax(0);
       const ly = ax(1);
@@ -209,15 +338,20 @@ export class Input {
       if (ly < -0.6 || btn(12)) up = true;
     }
     // Space fires on the keyboard alone; with a mouse it jumps, as W does in both.
-    const jumpRaw = c.has('KeyW') || (!keysOnly && c.has('Space')) || btn(0);
+    const jumpRaw = c.has('KeyW') || (!keysOnly && c.has('Space')) || btn(0) || !!(ts && ts.jump);
     const runHeld = c.has('ShiftLeft') || c.has('ShiftRight') || btn(2);
-    const run = this.autoRun ? !runHeld : runHeld;
+    // The stick pushed nearly all the way runs, whatever Run by default says.
+    const run = (this.autoRun ? !runHeld : runHeld) || !!(ts && ts.run);
 
     // Aim: the right stick points; the mouse points at the cursor; the aim keys swing.
     let aim = null;
     const rx = ax(2);
     const ry = ax(3);
-    if (pad && Math.hypot(rx, ry) > AIM_DEAD) {
+    if (t.aim != null) {
+      aim = t.aim;
+      this.aimSource = 'touch';
+      this.mouse.moved = false;
+    } else if (pad && Math.hypot(rx, ry) > AIM_DEAD) {
       aim = Math.atan2(ry, rx);
       this.aimSource = 'stick';
       this.mouse.moved = false;
@@ -281,12 +415,15 @@ export class Input {
       jump,
       jumpPressed: jump && !this.prev.jump,
       aim,
-      fire: fire && !this.prev.fire, // pressed this frame
-      worm: [worm[0] && !this.prev.worm[0], worm[1] && !this.prev.worm[1]],
+      fire: (fire && !this.prev.fire) || t.fire, // pressed this frame, or a pad let go
+      worm: [(worm[0] && !this.prev.worm[0]) || t.worm[0], (worm[1] && !this.prev.worm[1]) || t.worm[1]],
       cycle, // 1 for the next power-up, -1 for the one before, 0 for neither
-      pick: pickNow && pickNow !== this.prev.pick ? pickNow : null,
+      pick: t.pick || (pickNow && pickNow !== this.prev.pick ? pickNow : null),
     };
     this.prev = { fire, worm, jump, cycle: cycleNow, pick: pickNow };
+    t.fire = false;
+    t.worm = [false, false];
+    t.pick = null;
     return it;
   }
 
@@ -296,10 +433,15 @@ export class Input {
     this.blocked = { fire: true, worm: [true, true], jump: true, cycle: true, pick: true };
     this.wheel = 0;
     this.notches = 0;
+    // A pad let go on the way out of a menu does nothing in play.
+    this.touch.fire = false;
+    this.touch.worm = [false, false];
+    this.touch.pick = null;
   }
 
   /** While a menu is up: nothing held carries into play. */
   swallow() {
     this.reset();
+    if (this.touch.drop) this.touch.drop();
   }
 }

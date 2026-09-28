@@ -1035,19 +1035,34 @@ where they are on the keyboard, not the letter on them, so W A S D sit under
 the hand on any layout (Z Q S D on a French keyboard); the menu shortcuts go
 by letter.
 
-| Action | Controller | Mouse and keyboard | Keyboard only | Source |
-| --- | --- | --- | --- | --- |
-| Move | left stick or d-pad | A, D | A, D | `Input.intent` in `sequel/src/input.js` |
-| Jump (hold for higher) | A | Space or W | W | same |
-| Run | hold X while moving | hold Shift while moving | hold Shift while moving | same |
-| Aim the blaster | right stick points it | mouse points it; the arrow keys swing it toward where they point | I J K L (or the arrows) swing it: tap to nudge, hold to swing | same |
-| Fire | RT | left click | Space | same |
-| Open the light wormhole end | LB | right click or Q | Q | same |
-| Open the dark wormhole end | RB | E | E | same |
-| Cycle power-ups | LT | mouse wheel (down for the next, up for the one before) or R | R | same |
-| Load one straight away | | 1 to 6 (1 is the standard charge; the HUD's slots are numbered) | 1 to 6 | `load` in `sequel/src/game.js` |
-| Drop through a thin platform | hold down | hold S | hold S | `stepRobot` in `sequel/src/player.js` |
-| Pause, mute, fullscreen | Start | Esc or P, M, F | Esc or P, M, F | `frame` in `sequel/src/main.js` |
+| Action | Controller | Mouse and keyboard | Keyboard only | Touch | Source |
+| --- | --- | --- | --- | --- | --- |
+| Move | left stick or d-pad | A, D | A, D | the stick under the left thumb | `Input.intent` in `sequel/src/input.js` |
+| Jump (hold for higher) | A | Space or W | W | push the stick up, and hold it up | same |
+| Run | hold X while moving | hold Shift while moving | hold Shift while moving | push the stick all the way | same |
+| Aim the blaster | right stick points it | mouse points it; the arrow keys swing it toward where they point | I J K L (or the arrows) swing it: tap to nudge, hold to swing | drag from a pad on the right: it points the way the drag goes | same |
+| Fire | RT | left click | Space | let go of the FIRE pad (anywhere on the right half is it); a tap fires as aimed | same |
+| Open the light wormhole end | LB | right click or Q | Q | let go of the ◐ pad | same |
+| Open the dark wormhole end | RB | E | E | let go of the ◑ pad | same |
+| Cycle power-ups | LT | mouse wheel (down for the next, up for the one before) or R | R | | same |
+| Load one straight away | | 1 to 6 (1 is the standard charge; the HUD's slots are numbered) | 1 to 6 | tap its slot in the HUD | `load` in `sequel/src/game.js` |
+| Drop through a thin platform | hold down | hold S | hold S | hold the stick down | `stepRobot` in `sequel/src/player.js` |
+| Pause, mute, fullscreen | Start | Esc or P, M, F | Esc or P, M, F | the ❚❚ and ⛶ buttons | `frame` in `sequel/src/main.js` |
+
+On a touchscreen (played in landscape, with two thumbs) the controls show
+from the first touch, and only in play; a key, the mouse or a controller
+hides them again. The left thumb has a move stick that sits wherever it lands
+on the left half: tilted it walks, pushed nearly all the way it runs, pushed
+up (within 50 degrees of straight up) it jumps, and held up the jump goes
+higher, as a held button does; held down it drops through a thin platform.
+The right thumb has the FIRE pad, which is the whole of the right half but
+for the two wormhole pads over it. Each works the same way: drag from it and
+the blaster points the way the drag goes, with the aim line showing where it
+will go, and let go to fire or to open that end; a tap does it along the aim
+as it is. So every shot and every end is aimed before it is let go, which the
+bank shots and the wormhole puzzles need. Both thumbs work at once
+(`sequel/src/touch.js` has the sums, `attachTouch` in `sequel/src/input.js`
+the touches).
 
 With nothing aiming (no stick, no mouse, no aim key), the blaster turns
 round with the robot when it turns round. The tutorial signs in the first

@@ -19,6 +19,7 @@ const $ = (id) => document.getElementById(id);
 const canvas = $('game');
 const renderer = new Renderer(canvas);
 const input = new Input(canvas);
+input.attachTouch($('touch'));
 const audio = new DefectorAudio();
 
 // ---------------------------------------------------------------- storage
@@ -141,7 +142,7 @@ function showCard(id) {
       <p class="muted">Boss: <b>${boss.name}</b>, ${boss.epithet}.</p>
       <p class="record">${L.record}</p>
       <div class="row"><button id="go" class="primary">Start</button><button id="back">Back</button></div>
-      <p class="hint">${input.device === 'pad' ? 'A to start · B to go back' : 'Enter to start · Esc to go back'}</p>
+      ${input.device === 'touch' ? '' : `<p class="hint">${input.device === 'pad' ? 'A to start · B to go back' : 'Enter to start · Esc to go back'}</p>`}
     </div>`);
   $('go').onclick = async () => {
     await unlockAudio();
@@ -455,27 +456,27 @@ function showTitle(note = '') {
   if (audio.ready) playMusic('defector');
 }
 
-/** The keys for each action, on both keyboard layouts and a controller; the one in use first. */
+/** The keys for each action, on both keyboard layouts, a controller and a touchscreen; the keyboard in use first. */
 function controlsTable() {
   const run = settings.autoRun ? 'Hold Shift to walk (running is on)' : 'Hold Shift while moving';
   const runPad = settings.autoRun ? 'Hold X to walk' : 'Hold X while moving';
   const rows = [
-    ['Move', 'A D', 'A D', 'Left stick or d-pad'],
-    ['Jump (hold for higher)', 'Space or W', 'W', 'A'],
-    ['Run', run, run, runPad],
-    ['Aim the blaster', 'Mouse (point), or the arrow keys', 'I J K L or the arrows: tap to nudge, hold to swing', 'Right stick (point)'],
-    ['Fire', 'Left click', 'Space', 'RT'],
-    ['Open the light wormhole end', 'Right click or Q', 'Q', 'LB'],
-    ['Open the dark wormhole end', 'E', 'E', 'RB'],
-    ['Cycle power-ups', 'Mouse wheel or R', 'R', 'LT'],
-    ['Pick one straight away', '1 to 6 (1: standard)', '1 to 6 (1: standard)', ''],
-    ['Drop through a thin platform', 'Hold S', 'Hold S', 'Hold down'],
-    ['Pause / mute / fullscreen', 'Esc or P / M / F', 'Esc or P / M / F', 'Start'],
+    ['Move', 'A D', 'A D', 'Left stick or d-pad', 'The stick under your left thumb'],
+    ['Jump (hold for higher)', 'Space or W', 'W', 'A', 'Push the stick up'],
+    ['Run', run, run, runPad, 'Push the stick all the way'],
+    ['Aim the blaster', 'Mouse (point), or the arrow keys', 'I J K L or the arrows: tap to nudge, hold to swing', 'Right stick (point)', 'Drag from a pad on the right: it points the way you drag'],
+    ['Fire', 'Left click', 'Space', 'RT', 'Let go of the FIRE pad (or anywhere on the right half); a tap fires as aimed'],
+    ['Open the light wormhole end', 'Right click or Q', 'Q', 'LB', 'Let go of the ◐ pad'],
+    ['Open the dark wormhole end', 'E', 'E', 'RB', 'Let go of the ◑ pad'],
+    ['Cycle power-ups', 'Mouse wheel or R', 'R', 'LT', ''],
+    ['Pick one straight away', '1 to 6 (1: standard)', '1 to 6 (1: standard)', '', 'Tap its slot, top right'],
+    ['Drop through a thin platform', 'Hold S', 'Hold S', 'Hold down', 'Hold the stick down'],
+    ['Pause / mute / fullscreen', 'Esc or P / M / F', 'Esc or P / M / F', 'Start', '❚❚ / sound on the title / ⛶'],
   ];
   const keysFirst = settings.controls === 'keys';
   const head = keysFirst ? ['Keyboard only', 'Mouse and keyboard'] : ['Mouse and keyboard', 'Keyboard only'];
   const cells = (r) => (keysFirst ? [r[2], r[1]] : [r[1], r[2]]);
-  return `<table class="controls"><thead><tr><th>Action</th><th>${head[0]}</th><th>${head[1]}</th><th>Controller</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${r[0]}</td><td>${cells(r)[0]}</td><td class="muted">${cells(r)[1]}</td><td>${r[3]}</td></tr>`).join('')}</tbody></table>`;
+  return `<table class="controls"><thead><tr><th>Action</th><th>${head[0]}</th><th>${head[1]}</th><th>Controller</th><th>Touch</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${r[0]}</td><td>${cells(r)[0]}</td><td class="muted">${cells(r)[1]}</td><td>${r[3]}</td><td>${r[4]}</td></tr>`).join('')}</tbody></table>`;
 }
 
 /** The Controls and Run settings, into the input. */
@@ -484,9 +485,10 @@ function applyControls() {
   input.autoRun = !!settings.autoRun;
 }
 
-/** What the signs and the HUD speak to: a controller, the mouse and keyboard, or the keyboard alone. */
+/** What the signs and the HUD speak to: a controller, a touchscreen, the mouse and keyboard, or the keyboard alone. */
 function device() {
   if (input.device === 'pad') return 'pad';
+  if (input.device === 'touch') return 'touch';
   return input.scheme === 'keys' ? 'keys' : 'kb';
 }
 
@@ -1017,15 +1019,15 @@ function hud() {
     $('hud-charges').innerHTML = pips;
     hud.lastPips = pips;
   }
-  // On a keyboard each slot shows its number: 1 to 6 load it straight away.
-  const num = (i) => (input.device === 'pad' ? '' : `<i>${i}</i>`);
-  const slots = [`<div class="slot has ${h.loaded === 'std' ? 'on' : ''}" style="color:#dffbff">${num(1)}<b>●</b>STD</div>`].concat(POWERUPS.map((p, i) => `<div class="slot ${h.ammo[p.id] ? 'has' : ''} ${h.loaded === p.id ? 'on' : ''}" style="color:${p.color}">${num(i + 2)}<b>${p.glyph}</b>${h.ammo[p.id] || 0}</div>`));
+  // On a keyboard each slot shows its number: 1 to 6 load it straight away. On a touchscreen, a tap does.
+  const num = (i) => (input.device === 'pad' || input.device === 'touch' ? '' : `<i>${i}</i>`);
+  const slots = [`<div class="slot has ${h.loaded === 'std' ? 'on' : ''}" data-i="0" style="color:#dffbff">${num(1)}<b>●</b>STD</div>`].concat(POWERUPS.map((p, i) => `<div class="slot ${h.ammo[p.id] ? 'has' : ''} ${h.loaded === p.id ? 'on' : ''}" data-i="${i + 1}" style="color:${p.color}">${num(i + 2)}<b>${p.glyph}</b>${h.ammo[p.id] || 0}</div>`));
   const html = slots.join('');
   if (html !== hud.lastAmmo) {
     $('hud-ammo').innerHTML = html;
     hud.lastAmmo = html;
   }
-  $('hud-cycle').textContent = { pad: 'LT cycles', kb: 'WHEEL or R cycles', keys: 'R cycles' }[device()];
+  $('hud-cycle').textContent = { pad: 'LT cycles', kb: 'WHEEL or R cycles', keys: 'R cycles', touch: 'TAP ONE TO LOAD IT' }[device()];
   $('hud-mute').textContent = settings.muted ? 'MUTED [M]' : '';
   if (h.boss) {
     $('hud-boss').hidden = false;
@@ -1085,6 +1087,9 @@ function frame(now) {
   last = now;
   clock += dt;
   input.poll();
+  // The touch controls show on a touchscreen, and only in play.
+  document.body.classList.toggle('touch', input.device === 'touch');
+  document.body.classList.toggle('playing', state === 'play' && !!game);
   if (input.consume('m') || input.consume('M')) {
     settings.muted = !settings.muted;
     saveSettings();
@@ -1209,6 +1214,13 @@ window.addEventListener('blur', () => {
 });
 $('hud-pause').onclick = () => (mp ? mpMenu() : pause());
 $('hud-full').hidden = !canFullscreen();
+// A tap on a power-up's slot loads it.
+$('hud-ammo').addEventListener('pointerdown', (e) => {
+  const slot = e.target.closest('.slot');
+  if (!slot || e.pointerType === 'mouse') return;
+  e.preventDefault();
+  input.touchPick(Number(slot.dataset.i));
+});
 $('hud-full').onclick = toggleFullscreen;
 // Any first key or click is the gesture the browser wants before it plays sound.
 window.addEventListener('pointerdown', () => unlockAudio().then(() => state === 'title' && playMusic('defector')), { once: true });
