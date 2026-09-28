@@ -1228,7 +1228,7 @@ function arena(b, id) {
   const def = BOSSES[id];
   const A = def.arena;
   b.flat(6);
-  // A boss that only a wormhole beats says so at its door.
+  // The first boss says at its door how it is beaten; after that you find out for yourself.
   if (def.hint) b.bp.signs.push({ x: b.x - 3 * T, y: b.y, text: def.hint });
   const x0 = b.x;
   const floor = b.y;

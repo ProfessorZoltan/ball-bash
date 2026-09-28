@@ -289,9 +289,10 @@ function pause() {
     <div class="panel narrow">
       <div class="eyebrow">PAUSED</div>
       <h2>${def(levelId).title}</h2>
-      <div class="row"><button id="resume" class="primary">Resume</button><button id="restart">Back to the last checkpoint</button><button id="menu">Title</button></div>
+      <div class="row"><button id="resume" class="primary">Resume</button><button id="restart">Back to the last checkpoint</button><button id="menu">Title</button>${fullscreenButton()}</div>
       <details><summary>Controls</summary>${controlsTable()}</details>
     </div>`, true);
+  wireFullscreen();
   $('resume').onclick = resume;
   $('restart').onclick = () => {
     const g = game;
@@ -344,7 +345,7 @@ function showTitle(note = '') {
           </div>
           <div class="field"><label for="diff">Difficulty</label><select id="diff">${DIFFICULTIES.map((x) => `<option value="${x.id}" ${x.id === d.id ? 'selected' : ''}>${x.name} · ${x.blurb}</option>`).join('')}</select></div>
           <div class="field"><label for="snd">Sound</label><select id="snd"><option value="on" ${settings.muted ? '' : 'selected'}>On</option><option value="off" ${settings.muted ? 'selected' : ''}>Off</option></select><label for="q">Quality</label><select id="q"><option value="high" ${settings.quality === 'high' ? 'selected' : ''}>High</option><option value="low" ${settings.quality === 'low' ? 'selected' : ''}>Low</option></select></div>
-          <div class="field"><label for="aimline">Aim line</label><select id="aimline"><option value="on" ${settings.aimLine ? 'selected' : ''}>On</option><option value="off" ${settings.aimLine ? '' : 'selected'}>Off</option></select></div>
+          <div class="field"><label for="aimline">Aim line</label><select id="aimline"><option value="on" ${settings.aimLine ? 'selected' : ''}>On</option><option value="off" ${settings.aimLine ? '' : 'selected'}>Off</option></select>${fullscreenButton()}</div>
           <div class="field"><label for="ctl">Controls</label><select id="ctl"><option value="mouse" ${settings.controls === 'keys' ? '' : 'selected'}>Mouse and keyboard</option><option value="keys" ${settings.controls === 'keys' ? 'selected' : ''}>Keyboard only</option></select><label for="runmode">Run</label><select id="runmode"><option value="hold" ${settings.autoRun ? '' : 'selected'}>Hold to run</option><option value="auto" ${settings.autoRun ? 'selected' : ''}>Run by default</option></select></div>
           <details><summary>Controls</summary>${controlsTable()}</details>
           <div class="mp">
@@ -367,6 +368,7 @@ function showTitle(note = '') {
         </div>
       </div>
     </div>`);
+  wireFullscreen();
   $('new').onclick = async () => {
     await unlockAudio();
     beginCampaign(true);
@@ -962,9 +964,10 @@ function mpMenu() {
     <div class="panel narrow">
       <div class="eyebrow">MULTIPLAYER · THE MATCH PLAYS ON</div>
       <h2>${escapeHtml(game.mode === 'versus' ? 'Versus' : def(levelId).title)}</h2>
-      <div class="row"><button id="mm-back" class="primary">Back to it</button>${room && room.host ? '<button id="mm-end">End the match (everyone back to the room)</button>' : ''}<button id="mm-leave">Leave the room</button></div>
+      <div class="row"><button id="mm-back" class="primary">Back to it</button>${room && room.host ? '<button id="mm-end">End the match (everyone back to the room)</button>' : ''}<button id="mm-leave">Leave the room</button>${fullscreenButton()}</div>
       <details><summary>Controls</summary>${controlsTable()}</details>
     </div>`, true);
+  wireFullscreen();
   $('mm-back').onclick = () => {
     state = 'play';
     $('overlay').hidden = true;
@@ -1152,20 +1155,61 @@ function frame(now) {
   }
 }
 
-function toggleFullscreen() {
+// ------------------------------------------------------------ fullscreen
+
+const IS_IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const STANDALONE = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+
+function canFullscreen() {
+  return !!(document.fullscreenEnabled || document.webkitFullscreenEnabled);
+}
+
+function isFullscreen() {
+  return !!(document.fullscreenElement || document.webkitFullscreenElement);
+}
+
+async function toggleFullscreen() {
+  const doc = document;
+  const el = doc.documentElement;
   try {
-    if (document.fullscreenElement) document.exitFullscreen();
-    else document.documentElement.requestFullscreen?.();
-  } catch (_) {
-    // not allowed here; nothing to do
+    if (isFullscreen()) await (doc.exitFullscreen ? doc.exitFullscreen() : doc.webkitExitFullscreen());
+    else {
+      await (el.requestFullscreen ? el.requestFullscreen({ navigationUI: 'hide' }) : el.webkitRequestFullscreen());
+      // Phones: keep the game in landscape while it fills the screen (best effort).
+      screen.orientation?.lock?.('landscape').catch(() => {});
+    }
+  } catch (err) {
+    console.warn('Fullscreen unavailable:', err);
   }
 }
+
+/** A menu's fullscreen button (F does the same), or on an iPhone, where a page cannot go fullscreen, how to get there instead. */
+function fullscreenButton() {
+  if (canFullscreen()) return `<button class="full" title="Fill the screen (F)">${isFullscreen() ? 'Leave fullscreen' : 'Fullscreen'}</button>`;
+  if (IS_IOS && !STANDALONE) return '<p class="small muted">For the whole screen on an iPhone: Share, then Add to Home Screen, and open it from there.</p>';
+  return '';
+}
+
+/** Wire up whatever fullscreen buttons the overlay now shows. */
+function wireFullscreen() {
+  for (const b of document.querySelectorAll('#overlay button.full')) b.onclick = toggleFullscreen;
+}
+
+// The buttons say what a press will do.
+const onFullscreenChange = () => {
+  for (const b of document.querySelectorAll('#overlay button.full')) b.textContent = isFullscreen() ? 'Leave fullscreen' : 'Fullscreen';
+  renderer.resize();
+};
+document.addEventListener('fullscreenchange', onFullscreenChange);
+document.addEventListener('webkitfullscreenchange', onFullscreenChange);
 
 window.addEventListener('resize', () => renderer.resize());
 window.addEventListener('blur', () => {
   if (state === 'play' && !mp) pause(); // a match others are playing goes on
 });
 $('hud-pause').onclick = () => (mp ? mpMenu() : pause());
+$('hud-full').hidden = !canFullscreen();
+$('hud-full').onclick = toggleFullscreen;
 // Any first key or click is the gesture the browser wants before it plays sound.
 window.addEventListener('pointerdown', () => unlockAudio().then(() => state === 'title' && playMusic('defector')), { once: true });
 window.addEventListener('keydown', () => unlockAudio().then(() => state === 'title' && playMusic('defector')), { once: true });

@@ -244,7 +244,6 @@ export const BOSSES = {
     hp: 20,
     r: 34,
     portalOnly: true, // its only open side is against the roof: the way in is a wormhole in the roof
-    hint: 'Its belly is armoured and its back is pressed to the roof. The roof takes a wormhole.',
     arena: {
       w: W,
       h: H,
@@ -446,7 +445,6 @@ export const BOSSES = {
   astronomer: {
     name: 'The Astronomer',
     epithet: 'it reads every line you draw, and none of the curves',
-    hint: 'Its lens turns to meet a shot coming straight at it. Bend one round a black hole, or bank it off a wall.',
     color: '#c9a2ff',
     hp: 28,
     r: 34,
@@ -729,7 +727,6 @@ export const BOSSES = {
     r: 36,
     folded: true, // only a charge that has been through a wormhole (anyone's) touches it
     portalOnly: true,
-    hint: 'The Cartographer is folded. Only a shot that has been through a wormhole can touch it: yours, or its own.',
     arena: {
       w: W,
       h: H,

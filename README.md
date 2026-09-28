@@ -74,8 +74,8 @@ all of them to one GitHub Release (a tag with a `-` in it, like an alpha, is
 marked pre-release):
 
 ```bash
-git tag v3.3.0-alpha
-git push origin v3.3.0-alpha
+git tag v3.3.1-alpha
+git push origin v3.3.1-alpha
 ```
 
 **Run workflow** on the Actions tab builds without publishing; the files are in
@@ -1054,6 +1054,12 @@ round with the robot when it turns round. The tutorial signs in the first
 level name the keys of whichever way you play. A button that was held when play began (the one
 that pressed Start) does nothing until it is let go.
 
+F fills the screen, and so do the ⛶ button by the pause button in the
+corner, the Fullscreen button on the title screen, and the one in the pause
+menu; each says Leave fullscreen while it is on. An iPhone has no fullscreen
+for web pages, so there the title screen says how: Share, then Add to Home
+Screen, and open it from there (`toggleFullscreen` in `sequel/src/main.js`).
+
 ### Movement
 
 The robot is an upright capsule 60 px tall and 30 wide on a 40 px tile. It
@@ -1166,8 +1172,10 @@ Some things only a wormhole gets you past, on purpose:
 | The Cartographer | folded: only a charge that has been through a wormhole, yours or one of its own, touches it | `BOSSES.cartographer`, same file |
 
 Level 1 teaches wormholes with an optional secret up on a loft; every level
-after it has at least one of these on the main path, taught by a sign the
-first time.
+after it has at least one of these on the main path. Signs are the first
+level's alone (with one more, on the awnings, at the start of the second),
+and only the first boss says at its door how it is beaten: after that nothing
+explains itself.
 
 A locked room left through a wormhole while its waves are unbeaten stays
 locked as long as one of your ends is inside it, the way back. With none,
@@ -1268,7 +1276,7 @@ that the robot can walk to from the door, never inside a rock or a wall
 | 3 | The Conductor | 20 | a train car flush under the roof: shots from its windows as it passes over, a volley of ricochets at each stop. Wormhole only | a station with two platforms | same |
 | 4 | The Keeper | 22 | a lighthouse: two plates turn round its lamp, pulses roll out over the pools, a beam sweeps (rock stops it), crabs come | rocks to shelter behind | same |
 | 5 | The Bloom | 26 | petals close into a ring and open, a spiral of seeds while closed, vines that burst up under you | springs and two rising leaves | same |
-| 6 | The Astronomer | 28 | orbits a black hole behind a lens that turns to meet whichever of your charges is coming straight at it soonest: it reads a charge's line, not its curve, so bend a shot round a hole or bank it off a wall (a sign at its door says so); three-way volleys every 2 s that curve round the hole; the hole draws in harder now and then; every 5 s it charts a new black hole in the open air, never within 260 px of you, that forms over 1.3 s (a ring closing in), pulls for 8 s and collapses, and its lens swings to look there for 0.8 s | ledges round the hole | same |
+| 6 | The Astronomer | 28 | orbits a black hole behind a lens that turns to meet whichever of your charges is coming straight at it soonest: it reads a charge's line, not its curve, so bend a shot round a hole or bank it off a wall; three-way volleys every 2 s that curve round the hole; the hole draws in harder now and then; every 5 s it charts a new black hole in the open air, never within 260 px of you, that forms over 1.3 s (a ring closing in), pulls for 8 s and collapses, and its lens swings to look there for 0.8 s | ledges round the hole | same |
 | 7 | The Ringmaster | 30 | bounces round the ring on a unicycle behind three turning cards, juggles balls that ricochet, bursts confetti | a Ferris wheel of four platforms | same |
 | 8 | The Angler | 32 | in the dark: its body is all armour, its lure is the core; lunges, bubble volleys, wisps | two white holes, three ledges | same |
 | 9 | The Cartographer | 34 | opens wormholes of its own, walks through them, fires volleys back through behind it. Folded | blinking platforms, two black holes | same |
