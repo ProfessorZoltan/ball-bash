@@ -48,6 +48,14 @@ export const SECTIONS = {
       if (b.r() < 0.6) b.guard('ground', -b.W / 4, 0.7, z, { to: [b.W / 4, 0.7, z] });
       else b.guard('air', 0, 2.8 + b.r() * 1.5, z, { to: [0, 3, Math.min(L - 2, z + 5)] });
     }
+    // Now and then a turret on a post at the side of the way, watching it.
+    const t = n > 0 && b.r() < 0.45 ? b.foe(['turret']) : null;
+    if (t) {
+      const x = (b.r() < 0.5 ? -1 : 1) * (b.W / 2 - 0.6);
+      const z = L * (0.55 + b.r() * 0.3);
+      b.box([x - 0.4, 0, z - 0.4], [x + 0.4, 1.7, z + 0.4], { role: 'trim', noPortal: true });
+      b.enemy({ ...t, p: [x, 2.4, z] });
+    }
     b.dress(0, L);
     mark(b, 'run', 0, L);
     b.go(0, 0, L - 1);

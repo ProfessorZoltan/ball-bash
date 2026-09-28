@@ -63,9 +63,16 @@ export class Input {
     });
     document.addEventListener('pointerlockchange', () => {
       this.locked = document.pointerLockElement === canvas;
+      this.firstMove = this.locked;
     });
     window.addEventListener('mousemove', (e) => {
       if (!this.locked) return;
+      // The first move after the mouse is captured can come as one big jump, the way
+      // the hidden pointer went to the middle; that is not a look, so it is dropped.
+      if (this.firstMove) {
+        this.firstMove = false;
+        if (Math.abs(e.movementX) + Math.abs(e.movementY) > 120) return;
+      }
       this.mouse.dx += e.movementX || 0;
       this.mouse.dy += e.movementY || 0;
       this.device = 'kb';

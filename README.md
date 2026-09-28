@@ -1658,9 +1658,11 @@ can hold fire and turn). A controller works as in any shooter.
 **Mouse** on the title screen sets the look speed, **Look** inverts it,
 **Aim line** turns off the dotted line of where a shot will go (its bounces
 and bends included, the same flight flown ahead) and the outline of where a
-wormhole end would open (a red cross where none can), and **Quality** set to
-Low draws at a lower resolution and shows a swirl in a wormhole's mouth
-instead of the view through it.
+wormhole end would open (a red cross where none can), and **Quality** is
+High, Low, or Auto (the default), which starts High and drops to Low for the
+session if the frame rate stays under 40 for three seconds of play. Low draws
+at a lower resolution and shows a swirl in a wormhole's mouth instead of the
+view through it (`applySettings` in `vector/src/main.js`).
 
 ### Movement
 

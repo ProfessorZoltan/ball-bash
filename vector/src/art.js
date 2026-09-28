@@ -561,7 +561,7 @@ export class Art {
     const sway = Math.sin(b.bob) * 0.008 * k;
     const bobY = Math.abs(Math.cos(b.bob)) * 0.006 * k;
     const base = [0.17 + sway, -0.17 - bobY, -0.56 + kick * 0.04];
-    const col = PCOL[g.loaded] || '#dffbff';
+    const col = g.loaded === 'std' ? '#4fd8ff' : PCOL[g.loaded] || '#4fd8ff';
     const metal = { mat: 'metal' };
     // A part at (x, y, z) from the gun's middle, turned with its muzzle up by the kick.
     const P = (shape, x, y, z, sx, sy, sz, c, o = metal, pitch = 0) => r.draw(shape, modelYPR([base[0] + x, base[1] + y, base[2] + z], Math.PI, pitch + kick * 0.25, 0, [sx, sy, sz]), c, o);
