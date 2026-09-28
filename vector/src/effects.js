@@ -1,9 +1,10 @@
 // What the renderer adds at High quality, worked out without a page: the
 // sun's shadows, which come in as the world gets real, and bloom, the glow
 // that bleeds off the grid's neon and fades to a trace on the real world's
-// lamps and sun. Here too is the box the sun's shadows are drawn in: a square
-// of ground round where you are looking, seen straight down the sun, stepped
-// a whole texel at a time so the shadows' edges hold still as you walk.
+// lamps and sun. Here too are the boxes the sun's shadows are drawn in:
+// squares of ground round where you are looking, a fine one near and a
+// coarse one far, seen straight down the sun, each stepped a whole texel at
+// a time so the shadows' edges hold still as you walk.
 // DOM-free.
 import { dot, cross, norm, sub, add, scale, viewFromBasis, mul4 } from './math.js';
 
@@ -70,6 +71,24 @@ export function sunBox(eye, fwd, sunDir, size = 80, res = 2048, depth = 160) {
   const view = viewFromBasis(from, x, y, scale(z, -1));
   const proj = ortho(-size / 2, size / 2, -size / 2, size / 2, 0, depth * 2);
   return { vp: mul4(proj, view), texel, centre, x, y, z, size, depth };
+}
+
+/**
+ * The sun's shadows in two squares, one inside the other (cascades): a fine
+ * one close round where you look, and a coarse one four times as wide,
+ * centred further ahead, that shades the far ground out to about 290 m.
+ * Each has its own depth map; the world shader takes the fine one where it
+ * can, blends into the coarse one across the fine one's edge, and fades the
+ * coarse one out at its own.
+ */
+export const CASCADES = [
+  { size: 90, res: 2048, depth: 150 },
+  { size: 360, res: 2048, depth: 260 },
+];
+
+/** The sun's view for each cascade, this frame. */
+export function sunBoxes(eye, fwd, sunDir) {
+  return CASCADES.map((c) => sunBox(eye, fwd, sunDir, c.size, c.res, c.depth));
 }
 
 /** Where a world point lands in the sun's view: x and y from 0 to 1 across the map, and its depth from 0 to 1. */

@@ -9,7 +9,7 @@
 // drawn off screen so its bright parts can bloom: the grid's neon most of all.
 import { createGL, program, mesh, freeMesh, target, freeTarget, lin, posMesh, depthTarget, colorTarget, msaaTarget } from './gl.js';
 import { WORLD_VS, WORLD_FS, SKY_VS, SKY_FS, POINT_VS, POINT_FS, MOUTH_FS, SHADOW_VS, SHADOW_FS, POST_VS, BLOOM_BRIGHT_FS, BLOOM_DOWN_FS, BLOOM_UP_FS, BLOOM_MIX_FS } from './shaders.js';
-import { effects, sunBox, casts } from './effects.js';
+import { effects, sunBoxes, casts, CASCADES } from './effects.js';
 import { MeshData, MAT, solidFaces, unitBox, sphere, cylinder, cone, torus, polyhedron, mouth, throat, STRIDE } from './meshes.js';
 import { perspective, viewFromBasis, mul4, mat4, camBasis, dot, sub, norm } from './math.js';
 import { through, turn, CORNER } from './wormholes.js';
@@ -20,9 +20,6 @@ const CHUNK = 32; // m: the still scenery is cut into squares this big, culled w
 const FOV = (68 * Math.PI) / 180;
 const NEAR = 0.05;
 const FAR = 520;
-const SHADOW_RES = 2048; // texels across the sun's depth map
-const SHADOW_SIZE = 90; // m of ground it covers, round where you look
-const SHADOW_DEPTH = 150; // m either side of the ground that still casts: a low sun's long shadows
 const BLOOM_STEPS = 5; // halvings of the frame the glow is blurred through
 const BLOOM_GAIN = 0.7;
 
@@ -67,7 +64,7 @@ export class Renderer {
     this.upProg = program(gl, POST_VS, BLOOM_UP_FS);
     this.mixProg = program(gl, POST_VS, BLOOM_MIX_FS);
     this.floatOk = !!gl.getExtension('EXT_color_buffer_float');
-    this.shadowMap = null; // made the first time a level has shadows
+    this.shadowMaps = CASCADES.map(() => null); // the sun's depth maps, near and far, made the first time a level has shadows
     this.noShadow = depthTarget(gl, 1); // bound in its place when there are none: the shader always has one
     // A mouth with no view through it samples this, never whatever was bound last (which
     // could be the very target it is being drawn into).
@@ -76,7 +73,7 @@ export class Renderer {
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
     this.post = null; // bloom's targets, at the screen's size
     this.postFailed = false;
-    this.sun = null; // this frame's shadows: the sun's view, and how strong
+    this.sun = null; // this frame's shadows: the sun's views, near and far, and how strong
     this.fx = { shadow: 0, bloom: 0, threshold: 1 };
     this.drawn = { shadow: false, bloom: false }; // what the last frame had, for the tools
     this.w = 1;
@@ -269,7 +266,7 @@ export class Renderer {
     this.sun = null;
     if (high && this.fx.shadow > 0) this.sunPass(cam, B);
     const post = high && this.fx.bloom > 0 ? this.postTargets() : null;
-    this.drawn = { shadow: !!this.sun, bloom: !!post };
+    this.drawn = { shadow: !!this.sun, cascades: this.sun ? this.sun.views.length : 0, bloom: !!post };
     // Each end we can see through, drawn from its twin's side first.
     const live = new Map();
     if (this.quality !== 'low') {
@@ -317,50 +314,55 @@ export class Renderer {
   // ------------------------------------------------------------ the sun's shadows
 
   /**
-   * The sun's depth map: everything that casts, seen down the sun over a
-   * square of ground round where the camera looks. The ground far below and
-   * roofs, lamps and glass cast nothing (effects.js).
+   * The sun's depth maps: everything that casts, seen down the sun, once over
+   * a fine square of ground close round where the camera looks and once over
+   * a coarse one four times as wide reaching far ahead (effects.js,
+   * CASCADES). The ground far below and roofs, lamps and glass cast nothing.
    */
   sunPass(cam, B) {
     const gl = this.gl;
-    if (!this.shadowMap) this.shadowMap = depthTarget(gl, SHADOW_RES);
-    const box = sunBox(cam.eye, B.fwd, this.theme.sunDir, SHADOW_SIZE, SHADOW_RES, SHADOW_DEPTH);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.shadowMap.fb);
-    gl.viewport(0, 0, SHADOW_RES, SHADOW_RES);
+    const boxes = sunBoxes(cam.eye, B.fwd, this.theme.sunDir);
+    const P = this.shadowProg;
+    gl.useProgram(P.p);
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LEQUAL);
     gl.depthMask(true);
-    gl.clear(gl.DEPTH_BUFFER_BIT);
     gl.disable(gl.CULL_FACE);
     gl.disable(gl.BLEND);
     // Pushed back a little, more on a slope, so a surface lit at a glance does not shade itself in stripes.
     gl.enable(gl.POLYGON_OFFSET_FILL);
     gl.polygonOffset(1.5, 3);
-    const P = this.shadowProg;
-    gl.useProgram(P.p);
-    gl.uniformMatrix4fv(P.u.u_lvp, false, box.vp);
-    gl.uniformMatrix4fv(P.u.u_model, false, IDENT);
-    for (const c of this.chunks) {
-      if (!c.cast || !boxInFrustum(box.vp, c.min, c.max)) continue;
-      gl.bindVertexArray(c.cast.vao);
-      gl.drawArrays(gl.TRIANGLES, 0, c.cast.count);
-    }
-    for (const s of this.worldRef.dynamic) {
-      const d = this.dyn.get(s.id);
-      if (!d || !d.casts || d.glass || s.gone || s.hidden) continue;
-      gl.uniformMatrix4fv(P.u.u_model, false, translation(s.min[0] - d.at[0], s.min[1] - d.at[1], s.min[2] - d.at[2]));
-      gl.bindVertexArray(d.mesh.vao);
-      gl.drawArrays(gl.TRIANGLES, 0, d.mesh.count);
-    }
-    // What moves: machines, the boss, every robot (your own too: you see your shadow).
-    for (const e of this.list) {
-      gl.uniformMatrix4fv(P.u.u_model, false, e.m);
-      gl.bindVertexArray(e.mesh.vao);
-      gl.drawArrays(gl.TRIANGLES, 0, e.mesh.count);
-    }
+    const views = boxes.map((box, i) => {
+      const res = CASCADES[i].res;
+      if (!this.shadowMaps[i]) this.shadowMaps[i] = depthTarget(gl, res);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, this.shadowMaps[i].fb);
+      gl.viewport(0, 0, res, res);
+      gl.clear(gl.DEPTH_BUFFER_BIT);
+      gl.uniformMatrix4fv(P.u.u_lvp, false, box.vp);
+      gl.uniformMatrix4fv(P.u.u_model, false, IDENT);
+      for (const c of this.chunks) {
+        if (!c.cast || !boxInFrustum(box.vp, c.min, c.max)) continue;
+        gl.bindVertexArray(c.cast.vao);
+        gl.drawArrays(gl.TRIANGLES, 0, c.cast.count);
+      }
+      for (const s of this.worldRef.dynamic) {
+        const d = this.dyn.get(s.id);
+        if (!d || !d.casts || d.glass || s.gone || s.hidden) continue;
+        gl.uniformMatrix4fv(P.u.u_model, false, translation(s.min[0] - d.at[0], s.min[1] - d.at[1], s.min[2] - d.at[2]));
+        gl.bindVertexArray(d.mesh.vao);
+        gl.drawArrays(gl.TRIANGLES, 0, d.mesh.count);
+      }
+      // What moves: machines, the boss, every robot (your own too: you see your shadow).
+      for (const e of this.list) {
+        gl.uniformMatrix4fv(P.u.u_model, false, e.m);
+        gl.bindVertexArray(e.mesh.vao);
+        gl.drawArrays(gl.TRIANGLES, 0, e.mesh.count);
+      }
+      return { vp: box.vp, texel: 1 / res, bias: box.texel * 1.5 };
+    });
     gl.disable(gl.POLYGON_OFFSET_FILL);
     gl.bindVertexArray(null);
-    this.sun = { vp: box.vp, texel: 1 / SHADOW_RES, bias: box.texel * 1.5, amt: this.fx.shadow };
+    this.sun = { views, amt: this.fx.shadow };
   }
 
   // ------------------------------------------------------------------ bloom
@@ -499,13 +501,17 @@ export class Renderer {
     gl.uniform1f(P.u.u_rain, T.rain);
     // The sun's shadows, if this frame has them; the blaster in hand takes none.
     const sun = !flatLight && this.sun;
-    gl.uniformMatrix4fv(P.u.u_shadowVP, false, sun ? sun.vp : IDENT);
-    gl.uniform1f(P.u.u_shadowBias, sun ? sun.bias : 0);
     gl.uniform1f(P.u.u_shadowAmt, sun ? sun.amt : 0);
-    gl.uniform1f(P.u.u_shadowTexel, sun ? sun.texel : 0);
-    gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, sun ? this.shadowMap.tex : this.noShadow.tex);
-    gl.uniform1i(P.u.u_shadow, 1);
+    // Near on unit 1, far on unit 2; with no shadows, an empty map on each, so the shader always has one.
+    ['', '1'].forEach((k, i) => {
+      const v = sun && sun.views[i];
+      gl.uniformMatrix4fv(P.u[`u_shadowVP${k}`], false, v ? v.vp : IDENT);
+      gl.uniform1f(P.u[`u_shadowBias${k}`], v ? v.bias : 0);
+      gl.uniform1f(P.u[`u_shadowTexel${k}`], v ? v.texel : 0);
+      gl.activeTexture(gl.TEXTURE1 + i);
+      gl.bindTexture(gl.TEXTURE_2D, v ? this.shadowMaps[i].tex : this.noShadow.tex);
+      gl.uniform1i(P.u[`u_shadow${k}`], 1 + i);
+    });
     gl.activeTexture(gl.TEXTURE0);
     const n = flatLight ? 0 : this.lights.length;
     gl.uniform1i(P.u.u_nl, n);

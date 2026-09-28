@@ -1,12 +1,13 @@
 // High quality's extras, the parts worked out without a page: the sun's
 // shadows come in as the levels get real and the grid's bloom goes out; the
-// sun's square of shadow is where it should be, stepped in whole texels so
-// its edges hold still; roofs, lamps and glass cast nothing; and the shaders
+// sun's squares of shadow, near and far, are where they should be, the near
+// inside the far, stepped in whole texels so their edges hold still; roofs,
+// lamps and glass cast nothing; and the shaders
 // never ask for a smoothstep backwards (GLSL leaves that undefined, and one
 // such fade once put every shadow out).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { effects, sunBox, toShadowMap, casts } from '../src/effects.js';
+import { effects, sunBox, sunBoxes, toShadowMap, casts, CASCADES } from '../src/effects.js';
 import { LEVEL_DEFS, level } from '../src/levels.js';
 import * as shaders from '../src/shaders.js';
 import { norm, add, scale } from '../src/math.js';
@@ -100,4 +101,54 @@ test('the world shader takes the sun\'s shadows, and bloom has every pass it nee
   for (const k of ['SHADOW_VS', 'SHADOW_FS', 'POST_VS', 'BLOOM_BRIGHT_FS', 'BLOOM_DOWN_FS', 'BLOOM_UP_FS', 'BLOOM_MIX_FS']) assert.ok(typeof shaders[k] === 'string' && shaders[k].startsWith('#version 300 es'), k);
   assert.ok(shaders.WORLD_FS.includes('sampler2DShadow u_shadow'));
   assert.ok(shaders.WORLD_VS.includes('u_shadowVP'));
+});
+
+test('the shadows come in two squares: the near one inside the far one with room to blend, and the far one shading the ground 250 m ahead', () => {
+  assert.equal(CASCADES.length, 2);
+  assert.ok(CASCADES[1].size >= CASCADES[0].size * 3, 'the far square is much the wider');
+  for (const sun of [[0.3, 0.9, 0.2], [0.1, 0.12, 1], [0.5, 0.55, 0.4], [-0.4, 0.5, 0.3]]) {
+    const dir = norm(sun);
+    for (const yaw of [0, 1.1, 2.6, -2]) {
+      const eye = [30, 12, -80];
+      const fwd = [Math.sin(yaw), -0.1, Math.cos(yaw)];
+      const [near, far] = sunBoxes(eye, fwd, dir);
+      // Every point of the near square, its blending band included, is well inside the far one.
+      for (const [kx, ky] of [[-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5], [0.5, 0.5], [0, 0]]) {
+        const p = add(add(near.centre, scale(near.x, kx * near.size)), scale(near.y, ky * near.size));
+        const q = toShadowMap(far.vp, p);
+        assert.ok(q[0] > 0.1 && q[0] < 0.9 && q[1] > 0.1 && q[1] < 0.9, 'the near square is inside the far one, clear of its fading edge');
+      }
+      // Ground straight ahead: 30 m in the near map; 250 m out in the far one, clear of its fading edge.
+      const ground = (d) => [eye[0] + Math.sin(yaw) * d, eye[1] - 1.5, eye[2] + Math.cos(yaw) * d];
+      const n30 = toShadowMap(near.vp, ground(30));
+      assert.ok(n30.every((v) => v > 0 && v < 1), '30 m ahead is in the near map');
+      const f250 = toShadowMap(far.vp, ground(250));
+      assert.ok(f250[0] > 0.05 && f250[0] < 0.95 && f250[1] > 0.05 && f250[1] < 0.95 && f250[2] > 0 && f250[2] < 1, '250 m ahead is in the far map');
+      // And a caster far toward the sun still lands on the far map's depth.
+      const tall = toShadowMap(far.vp, add(far.centre, scale(dir, 250)));
+      assert.ok(tall[2] > 0 && tall[2] < 0.1, 'what stands 250 m toward the sun still casts on it');
+    }
+  }
+});
+
+test('the far square too moves in whole texels', () => {
+  const dir = norm([0.1, 0.12, 1]);
+  const C = CASCADES[1];
+  const p = [40.3, 0, 131.7];
+  const frac = (v) => ((v * C.res) % 1 + 1) % 1;
+  const at = (eye) => toShadowMap(sunBoxes(eye, [0.6, 0, 1], dir)[1].vp, p);
+  const a = at([0, 1.5, 0]);
+  for (const step of [0.07, 0.9, 3.3, 11.1]) {
+    const b = at([step, 1.5, step * 1.3]);
+    for (const i of [0, 1]) {
+      const d = Math.abs(frac(a[i]) - frac(b[i]));
+      assert.ok(d < 1e-3 || Math.abs(d - 1) < 1e-3, `the same place in its texel after a step of ${step} m`);
+    }
+  }
+});
+
+test('the world shader looks up both squares, and blends them', () => {
+  assert.ok(shaders.WORLD_FS.includes('sampler2DShadow u_shadow1'));
+  assert.ok(shaders.WORLD_VS.includes('u_shadowVP1'));
+  assert.ok(shaders.WORLD_FS.includes('mix(s1, s0, near)'));
 });

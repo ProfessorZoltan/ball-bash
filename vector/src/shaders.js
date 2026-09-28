@@ -20,9 +20,12 @@ uniform mat4 u_proj;
 uniform mat4 u_view;
 uniform mat4 u_model;
 uniform mat4 u_shadowVP;
+uniform mat4 u_shadowVP1;
 uniform float u_shadowBias;
+uniform float u_shadowBias1;
 out vec3 v_wpos;
 out vec4 v_spos;
+out vec4 v_spos1;
 out vec3 v_nrm;
 out vec3 v_col;
 out vec2 v_uv;
@@ -40,9 +43,11 @@ void main() {
   v_size = a_size;
   v_mat = int(a_mat + 0.5);
   v_glow = a_glow;
-  // Where this is in the sun's view, pushed a little off its surface along the
-  // normal so a face never shades itself.
-  v_spos = u_shadowVP * vec4(w.xyz + normalize(v_nrm) * u_shadowBias, 1.0);
+  // Where this is in the sun's two views, near and far, pushed a little off its
+  // surface along the normal (more for the coarser map) so a face never shades itself.
+  vec3 nn = normalize(v_nrm);
+  v_spos = u_shadowVP * vec4(w.xyz + nn * u_shadowBias, 1.0);
+  v_spos1 = u_shadowVP1 * vec4(w.xyz + nn * u_shadowBias1, 1.0);
   gl_Position = u_proj * u_view * w;
 }`;
 
@@ -111,31 +116,54 @@ uniform int u_nl;
 uniform vec4 u_lp[8];
 uniform vec4 u_lc[8];
 uniform highp sampler2DShadow u_shadow;
+uniform highp sampler2DShadow u_shadow1;
 uniform float u_shadowAmt;
 uniform float u_shadowTexel;
+uniform float u_shadowTexel1;
 in vec4 v_spos;
+in vec4 v_spos1;
 out vec4 o;
 ${COMMON}
-/**
- * How much of the sun reaches here: 1 in the open, less in a shadow. Nine
- * looks round the spot, each itself a blend of four texels, so an edge is
- * soft; and it fades out toward the edge of the sun's square, which follows
- * the camera, so there is never a line where shadows stop.
- */
-float sunShadow() {
-  if (u_shadowAmt <= 0.0) return 1.0;
-  vec3 p = v_spos.xyz / v_spos.w * 0.5 + 0.5;
+/** Where a point is in a sun's map (x, y from 0 to 1, depth), and how near its edge (0 in the middle, 1 at the edge). */
+vec4 inMap(vec4 sp) {
+  vec3 p = sp.xyz / sp.w * 0.5 + 0.5;
   vec2 d = abs(p.xy * 2.0 - 1.0);
-  float edge = max(d.x, d.y);
-  if (edge >= 1.0 || p.z >= 1.0) return 1.0;
+  return vec4(p, p.z < 1.0 ? max(d.x, d.y) : 2.0);
+}
+/** A soft look-up: nine looks round the spot, each itself a blend of four texels. */
+float soft9(highp sampler2DShadow m, vec3 p, float texel, float bias) {
   float s = 0.0;
   for (int i = -1; i <= 1; i++) {
     for (int j = -1; j <= 1; j++) {
-      s += texture(u_shadow, vec3(p.xy + vec2(float(i), float(j)) * u_shadowTexel, p.z - 0.00004));
+      s += texture(m, vec3(p.xy + vec2(float(i), float(j)) * texel, p.z - bias));
     }
   }
-  s /= 9.0;
-  return mix(1.0, s, u_shadowAmt * (1.0 - smoothstep(0.8, 1.0, edge)));
+  return s / 9.0;
+}
+/** The far map's look-up: five looks, a cross, softer for what is far off. */
+float soft5(highp sampler2DShadow m, vec3 p, float texel, float bias) {
+  float s = texture(m, vec3(p.xy, p.z - bias));
+  s += texture(m, vec3(p.xy + vec2(texel, 0.0), p.z - bias));
+  s += texture(m, vec3(p.xy - vec2(texel, 0.0), p.z - bias));
+  s += texture(m, vec3(p.xy + vec2(0.0, texel), p.z - bias));
+  s += texture(m, vec3(p.xy - vec2(0.0, texel), p.z - bias));
+  return s / 5.0;
+}
+/**
+ * How much of the sun reaches here: 1 in the open, less in a shadow. Close
+ * in, the fine map; across its edge, blended into the coarse one, so there is
+ * no seam; and out at the coarse one's edge, faded to none, so there is never
+ * a line where shadows stop.
+ */
+float sunShadow() {
+  if (u_shadowAmt <= 0.0) return 1.0;
+  vec4 a = inMap(v_spos);
+  vec4 b = inMap(v_spos1);
+  float near = a.w < 1.0 ? 1.0 - smoothstep(0.8, 1.0, a.w) : 0.0;
+  float far = b.w < 1.0 ? 1.0 - smoothstep(0.85, 1.0, b.w) : 0.0;
+  float s0 = near > 0.0 ? soft9(u_shadow, a.xyz, u_shadowTexel, 0.00004) : 1.0;
+  float s1 = near < 1.0 && far > 0.0 ? mix(1.0, soft5(u_shadow1, b.xyz, u_shadowTexel1, 0.00003), far) : 1.0;
+  return mix(1.0, mix(s1, s0, near), u_shadowAmt);
 }
 vec2 planar(vec3 p, vec3 n) {
   vec3 a = abs(n);

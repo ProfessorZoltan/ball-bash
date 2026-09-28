@@ -1842,10 +1842,16 @@ it in linear light, so the neon bleeds into the dark round it. The blaster
 in your hand is drawn after, and stays crisp. The glow thins as the levels
 get real and its threshold rises, until only the world's lamps and its sun
 glow at all. The **sun casts shadows** once the world is real enough to
-have one: a depth map drawn from the sun each frame over a square of ground
-90 m across round where you look, stepped a whole texel at a time so an
-edge holds still as you walk, looked up nine times a spot for a soft edge,
-and faded out toward the square's edge. Everything casts (the scenery, the
+have one, from two depth maps drawn from the sun each frame (cascades): a
+fine one over a square of ground 90 m across close round where you look,
+and a coarse one 360 m across centred further ahead, which shades the far
+ground out to about 290 m. Each is stepped a whole texel at a time so an
+edge holds still as you walk. Close in, a spot is looked up nine times in
+the fine map for a soft edge; across the fine map's edge it blends into
+the coarse one (five looks), so there is no seam; and at the coarse one's
+edge the shadows fade out, so there is never a line where they stop. The
+coarse map reaches 260 m toward the sun, for a low sun's long shadows at
+dawn. Everything casts (the scenery, the
 machines, the boss, every robot, your own included) except roofs, lamps
 and glass: under a roof the level's "sun" is the room's own light, and its
 shadows are softer, as they are in rain.
@@ -1866,8 +1872,8 @@ shadows are softer, as they are in rain.
 Shadows is how much of the sun a shadow takes away, bloom how strongly the
 glow is laid on, and "glows above" the brightness (0 to 1, on the screen's
 curve) a pixel needs before it glows. The passes are `sunPass` and
-`bloomPass` in `vector/src/render.js`; the sun's square is `sunBox` in
-`vector/src/effects.js`.
+`bloomPass` in `vector/src/render.js`; the sun's squares are `CASCADES`
+and `sunBoxes` in `vector/src/effects.js`.
 
 ### Music
 
@@ -2026,7 +2032,7 @@ end drops any that are for another match. All of Vector's messages start with
 | The trilogy's order | each level is more real than the one before and sounds more human; every level has its own track, as human as the level | `vector/test/levels.test.js` |
 | Music and sound | every track is well formed and humanity rises across it; every voice a track names exists; every cue sounds at every humanity, placed and scaled as the game asks, and once however often it is fired at once | `vector/test/audio.test.js` |
 | The art | every machine in every roster and every boss draws, with nothing but numbers in what it asks the renderer for | `vector/test/art.test.js` |
-| Shadows and bloom | shadows come in and bloom goes out as the levels get real, softer under a roof or in rain; the sun's square is centred ahead of the eye, 90 m across, casts from 150 m toward the sun, and moves in whole texels; roofs, lamps and glass cast nothing; no shader asks for a smoothstep backwards | `vector/test/effects.test.js` |
+| Shadows and bloom | shadows come in and bloom goes out as the levels get real, softer under a roof or in rain; the sun's near square is centred ahead of the eye, 90 m across, casts from 150 m toward the sun, and moves in whole texels; the far one holds the near one and its blending band clear of its own fading edge, shades the ground 250 m ahead whichever way you look and wherever the sun is, casts from 250 m toward the sun, and moves in whole texels too; roofs, lamps and glass cast nothing; no shader asks for a smoothstep backwards | `vector/test/effects.test.js` |
 | Co-op | the team side by side; each robot on its own shields; out, and back at a checkpoint or the boss with one; the level lost only with the whole team out; the team locked into an ambush room and the arena together; enemies after the nearest robot; a pair of wormhole ends each, anyone's to go through; a teammate's charge through you; a drop for each | `vector/test/coop.test.js` |
 | Versus arenas | four, no two built from the same parts or wearing the same level; on each, the autopilot flies the arena's tour from every spawn and reaches every spawn and every power-up spot without losing a shield; standing still on any of them is safe for 12 s | `vector/tools/tour.mjs`, `vector/test/versus.test.js` |
 | Versus rules | the countdown; a hit and the furthest spawn; flickering; your own charges; a Hammer; Frost; a fall; the last one standing; power-ups every 30 to 60 s, never more than three and never nearer one robot than half as far as the next, over hundreds of placements on every arena; standing under the black hole safe and a jump there taken | `vector/test/versus.test.js` |
@@ -2046,12 +2052,6 @@ against the host's. `window.__vector` is the browser handle (`state`,
 `game`, `startLevel(id, opts)`, `renderer`, `input`, `audio`, `art`, `fx`,
 `level`, `arenaMap`, and for multiplayer `room`, `mp`, `net`, `host(name)`,
 `join(code, name)`, `pick(p)`, `startMatch()`).
-
-### Roadmap
-
-1. **Shadows further off**: a second, coarser square of shadow round the
-   first (cascades), so a long view at dawn is shaded to the horizon rather
-   than to 90 m.
 
 ## Online multiplayer (different networks)
 
