@@ -40,7 +40,10 @@
           "icons/**/*",
           "sequel/index.html",
           "sequel/style.css",
-          "sequel/src/**/*"
+          "sequel/src/**/*",
+          "vector/index.html",
+          "vector/style.css",
+          "vector/src/**/*"
         ]
       }
     ],

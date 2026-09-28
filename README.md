@@ -13,6 +13,11 @@ deflectors to strike from the side or behind. One hit clears the level.
 
 No build step, no dependencies: plain ES modules, Canvas 2D and Web Audio.
 
+The repo holds a trilogy. Deflector is the first game; its title screen also
+opens [Defector](#defector-the-sequel), a side-scrolling platformer past the
+grid's last wall, and [Vector](#vector-the-third-game), a first-person game
+out of the grid and into the real world.
+
 ## Run it
 
 ```bash
@@ -1591,6 +1596,275 @@ handle (`state`, `game`, `startLevel(id, opts)`, `renderer`, `input`,
      of the frame, is a stepped approximation that costs more per hole.
    - Then Deflector, whose golf holes put several bodies on screen at once.
 
+## Vector (the third game)
+
+**Play the 3rd Game!** on the title screen opens *[<R/D>EF(L)/V]ECTOR:
+Vector*, the last game of the trilogy, in first person. Defector ended with
+the grid's last room open; Vector is what walks out of it. Level by level the
+world gets less drawn and more real: the first level is the grid itself,
+neon lines on a black void, and the last is an old clock tower of wood, brass
+and paper. The machines change with it, from the grid's polyhedra to drones,
+robot dogs, cranes and at last clockwork, and so does the music, from
+Deflector's own synths to piano, strings and guitar. At the end of the road
+is the one who made the grid and the robot: the Creator, a man at a loom of
+screens who wanted the robot to run the city for him. It lives in `vector/`,
+a page of its own (`vector/index.html`), and imports Deflector's difficulty,
+mark and audio engine from `src/`; nothing in `src/` or `sequel/` imports
+from it. Defector's title screen links to it too (**Vector →**).
+
+The shooting, the power-ups and the wormholes are Defector's, carried into
+three dimensions, and there are ten levels, each ending in a boss. The lives
+are still **shields**, and the pool carries from level to level of a campaign.
+Saves use their own `vector.*` keys. It is drawn with WebGL2 by a renderer
+written for it (`vector/src/render.js`), with no library and no build step,
+like the rest of the repo; a browser without WebGL2 gets a message instead.
+
+| Difficulty | Shields | Source |
+| --- | --- | --- |
+| Easy | unlimited | `DIFFICULTIES` in `src/config.js` |
+| Normal (default) | 5 | same |
+| Hard | 3 | same |
+| Punishing | 1 | same |
+
+A shield goes to a machine's touch or shot, a boss's ring, beam or molten
+patch, a lit laser, spikes, a crusher or a fall; after one the robot cannot
+lose another for 1.6 s. A fall, spikes or a crusher also put it back on the
+last firm ground it stood on (never a moving or blinking platform, a crate or
+anything that breaks), or the last checkpoint if that ground has gone
+(`putBack` in `vector/src/game.js`). Out of shields, **Continue** starts again
+from the last checkpoint with the pool refilled and the power-ups kept.
+
+### Controls
+
+Click the view to capture the mouse; Esc lets it go and pauses. On a
+touchscreen, the left thumb has a move stick wherever it lands, a drag
+anywhere on the right half looks, and there are buttons for jump, fire, the
+two ends and the power-ups (a drag that starts on a button looks too, so you
+can hold fire and turn). A controller works as in any shooter.
+
+| Action | Mouse and keyboard | Controller | Touch | Source |
+| --- | --- | --- | --- | --- |
+| Look | the mouse | right stick | drag on the right half | `Input.intent` in `vector/src/input.js` |
+| Move | W A S D (or the arrows) | left stick | the stick under the left thumb | same |
+| Jump (hold for higher) | Space | A | JUMP | same |
+| Run | hold Shift (or all the time, with **Run: By default**) | hold X, or hold the left stick in | push the stick all the way | same |
+| Fire | left click (held, it repeats) | RT | FIRE | same |
+| Open the light wormhole end | right click or Q | LB | ◐ | same |
+| Open the dark wormhole end | E | RB | ◑ | same |
+| Cycle power-ups | the wheel or R | LT or Y | ⟳ | same |
+| Load one straight away | 1 to 6 (1 is the standard charge) | | tap its slot in the HUD | `load` in `vector/src/game.js` |
+| Pause, mute, fullscreen | Esc or P, M, F | Start | ❚❚ and ⛶ | `menuKeys` in `vector/src/main.js` |
+
+**Mouse** on the title screen sets the look speed, **Look** inverts it,
+**Aim line** turns off the dotted line of where a shot will go (its bounces
+and bends included, the same flight flown ahead) and the outline of where a
+wormhole end would open (a red cross where none can), and **Quality** set to
+Low draws at a lower resolution and shows a swirl in a wormhole's mouth
+instead of the view through it.
+
+### Movement
+
+The robot is an upright capsule 1.8 m tall and 0.8 m wide, looking out 1.52 m
+up. It walks up anything a stair's height, stands on slopes up to about 50
+degrees without sliding, and is carried by what it stands on; off a moving
+platform it keeps the platform's speed. In the air a push adds speed the way
+it points, up to the top speed, and never takes away what a jump, a spring or
+a wormhole gave, so a throw out of a wormhole carries.
+
+| Figure | Value | Source |
+| --- | --- | --- |
+| Walking / running speed | 6 / 9 m/s | `MOVE` in `vector/src/config.js` |
+| A held jump, walking / running | 2.2 / 2.7 m high, about 5 / 8 m across | same |
+| Gravity rising with jump held / let go / falling | 20 / 52 / 32 m/s² | same |
+| Coyote time, jump buffer | 0.1 s, 0.14 s | same |
+| A stair | up to 0.45 m | `MOVE.stepUp`, same |
+| What a level asks of a jump | 3.6 m walking, 6.5 m running, 1.7 m up | `JUMP`, same |
+| The physics step | 1/120 s, whatever the display's rate; the view is drawn between steps | `PHYSICS_DT`, same; `frame` in `vector/src/main.js` |
+
+### The blaster
+
+The charge is Deflector's ball, fired: 24 m/s, three seconds long, off walls
+at the speed it arrived and with a moving part's motion, bent by black holes,
+taken by a horizon, and through wormholes. Six of yours in the air at once and
+no more; a new one every 0.22 s; your charges knock machines' shots out of
+the air. Shots leave from the eye, so the crosshair is exact.
+
+| Power-up | What it does | Source |
+| --- | --- | --- |
+| Titan | a charge three times the size; it carries on through what it breaks | `POWERUPS`, `POWER` in `vector/src/config.js` |
+| Trident | three charges, fanned two degrees apart | same |
+| Frost | freezes a machine for five seconds, a block to stand on, even in mid-air; a boss is only slowed | same |
+| Longwave | lives six seconds instead of three | same |
+| Hammer | double damage | same |
+
+Each pickup loads 15 charges of its kind, up to 45. Power-ups lie in
+secrets and drop from some ambush rooms, and stay in the level they were
+found in.
+
+### Wormholes
+
+Defector's pair, light end and dark end, as mouths on surfaces: a rounded
+doorway 1.6 m wide and 2.4 m tall. What crosses one comes out of the other
+turned by the angle between them, speed kept. With both ends open and the
+Quality setting High, each mouth is a window: the scene is drawn again from
+the twin's side into a texture that the mouth shows, so you see where it
+goes, and yourself through it (`frame` in `vector/src/render.js`).
+
+| Rule | What it means | Source |
+| --- | --- | --- |
+| Aim | along the line of sight, up to 64 m (Defector's two screens), bent by black holes as a charge is; armoured glass lets it through | `sightLine` in `vector/src/wormholes.js` |
+| Where it sits | centred where the line lands, slid along the surface until the whole mouth lies on it, never over its twin; a wall's mouth stands upright, and aimed near the foot of a wall it comes down to the floor, a doorway; a floor's or roof's lies the way you look | `placeEnd`, same file |
+| What takes none | glass, doors, crates, cracked panels, springs, hazards, and a surface too small for the mouth or covered by something | `holds`, same file |
+| Going in | while the robot is lined up with a mouth and close, the surface the end is on does not stop it; heading in nearly lined up, it is drawn onto the middle line, so walking into one needs no threading | `portalRobot`, same file |
+| Going through | when its middle crosses the surface (or its eye, going up through a roof) | same |
+| Out of a floor | at least 7.5 m/s up, clear of the floor at once | `exitVelocity`, same file |
+| Out of a launch ramp | thrown the way the ramp climbs at 40 degrees, 18 m/s at least: about 14 m on the level, past any running jump | same |
+| Upright | the robot always comes out upright; its view turns with the throw | `portalRobot`, same file |
+| Who goes through | the robot, your charges, machines and their shots | `portalSphere`, same file |
+| A boss's door | both ends close as it shuts: every fight starts without them | `startBoss` in `vector/src/game.js` |
+| Left behind | an end more than 110 m away closes, once the robot has been near it | `stepEnds`, same file |
+
+### Puzzles
+
+Each is built so that the obvious way fails, and the tests try that way.
+
+| Puzzle | How it is beaten | Source |
+| --- | --- | --- |
+| A switch door | shoot the amber switch over it. A timed one has its switch well back: shoot, then run | `SECTIONS.switchdoor` in `vector/src/sections.js` |
+| A bulkhead | a wall across the way with a slot under it lower than the robot. One end on the floor beyond, seen through the slot; the other at your feet | `SECTIONS.bulkhead`, same file |
+| A chasm | too wide for any jump, and past it a wall facing back across. One end on the wall, one at your feet | `SECTIONS.chasm`, same file |
+| A launch | a chasm past any running jump, and a ramp before it. One end on its face, one at your feet: you are thrown across | `SECTIONS.launch`, same file |
+| A vault | the door's switch sealed in armoured glass to the side. See in; one end on the vault's back wall, the other on the wall across the way; fire into yours and the charge comes out at the switch | `SECTIONS.vault`, same file |
+| An orbit | the switch on the floor of a walled pocket open only to the sky, a black hole hanging over its near wall. No straight shot or bank reaches it: fire up over the hole and it pulls the charge down onto the switch | `SECTIONS.orbit`, same file |
+
+The rest of the way: gaps, stepping stones, climbs, drops, moving platforms,
+lifts, towers (a spiral of ledges up a shaft, a sixth of a turn apart),
+laser gates on a clock, crushers, floors that blink in a wave travelling at a
+jumping pace, springs, fans whose updraft lifts, pits with a black hole under
+the jump, corners, ambush rooms that lock until their waves are beaten, and
+secrets behind cracked panels (a few charges break one) or up on a loft only
+a wormhole reaches.
+
+### Machines
+
+Every machine moves one of eleven ways; what it looks like is its level's.
+
+| Moves | Hits | Stomp | Also | Source |
+| --- | --- | --- | --- | --- |
+| walker, trundle (slow and big) | 1, 4 | yes | turns at ledges and walls | `MOVES` in `vector/src/enemies.js` |
+| chaser, hopper | 2, 2 | yes | run or jump at the robot when they see it | same |
+| flier, circler, zigzag | 1, 2, 1 | no | a line, a loop, or side to side drifting to your height | same |
+| diver | 2 | no | hangs, then dives through where you stood | same |
+| turret, gunner | 3, 2 | no | shoot at you when they see you | same |
+| lancer | 3 | no | carries a Deflector shield that turns to face you and turns a charge away: come at it from the side | same |
+
+| Levels | Looks | Source |
+| --- | --- | --- |
+| 1, 2 | the grid's polyhedra (glyphs, cubelets, sparks, prisms), then wire hounds, birds and toads | `roster` in `LEVEL_DEFS`, `vector/src/levels.js`; `look` in `vector/src/art.js` |
+| 3 to 5 | maintenance drones, cable crawlers, camera turrets, sweepers, welders, robot arms, forklifts, riot guards with shields, patrol drones, bikes | same |
+| 6 to 8 | robot dogs, security drones and searchlights, rats, crab-bots, buoys, mechanical gulls | same |
+| 9, 10 | hawks, hunters, sentries; then the Creator's own clockwork: automata, tin toys, cuckoos, orreries | same |
+
+From the sixth level some of the grid's glyphs have leaked into the world
+**folded**: only half there, drawn doubled and flickering, and only a charge
+that has itself been through a wormhole touches one.
+
+### Bosses
+
+Each is built from Defector's parts: a **core** that takes damage, **armour**
+that turns a charge away like a wall, and **plates**, Deflector shields that
+turn it away with their own motion. The door shuts behind you and both
+wormhole ends close; the boss says its line; when it falls the far door
+opens.
+
+| Level | Boss | Toughness | How it fights | Source |
+| --- | --- | --- | --- | --- |
+| 1 | The Warden | 14 | a core in a square of four plates turning round it, drifting at you; rings of shots, and a slam whose ring runs along the floor to be jumped | `BOSSES`, `Warden` in `vector/src/bosses.js` |
+| 2 | The Stag | 18 | antlers before it as a plate; watches, then charges the length of the glade and stamps a ring; its core is on its rump | `Stag`, same file |
+| 3 | The Scheduler | 20 | a gantry hung from the roof, its core on top: bank a shot off the roof, or open an end there. Drops jobs where you will be, sweeps a laser | `Scheduler`, same file |
+| 4 | The Forgewright | 22 | armoured before, open behind, turning to face you slowly: go round it. Hammer rings, molten patches, sparks | `Forgewright`, same file |
+| 5 | The Interceptor | 24 | laps the interchange round an island, nose armoured, exhaust its core; lays mines, fires missiles | `Interceptor`, same file |
+| 6 | The Broadcaster | 26 | a mast with three screens turning round its core; pulses, static, drones called in | `Broadcaster`, same file |
+| 7 | The Borer | 28 | a tunnelling machine that crosses the hall wall to wall, its cutting face a plate; get out of its way and hit its back; rock falls after each crossing | `Borer`, same file |
+| 8 | The Gantry | 12 | a crane whose heart is in a cab of armoured glass: only a wormhole, an end on the cab's back wall seen through the glass, gets a charge in. The spreader swings, containers drop | `Gantry`, same file |
+| 9 | The Lookout | 28 | a radar dish that always turns to face you, its core behind it: run round it, bank a shot, or use a wormhole. Snow falls in lumps, hawks come | `Lookout`, same file |
+| 10 | The Creator | 36 | a man in the cradle of his loom behind armoured glass that nothing breaks; three power cells turn on the loom's arms, each behind a plate. Each cell that goes takes a phase with it: the grid's balls banking round the hall, then the machines' volleys and pulses, then the house itself throwing things. He talks as it comes apart. He is never the target | `Creator`, same file |
+
+`vector/tools/fight.mjs` fights each in the real game with a robot that
+cannot be hurt and fires only shots it has flown ahead and seen reach a core
+(banks and wormholes included); every boss falls to it, and the Gantry does
+not without wormholes.
+
+### Levels
+
+A level is a list of sections laid end to end along a path that turns in
+quarter turns, each written in its own frame and turned into the world, so
+every box stays square to the axes (`Builder` in `vector/src/build.js`). Each
+section also writes down how it is crossed, as steps for the autopilot.
+
+| # | Level | Real | New | Source |
+| --- | --- | --- | --- | --- |
+| 1 | Edge of the Grid | 0 | looking and moving in depth, jumping, the blaster, switch doors, cracked panels, the bulkhead (wormholes), platforms, a tower | `LEVEL_DEFS` in `vector/src/levels.js` |
+| 2 | Wireframe Wilds | 0.1 | chasers, divers, the chasm, a timed door, a loft | same |
+| 3 | Render Farm | 0.22 | indoors: laser gates, fans, lifts, electrified trenches, armoured glass and the vault | same |
+| 4 | The Foundry | 0.36 | crushers, molten trenches, the launch ramp, shielded guards | same |
+| 5 | Night Freeway | 0.48 | springs, long running gaps, ambush rooms, the city far below | same |
+| 6 | Rain City | 0.58 | rain, blinking floors, black holes under jumps, the orbit, folded glyphs | same |
+| 7 | Underline | 0.66 | the old tunnels: everything so far, closer together | same |
+| 8 | Harbour at Dawn | 0.78 | the sea: a fall is into the water | same |
+| 9 | Pine Ridge | 0.9 | snow, the longest climb | same |
+| 10 | The Workshop | 1 | the Creator's house, and the Creator | same |
+
+**Real** is how far the level is from the grid, and the renderer's one
+world shader reads it: at 0 every surface is dark with lit edges and a line
+every metre; the lines and the darkness are gone by six tenths, the lit edges
+thin to a trace, and brick, concrete, wood, grass, water, snow, rock and
+corrugated steel are painted in the shader from the surface's position
+(`WORLD_FS` in `vector/src/shaders.js`, `THEMES` in `vector/src/levels.js`).
+The sky goes the same way: a banded sun over a grid on the void, a wire
+moon, a night city, dawn over water, a clear sky over snow.
+
+### The story
+
+The record changes hands as the robot goes: the grid's **LOG** in the first
+levels, a security firm's **OBSERVATION**s in the city, and at the end the
+Creator's own **NOTE (handwritten)**. Each level's card carries its line, and
+each cleared screen what was written after it. The Creator built the grid to
+grow minds that would do as they were told, one to run the trains, the power
+and the harbour for him; the robot was the flaw that decided. He speaks in
+the last fight (a book face and a warm voice, where the machines had the
+grid's), and the ending, **Morning**, fills in the mark's last reading, the
+one the grid's record left blank: a vector is a quantity with a size and a
+direction, and the direction is its own. The text is in
+`vector/src/story.js`, the bosses' lines in `vector/src/bosses.js`.
+
+### Checking it
+
+`npm test` runs Vector's tests in `vector/test/` with the rest.
+
+| Check | What it proves | Source |
+| --- | --- | --- |
+| The robot | it stands, jumps as high and as far as MOVE says and no further, walks up stairs and ramps and not walls, rides platforms, and walks or falls through wormholes | `vector/test/robot.test.js` |
+| Crossing | every level is crossed by the autopilot, which flies the robot's own physics along each section's route (running jumps, platforms boarded as they arrive, blinking floors taken as they light, gates run through while dark, wormholes aimed and walked into, switches shot, the orbit's shot found by flying the charge round the hole), without losing a shield | `vector/tools/autopilot.mjs`, `vector/test/levels.test.js` |
+| Puzzles | each kind fails the obvious way: a bulkhead cannot be walked or jumped under, a chasm or a launch cannot be jumped at a full run, a vault's switch takes no shot from anywhere without a wormhole, an orbit's none without its black hole, a door stays shut; and the same full-run charge does clear an ordinary gap, so none of that is vacuous | `vector/test/puzzles.test.js` |
+| Wormholes | where an end may sit and how; through a pair, speed kept and the way turned; out of a floor fast enough to clear it; charges and machines through; a launch throws past any jump; a sight line bends round a black hole | `vector/test/wormholes.test.js` |
+| Bosses | every boss is beaten by a robot that aims well; the Gantry not without wormholes; the Creator's glass turns every charge | `vector/tools/fight.mjs`, `vector/test/bosses.test.js` |
+| The trilogy's order | each level is more real than the one before and sounds more human; every level has its own track | `vector/test/levels.test.js` |
+
+Each tool also runs on its own: `node vector/tools/autopilot.mjs 4`,
+`node vector/tools/fight.mjs 8 noportals`, and
+`node vector/tools/shots.mjs level 4 out/` (or `boss 4`, `portal 1`,
+`title`) screenshots the real game in headless Chromium. `window.__vector` is
+the browser handle (`state`, `game`, `startLevel(id, opts)`, `renderer`,
+`input`, `audio`, `art`, `fx`, `level`).
+
+### Roadmap
+
+1. **Multiplayer**, co-op and versus as in Defector, through the same relay
+   with its own `vx` messages.
+2. **Shadows** from the sun in the real-world levels.
+3. **Bloom** for the grid's neon at high quality.
+
 ## Online multiplayer (different networks)
 
 The LAN server only works on one Wi-Fi network, because the guest has to reach
@@ -2204,7 +2478,8 @@ src/audio/tracks.js        per-level track definitions
 test/*.test.js             node --test suites (physics, net, input, input queue)
 tools/                     golf design and screenshot scripts, not shipped (tools/README.md)
 sequel/                    Defector, the sequel: its page, style and code (sequel/src/), tests, tools
-CLAUDE.md                  working notes for Claude Code: conventions, golf design rules, a sequel
+vector/                    Vector, the third game: its page, style and code (vector/src/), tests, tools
+CLAUDE.md                  working notes for Claude Code: conventions, the golf, Defector and Vector design rules, a sequel
 server.js                  zero-dependency static server + LAN relay
 relay/                     the same relay as a Cloudflare Worker for online play
 desktop/                   Electron wrapper for the Windows and macOS builds (bundles server.js)

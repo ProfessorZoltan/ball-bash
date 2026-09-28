@@ -361,7 +361,7 @@ function showTitle(note = '') {
             <div id="mp-status" class="status">${escapeHtml(note)}</div>
             <details><summary>Relay</summary><div class="field"><label for="mp-relay">Address</label><input id="mp-relay" type="text" placeholder="the default, or 'local'" value="${escapeHtml(savedRelay())}" /></div><p class="hint" style="text-align:left">Friends on other networks meet through the online relay; on one Wi-Fi, open the game from <code>npm start</code> and put <code>local</code> here.</p></details>
           </div>
-          <div class="row" style="justify-content:flex-start"><button id="deflector" title="Back to the first game">← Deflector</button></div>
+          <div class="row" style="justify-content:flex-start"><button id="deflector" title="Back to the first game">← Deflector</button><button id="vector" title="The third game, in first person">Vector →</button></div>
         </div>
         <div>
           <h3>Play one level</h3>
@@ -413,6 +413,9 @@ function showTitle(note = '') {
   };
   $('deflector').onclick = () => {
     location.href = '../';
+  };
+  $('vector').onclick = () => {
+    location.href = '../vector/';
   };
   const keepName = () => save(STORE.name, $('mp-name').value.trim().slice(0, 16));
   $('mp-name').onchange = keepName;

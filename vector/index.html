@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#05030f" />
+  <title>Vector</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2305030f'/%3E%3Cpath d='M14 16 L32 50 L50 16' fill='none' stroke='%237fe9ff' stroke-width='6' stroke-linejoin='round' stroke-linecap='round'/%3E%3Ccircle cx='32' cy='50' r='4' fill='%23ffb347'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Inter:wght@400;600&family=Lora:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div id="crosshair" hidden><i></i></div>
+  <div id="damage" hidden></div>
+
+  <div id="touch" aria-hidden="true">
+    <div class="stick"><div class="knob"></div></div>
+    <div class="tbtn jump" data-btn="jump"><span>JUMP</span></div>
+    <div class="tbtn fire" data-btn="fire"><span>FIRE</span></div>
+    <div class="tbtn worm light" data-btn="w0"><span>◐</span></div>
+    <div class="tbtn worm dark" data-btn="w1"><span>◑</span></div>
+    <div class="tbtn cycle" data-btn="cycle"><span>⟳</span></div>
+  </div>
+
+  <div id="hud" hidden>
+    <div class="hud-left">
+      <div id="hud-level" class="hud-big"></div>
+      <div class="hud-row"><span class="label">TIME</span><span id="hud-time">0:00</span><span class="label" id="hud-secrets-label">SECRETS</span><span id="hud-secrets"></span></div>
+    </div>
+    <div class="hud-center">
+      <div class="hud-row center"><span class="label">SHIELDS</span><span id="hud-shields" class="shields"></span></div>
+      <div id="hud-boss" class="boss" hidden><div id="hud-boss-name"></div><div class="boss-bar"><div id="hud-boss-bar"></div></div></div>
+    </div>
+    <div class="hud-right">
+      <div class="hud-row right"><span class="label">BLASTER</span><span id="hud-loaded"></span><span id="hud-charges" class="charges"></span></div>
+      <div id="hud-ammo" class="ammo"></div>
+      <div class="hud-row right small"><span id="hud-fps" class="muted"></span><span id="hud-mute" class="muted"></span><button id="hud-pause" class="hud-btn" title="Pause (Esc)" aria-label="Pause">❚❚</button><button id="hud-full" class="hud-btn" title="Fullscreen (F)" aria-label="Fullscreen">⛶</button></div>
+    </div>
+  </div>
+
+  <div id="subtitle" hidden><span class="who" id="subtitle-who"></span><span id="subtitle-text"></span></div>
+  <div id="hint" hidden></div>
+  <div id="banner" hidden><div class="banner-eyebrow" id="banner-eyebrow"></div><div class="banner-title" id="banner-title"></div><div class="banner-sub" id="banner-sub"></div></div>
+
+  <div id="overlay" hidden></div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
