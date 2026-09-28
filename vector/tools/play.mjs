@@ -6,12 +6,14 @@
 //
 //   node vector/tools/play.mjs 3        level 3
 //   node vector/tools/play.mjs all      every level
+//   BUDGET=900 node vector/tools/play.mjs 10   a longer budget, in seconds of wall clock
 //
 // WebGL runs in software here, so this is slow: a level takes a few minutes.
 import { chromium, serve, watchErrors } from '../../tools/browser.mjs';
 import { LEVEL_DEFS } from '../src/levels.js';
 
 const arg = process.argv[2] || 'all';
+const budget = Number(process.env.BUDGET || 420) * 1000;
 const ids = arg === 'all' ? LEVEL_DEFS.map((l) => l.id) : arg.split(',').map(Number);
 const { url, stop } = await serve();
 const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--autoplay-policy=no-user-gesture-required'] });
@@ -37,7 +39,7 @@ for (const id of ids) {
   }, id);
   const t0 = Date.now();
   let last = null;
-  while (Date.now() - t0 < 420000) {
+  while (Date.now() - t0 < budget) {
     await page.waitForTimeout(3000);
     last = await page.evaluate(() => ({ phase: window.__vector.game.phase, i: window.__ap.i, n: window.__ap.route.length, failed: window.__ap.failed, t: window.__vector.game.time, fps: document.getElementById('hud-fps').textContent }));
     if (last.phase === 'boss' || last.failed) break;
@@ -46,7 +48,7 @@ for (const id of ids) {
   const end = await page.evaluate(() => ({ state: window.__vector.state, phase: window.__vector.game.phase, boss: window.__vector.game.boss && window.__vector.game.boss.hp }));
   const ok = !errs.length && end.phase !== 'level';
   if (!ok) bad++;
-  console.log(`level ${id}: ${ok ? 'ok' : 'PROBLEM'} — reached ${last.i}/${last.n} steps in ${last.t.toFixed(0)} s of play, ${last.fps}, ${end.phase}${last.failed ? `, autopilot: ${last.failed}` : ''}`);
+  console.log(`level ${id}: ${ok ? 'ok' : 'PROBLEM'} — reached ${last.i}/${last.n} steps in ${last.t.toFixed(0)} s of play, ${last.fps}, ${end.phase}${last.failed ? `, autopilot: ${last.failed}` : ''}${!last.failed && end.phase === 'level' ? ', out of time (BUDGET)' : ''}`);
   for (const e of errs.slice(0, 8)) console.log('   ', e);
   await page.close();
 }
