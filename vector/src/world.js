@@ -16,6 +16,7 @@ export class World {
     this.fans = []; // updrafts: { min, max, lift }
     this.hazards = []; // volumes that cost a shield: { min, max, kind, laser? }
     this.switches = []; // { id, p, n, r, doors: [ids], timer, on, t }
+    this.wards = []; // a launch's gap: no end opens across it from its near side (wormholes.js, warded)
     this.time = 0;
     this.stamp = 0;
   }

@@ -346,28 +346,38 @@ export const SECTIONS = {
   },
 
   /**
-   * A launch: a chasm past any running jump, and before it a ramp. One end on
-   * the ramp's face, the other at your feet: out of the face you are thrown
-   * across.
+   * A launch: a chasm past any running jump, and back from its lip a wedge
+   * whose sloped face looks out over the gap. Walk round it to the lip and
+   * turn back: one end on its face, one at your feet, and out of the face you
+   * are thrown the way it looks, over your own head and across. The gap takes
+   * no end from this side (a ward, world.wards), shimmering faintly, so the
+   * far floor cannot simply be stepped to: the launch is the only way over.
    */
   launch(b, o = {}) {
     const g = o.gap || 10;
     const rise = o.rise || 0;
-    const A = 12;
+    const A = 16;
+    const w = b.W / 2;
     b.floor(0, A);
-    // The ramp climbs toward the edge; its face looks back at you.
-    const ramp = b.ramp([-2.2, 0, A - 4.2], [2.2, 2.2, A], 'z', 1, { role: 'ramp', launch: true });
+    // The wedge: high at the back, its face sloping down toward the lip.
+    const z0 = A - 10;
+    const z1 = A - 5;
+    const ramp = b.ramp([-2.2, 0, z0], [2.2, 2.4, z1], 'z', -1, { role: 'ramp', launch: true });
     b.floor(A + g, A + g + 12, rise);
     b.sides(0, A + g + 12, Math.min(0, rise), b.roof ? b.roof + Math.max(0, rise) + 4 : 0);
     pit(b, A, A + g, Math.min(0, rise));
-    const face = b.P(0, 1.1, A - 2.1);
-    const near = b.P(0, 0, 3.6);
+    const lip = b.P(0, 0, A);
+    b.world.wards.push({ c: lip, n: b.D(0, 0, 1), r: b.D(1, 0, 0), hw: w + 1.5, lo: lip[1] - 40, hi: lip[1] + 60, gap: g, look: b.def.accent || '#c9a2ff' });
+    const face = b.P(0, 1.2, (z0 + z1) / 2);
+    const near = b.P(0, 0, A - 2.6);
     b.dress(0, A + g + 12);
-    mark(b, 'launch', 0, A + g + 12, { gap: g, rise });
+    mark(b, 'launch', 0, A + g + 12, { gap: g, rise, lip: A });
     b.links.push({ kind: 'launch', ramp: ramp.id, face, near });
-    b.go(0, 0, 1.2);
-    b.step({ a: 'portal', from: standAt(...b.P(0, 0, 1.2)), aims: [{ which: 0, at: face }, { which: 1, at: near }], enter: standAt(...near) });
-    b.step({ a: 'fly', to: standAt(...b.P(0, rise, A + g + 3)) });
+    // Round the wedge to the lip, then back to face it.
+    b.go(w - 1, 0, z0 - 1.5);
+    b.go(w - 1, 0, A - 1.5);
+    b.step({ a: 'portal', from: standAt(...b.P(0, 0, A - 0.9)), aims: [{ which: 0, at: face }, { which: 1, at: near }], enter: standAt(...near) });
+    b.step({ a: 'fly', to: standAt(...b.P(0, rise, A + g + 5)) });
     b.go(0, rise, A + g + 11);
     b.advance(A + g + 12, rise);
   },

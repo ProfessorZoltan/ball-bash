@@ -530,9 +530,10 @@ export class Game {
   openEnd(which, pl = this.me) {
     const b = pl.bot;
     const look = lookDir(b.yaw, b.pitch);
-    const sl = sightLine(this.world, b.eyePos(), look);
+    const eye = b.eyePos();
+    const sl = sightLine(this.world, eye, look);
     const twin = pl.ends[1 - which];
-    const { end, why } = placeEnd(this.world, sl.hit, look, twin);
+    const { end, why } = placeEnd(this.world, sl.hit, look, twin, eye);
     if (!end) {
       this.emit({ s: 'fizzle', why, at: sl.hit ? sl.hit.p : null, slot: pl.slot });
       return null;

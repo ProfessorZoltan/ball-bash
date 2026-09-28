@@ -133,7 +133,7 @@ export const WORM = {
   maxLen: 64, // m along the line of sight, bends and all
   minExit: 3, // m/s: nothing hangs in a mouth
   floorExit: 7.5, // m/s up out of a floor end, enough to lift the robot clear
-  launch: 18, // m/s along a launch ramp's face
+  launch: 23, // m/s out of a launch ramp's face, the way it looks: about 23 m on the level, past any jump
   funnel: 5, // m/s² pulling a robot that is heading into a mouth onto its middle line
   leftBehind: 110, // m: an end this far from the robot closes, once the robot has been near it
 };

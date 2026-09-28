@@ -78,8 +78,33 @@ export function holds(s) {
  * robot looks), slid along the surface until the whole mouth lies on it, and
  * never over its twin. Returns the end, or null with a reason.
  */
-export function placeEnd(world, hit, look, twin = null) {
+/**
+ * Is `p` across a ward from `eye`: seen from a launch's near side, over its
+ * gap? A ward is a plane at the gap's near lip (c, facing across it, n),
+ * `hw` metres either side of the way (r) and from `lo` to `hi` high. An end
+ * there does not open: the only way over is the launch, and without the
+ * ward a player could open one end on the far floor and one at their feet.
+ */
+export function warded(world, eye, p) {
+  for (const w of world.wards || []) {
+    const de = dot(sub(eye, w.c), w.n);
+    const dp = dot(sub(p, w.c), w.n);
+    if (de >= 0 || dp <= 0.05) continue;
+    const q = madd(eye, sub(p, eye), de / (de - dp));
+    if (Math.abs(dot(sub(q, w.c), w.r)) > w.hw || q[1] < w.lo || q[1] > w.hi) continue;
+    return w;
+  }
+  return null;
+}
+
+/**
+ * Where an end opens for a line of sight's hit: on the face it hit, as near
+ * the spot as the face allows, never over its twin or under anything, and
+ * (with the eye it was aimed from) never across a launch's gap.
+ */
+export function placeEnd(world, hit, look, twin = null, eye = null) {
   if (!hit) return { end: null, why: 'nothing in reach' };
+  if (eye && warded(world, eye, hit.p)) return { end: null, why: 'the gap takes no end from this side' };
   const s = hit.solid;
   const f = hit.plane && hit.plane.face;
   if (!holds(s) || !f) return { end: null, why: 'that takes no wormhole' };
@@ -204,7 +229,8 @@ export function turn(from, to, d) {
  * The velocity out of an end: turned through, and then never slower than
  * WORM.minExit away from the mouth, and out of a floor at least WORM.floorExit
  * up, so nothing hangs half in a mouth. A robot out of a ramp's face is
- * thrown along the face (WORM.launch), up and across a gap no jump crosses.
+ * thrown the way the face looks, at 40 degrees and at least WORM.launch, up
+ * and across a gap no jump crosses.
  */
 export function exitVelocity(from, to, v, robot = false) {
   let out = turn(from, to, v);
@@ -212,9 +238,8 @@ export function exitVelocity(from, to, v, robot = false) {
   const min = robot && to.kind === 'floor' ? WORM.floorExit : WORM.minExit;
   if (along < min) out = madd(out, to.n, min - along);
   if (robot && to.ramp) {
-    // Thrown the way the ramp climbs, at 40 degrees, whatever it came in with.
-    const up = sub([0, 1, 0], scale(to.n, to.n[1]));
-    const hz = norm([up[0], 0, up[2]]);
+    // Thrown the way the face looks, at 40 degrees, whatever it came in with.
+    const hz = norm([to.n[0], 0, to.n[2]]);
     const sp = Math.max(WORM.launch, len(out));
     const el = (40 * Math.PI) / 180;
     out = [hz[0] * sp * Math.cos(el), sp * Math.sin(el), hz[2] * sp * Math.cos(el)];

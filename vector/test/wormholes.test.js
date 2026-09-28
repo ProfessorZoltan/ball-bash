@@ -103,10 +103,11 @@ test('enemies go through wormholes too, and forget their beat where they come ou
   assert.equal(e.to, null);
 });
 
-test('a launch ramp throws the robot farther than any running jump', () => {
+test('a launch ramp throws the robot the way its face looks, farther than any running jump', () => {
   const w = new World();
   w.box([-50, -1, -10], [50, 0, 10], { role: 'floor' });
-  const r = w.ramp([-2.2, 0, -2], [2.2, 2.2, 2.2], 'z', 1, { role: 'ramp' });
+  // High at the back, its face looking forward (+z): a launch's wedge.
+  const r = w.ramp([-2.2, 0, -2.5], [2.2, 2.4, 2.5], 'z', -1, { role: 'ramp' });
   w.floorY = 0;
   const face = r.planes.find((p) => p.slope);
   const R = makeEnd(face.face.c, face.n, face.face.u, face.face.v, r);
@@ -120,7 +121,9 @@ test('a launch ramp throws the robot farther than any running jump', () => {
     vel[1] -= (vel[1] > 0 ? MOVE.gUp : MOVE.gFall) * dt;
     p = [p[0] + vel[0] * dt, p[1] + vel[1] * dt, p[2] + vel[2] * dt];
   }
-  assert.ok(p[2] - R.c[2] > 11, `thrown ${ (p[2] - R.c[2]).toFixed(1) } m`);
+  assert.ok(R.n[2] > 0.3, 'the face looks forward');
+  assert.ok(v[2] > 0 && Math.abs(v[0]) < 1e-9, 'and the throw goes that way');
+  assert.ok(p[2] - R.c[2] > 18, `thrown ${(p[2] - R.c[2]).toFixed(1)} m, past any running jump`);
 });
 
 test('a sight line bends round a black hole, as a charge does', () => {

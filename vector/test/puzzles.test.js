@@ -60,12 +60,66 @@ test('a bulkhead cannot be walked or jumped under: its slot is lower than the ro
 });
 
 test('a chasm and a launch cannot be jumped, even at a full run from the lip', () => {
-  for (const [type, o, lip] of [['chasm', { gap: 12 }, 7], ['launch', { gap: 10 }, 12]]) {
+  // The launch's wedge stands in the middle of the way: its run is down the open lane beside it.
+  for (const [type, o, lip, side] of [['chasm', { gap: 12 }, 7, 0], ['launch', { gap: 10 }, 16, 3]]) {
     const { bp, sec } = mini(type, o);
-    const start = standAt(...[sec.from[0], sec.from[1], sec.from[2]]);
+    const d = [sec.to[0] - sec.from[0], sec.to[2] - sec.from[2]];
+    const L = Math.hypot(...d);
+    const right = [-d[1] / L, d[0] / L];
+    const start = standAt(sec.from[0] + right[0] * side, sec.from[1], sec.from[2] + right[1] * side);
     const r = charge(bp, sec, start);
+    assert.ok(r.best > lip - 3, `${type}: the run got past the wedge to the lip (${r.best.toFixed(1)})`);
     assert.ok(r.fell || r.best < lip + 0.5, `${type}: the robot got across (${r.best.toFixed(1)})`);
   }
+});
+
+test('no end opens across a launch\'s gap from its near side, from anywhere on it, the wedge included; its face and the floor still take one', () => {
+  const { bp, sec } = mini('launch', { gap: 10 });
+  const g = new Game(bp, { invulnerable: true });
+  const d = [sec.to[0] - sec.from[0], sec.to[2] - sec.from[2]];
+  const L = Math.hypot(...d);
+  const f = [d[0] / L, d[1] / L];
+  const right = [-f[1], f[0]];
+  const at = (x, y, z) => [sec.from[0] + right[0] * x + f[0] * z, sec.from[1] + y, sec.from[2] + right[1] * x + f[1] * z];
+  const lip = 16;
+  const across = (p) => (p[0] - sec.from[0]) * f[0] + (p[2] - sec.from[2]) * f[1] > lip + 0.05;
+  let tries = 0;
+  // Standing all over the near side, and on top of the wedge's high end, aiming at the far floor, walls and pit.
+  const stands = [];
+  for (const x of [-3, -1.5, 0, 1.5, 3]) for (const z of [1, 4, 12, 14.5, 15.6]) stands.push(at(x, 0.91, z));
+  stands.push(at(0, 2.4 + 0.91, 6.3), at(1.5, 2.4 + 0.91, 6.3));
+  const targets = [];
+  for (const x of [-3.5, -2, 0, 2, 3.5]) for (const z of [lip + 1, lip + 5, lip + 10, lip + 13, lip + 20, lip + 26]) for (const y of [-4, 0, 1, 3]) targets.push(at(x, y, z));
+  for (const p of stands) {
+    g.bot.spawn(p, 0);
+    const eye = g.bot.eyePos();
+    for (const q of targets) {
+      const dir = [q[0] - eye[0], q[1] - eye[1], q[2] - eye[2]];
+      const n = Math.hypot(...dir);
+      g.bot.yaw = Math.atan2(dir[0], dir[2]);
+      g.bot.pitch = Math.asin(dir[1] / n);
+      const e = g.openEnd(0);
+      tries++;
+      assert.ok(!e || !across(e.c), `an end opened across the gap, at ${e && e.c.map((v) => v.toFixed(1))}, from ${p.map((v) => v.toFixed(1))}`);
+      g.closeEnd(0, g.me, true);
+    }
+  }
+  assert.ok(tries > 3000);
+  // The launch itself: standing at the lip, looking back, an end opens on the wedge's face and one at the robot's feet.
+  const link = bp.links.find((k) => k.kind === 'launch');
+  g.bot.spawn(at(0, 0.91, lip - 0.9), 0);
+  const aim = (p) => {
+    const eye = g.bot.eyePos();
+    const dir = [p[0] - eye[0], p[1] - eye[1], p[2] - eye[2]];
+    g.bot.yaw = Math.atan2(dir[0], dir[2]);
+    g.bot.pitch = Math.asin(dir[1] / Math.hypot(...dir));
+  };
+  aim(link.face);
+  const face = g.openEnd(0);
+  aim(link.near);
+  const feet = g.openEnd(1);
+  assert.ok(face && face.ramp && face.n[1] > 0.5, 'the face takes an end, looking up and out over the gap');
+  assert.ok(feet && feet.kind === 'floor', 'and the floor at the lip takes the other');
 });
 
 test('with the wormholes, each puzzle is crossed', () => {

@@ -161,7 +161,7 @@ function openCab(g) {
     const dir = lookDir((k / 16) * Math.PI * 2, 0);
     const h = g.world.raycast(eye, dir, 25);
     if (h && Math.abs(h.n[1]) < 0.3 && (!best || h.t < best.t)) {
-      const end = placeEnd(g.world, sightLine(g.world, eye, dir).hit, dir, e0).end;
+      const end = placeEnd(g.world, sightLine(g.world, eye, dir).hit, dir, e0, eye).end;
       if (end) best = { t: h.t, dir };
     }
   }

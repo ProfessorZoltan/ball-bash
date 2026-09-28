@@ -41,6 +41,7 @@ export class Art {
     for (const w of g.world.wells) this.well(w);
     for (const h of g.world.hazards) this.hazard(h);
     for (const f of g.world.fans) this.fan(f);
+    for (const w of g.world.wards) this.ward(w);
     this.checkpoints(g);
     if (g.boss) this.boss(g.boss, g);
     // Every robot: your own only through a wormhole, everyone else's always, flickering after a hit.
@@ -535,6 +536,29 @@ export class Art {
     }
   }
 
+  /**
+   * A launch's ward: a faint shimmer hung over the gap's near lip, lines of
+   * light drifting up it, a post either side. No end opens through it from
+   * this side (wormholes.js, warded); the aim shows a red cross there too.
+   */
+  ward(w) {
+    const t = this.t;
+    const up = [0, 1, 0];
+    const H = 7;
+    const base = [w.c[0], w.c[1] - 2, w.c[2]];
+    const mid = add(base, [0, H / 2, 0]);
+    this.r.draw('box', model(mid, w.r, up, w.n, [w.hw * 2 - 3, H, 0.02]), w.look, { glow: 1, alpha: 0.05 });
+    for (let i = 0; i < 6; i++) {
+      const k = (t * 0.25 + i / 6) % 1;
+      this.r.draw('box', model(add(base, [0, k * H, 0]), w.r, up, w.n, [w.hw * 2 - 3, 0.03, 0.02]), w.look, { glow: 2, alpha: 0.3 * Math.sin(k * Math.PI) });
+    }
+    for (const side of [-1, 1]) {
+      const p = add(add(w.c, scale(w.r, side * (w.hw - 1.8))), [0, 1.2, 0]);
+      this.d('box', p, Math.atan2(w.n[0], w.n[2]), 0, 0, [0.12, 2.4, 0.12], '#3a4048', { mat: 'metal' });
+      this.d('ball', add(p, [0, 1.25, 0]), 0, 0, 0, [0.18, 0.18, 0.18], w.look, { glow: 2.5 });
+    }
+  }
+
   checkpoints(g) {
     g.bp.checkpoints.forEach((c, i) => {
       if (i <= g.checkpoint) return;
@@ -589,7 +613,7 @@ export class Art {
     const sl = sightLine(g.world, b.eyePos(), dir);
     this.lastSight = sl;
     if (!sl.hit) return;
-    const { end } = placeEnd(g.world, sl.hit, dir, g.ends[0] || g.ends[1]);
+    const { end } = placeEnd(g.world, sl.hit, dir, g.ends[0] || g.ends[1], b.eyePos());
     if (end) {
       this.r.draw('ring', model(add(end.c, scale(end.n, 0.03)), end.u, end.n, end.v, [WORM.a * 2, 1, WORM.b * 2]), '#ffffff', { glow: 1.5, alpha: 0.35 });
     } else {

@@ -515,7 +515,7 @@ export const LEVEL_DEFS = [
       ['run', { len: 10, foes: 1 }],
       ['arena', { boss: 'forgewright', height: 14, size: 40 }],
     ],
-    signs: { 5: 'A launch ramp. One end on its face and one at your feet: out of the face, you are thrown.', 6: 'That one carries a shield. Come at it from the side.', 13: 'A fan. Step off the edge into its draft: it carries you up to the lit ledge.' },
+    signs: { 5: 'Too far to jump, and the shimmer over the gap takes no end. Go round the ramp to the edge and look back: one end on its face, one at your feet, and it throws you across.', 6: 'That one carries a shield. Come at it from the side.', 13: 'A fan. Step off the edge into its draft: it carries you up to the lit ledge.' },
   },
   {
     id: 5,
