@@ -3,7 +3,10 @@
 // (brick, concrete, wood, grass, water, snow, painted in the shader from the
 // surface's position) and mixes them by the level's `real`, so the same wall
 // is neon in the first level and brick in the sixth. Colours arrive as
-// linear light and leave through a filmic curve.
+// linear light and leave through a filmic curve. At High quality the sun
+// casts shadows (a depth map drawn from the sun, SHADOW_*), and what is
+// bright glows (the frame drawn off screen, its bright parts blurred and
+// laid back over it, BLOOM_*).
 
 export const WORLD_VS = `#version 300 es
 layout(location=0) in vec3 a_pos;
@@ -16,7 +19,10 @@ layout(location=6) in float a_glow;
 uniform mat4 u_proj;
 uniform mat4 u_view;
 uniform mat4 u_model;
+uniform mat4 u_shadowVP;
+uniform float u_shadowBias;
 out vec3 v_wpos;
+out vec4 v_spos;
 out vec3 v_nrm;
 out vec3 v_col;
 out vec2 v_uv;
@@ -34,6 +40,9 @@ void main() {
   v_size = a_size;
   v_mat = int(a_mat + 0.5);
   v_glow = a_glow;
+  // Where this is in the sun's view, pushed a little off its surface along the
+  // normal so a face never shades itself.
+  v_spos = u_shadowVP * vec4(w.xyz + normalize(v_nrm) * u_shadowBias, 1.0);
   gl_Position = u_proj * u_view * w;
 }`;
 
@@ -101,8 +110,33 @@ uniform float u_rain;
 uniform int u_nl;
 uniform vec4 u_lp[8];
 uniform vec4 u_lc[8];
+uniform highp sampler2DShadow u_shadow;
+uniform float u_shadowAmt;
+uniform float u_shadowTexel;
+in vec4 v_spos;
 out vec4 o;
 ${COMMON}
+/**
+ * How much of the sun reaches here: 1 in the open, less in a shadow. Nine
+ * looks round the spot, each itself a blend of four texels, so an edge is
+ * soft; and it fades out toward the edge of the sun's square, which follows
+ * the camera, so there is never a line where shadows stop.
+ */
+float sunShadow() {
+  if (u_shadowAmt <= 0.0) return 1.0;
+  vec3 p = v_spos.xyz / v_spos.w * 0.5 + 0.5;
+  vec2 d = abs(p.xy * 2.0 - 1.0);
+  float edge = max(d.x, d.y);
+  if (edge >= 1.0 || p.z >= 1.0) return 1.0;
+  float s = 0.0;
+  for (int i = -1; i <= 1; i++) {
+    for (int j = -1; j <= 1; j++) {
+      s += texture(u_shadow, vec3(p.xy + vec2(float(i), float(j)) * u_shadowTexel, p.z - 0.00004));
+    }
+  }
+  s /= 9.0;
+  return mix(1.0, s, u_shadowAmt * (1.0 - smoothstep(0.8, 1.0, edge)));
+}
 vec2 planar(vec3 p, vec3 n) {
   vec3 a = abs(n);
   if (a.y > a.x && a.y > a.z) return p.xz;
@@ -311,7 +345,8 @@ void main() {
   vec3 amb = mix(u_gndCol, u_skyCol, n.y * 0.5 + 0.5);
   vec3 H = normalize(u_sunDir + V);
   float sp = pow(max(dot(n, H), 0.0), shine) * spec;
-  vec3 col = alb * (amb + u_sunCol * ndl) + u_sunCol * sp * ndl;
+  float sun = ndl > 0.0 ? sunShadow() : 1.0;
+  vec3 col = alb * (amb + u_sunCol * ndl * sun) + u_sunCol * sp * ndl * sun;
   for (int i = 0; i < 8; i++) {
     if (i >= u_nl) break;
     vec3 L = u_lp[i].xyz - P;
@@ -473,4 +508,109 @@ void main() {
   }
   col += u_tint * edge * 0.6;
   o = vec4(col, u_open);
+}`;
+
+/** The sun's depth map: only where things are, seen down the sun. */
+export const SHADOW_VS = `#version 300 es
+layout(location=0) in vec3 a_pos;
+uniform mat4 u_lvp;
+uniform mat4 u_model;
+void main() {
+  gl_Position = u_lvp * u_model * vec4(a_pos, 1.0);
+}`;
+
+export const SHADOW_FS = `#version 300 es
+precision mediump float;
+void main() {}`;
+
+/** A triangle over the whole target, for the passes that work on the finished frame. */
+export const POST_VS = `#version 300 es
+out vec2 v_uv;
+void main() {
+  vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2);
+  v_uv = p;
+  gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+}`;
+
+/**
+ * Bloom's first step: the frame at half size, and of it only what is
+ * brighter than the threshold, eased in over a soft knee so nothing pops
+ * on. The frame is on the screen's curve; the glow is added in linear light.
+ */
+export const BLOOM_BRIGHT_FS = `#version 300 es
+precision highp float;
+in vec2 v_uv;
+uniform sampler2D u_src;
+uniform vec2 u_texel;
+uniform float u_thresh;
+out vec4 o;
+void main() {
+  vec3 c = texture(u_src, v_uv + u_texel * vec2(-1.0, -1.0)).rgb;
+  c += texture(u_src, v_uv + u_texel * vec2(1.0, -1.0)).rgb;
+  c += texture(u_src, v_uv + u_texel * vec2(-1.0, 1.0)).rgb;
+  c += texture(u_src, v_uv + u_texel * vec2(1.0, 1.0)).rgb;
+  c *= 0.25;
+  float br = max(c.r, max(c.g, c.b));
+  float knee = 0.18;
+  float soft = clamp(br - u_thresh + knee, 0.0, 2.0 * knee);
+  soft = soft * soft / (4.0 * knee + 1e-4);
+  float w = max(soft, br - u_thresh) / max(br, 1e-4);
+  o = vec4(pow(c, vec3(2.2)) * w, 1.0);
+}`;
+
+/** Down a size, blurring as it goes (the dual filter's downward step). */
+export const BLOOM_DOWN_FS = `#version 300 es
+precision highp float;
+in vec2 v_uv;
+uniform sampler2D u_src;
+uniform vec2 u_texel;
+out vec4 o;
+void main() {
+  vec3 c = texture(u_src, v_uv).rgb * 4.0;
+  c += texture(u_src, v_uv - u_texel).rgb;
+  c += texture(u_src, v_uv + u_texel).rgb;
+  c += texture(u_src, v_uv + vec2(u_texel.x, -u_texel.y)).rgb;
+  c += texture(u_src, v_uv - vec2(u_texel.x, -u_texel.y)).rgb;
+  o = vec4(c / 8.0, 1.0);
+}`;
+
+/** Up a size, blurring again, added onto what is there (the dual filter's upward step). */
+export const BLOOM_UP_FS = `#version 300 es
+precision highp float;
+in vec2 v_uv;
+uniform sampler2D u_src;
+uniform vec2 u_texel;
+out vec4 o;
+void main() {
+  vec2 h = u_texel;
+  vec3 c = texture(u_src, v_uv + vec2(-h.x * 2.0, 0.0)).rgb;
+  c += texture(u_src, v_uv + vec2(-h.x, h.y)).rgb * 2.0;
+  c += texture(u_src, v_uv + vec2(0.0, h.y * 2.0)).rgb;
+  c += texture(u_src, v_uv + vec2(h.x, h.y)).rgb * 2.0;
+  c += texture(u_src, v_uv + vec2(h.x * 2.0, 0.0)).rgb;
+  c += texture(u_src, v_uv + vec2(h.x, -h.y)).rgb * 2.0;
+  c += texture(u_src, v_uv + vec2(0.0, -h.y * 2.0)).rgb;
+  c += texture(u_src, v_uv + vec2(-h.x, -h.y)).rgb * 2.0;
+  o = vec4(c / 12.0, 1.0);
+}`;
+
+/** The frame with its glow laid over it, dithered so a soft glow does not band. */
+export const BLOOM_MIX_FS = `#version 300 es
+precision highp float;
+in vec2 v_uv;
+uniform sampler2D u_scene;
+uniform sampler2D u_bloom;
+uniform float u_amt;
+out vec4 o;
+float h21(vec2 p) {
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
+void main() {
+  vec3 sc = texture(u_scene, v_uv).rgb;
+  vec3 b = texture(u_bloom, v_uv).rgb * u_amt;
+  vec3 c = pow(pow(sc, vec3(2.2)) + b, vec3(1.0 / 2.2));
+  c += (h21(gl_FragCoord.xy) - 0.5) / 255.0;
+  o = vec4(c, 1.0);
 }`;

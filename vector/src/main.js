@@ -64,15 +64,17 @@ function saveSettings() {
 }
 
 // Auto quality: High until the frame rate stays under 40 for three seconds of
-// play, then Low for the rest of the session.
-let autoLow = false;
+// play, then Medium (no shadows, no bloom), and if it is still slow, Low for
+// the rest of the session.
+const QUALITIES = ['high', 'medium', 'low'];
+let autoStep = 0; // how far Auto has stepped down: 0 High, 1 Medium, 2 Low
 let slowSeconds = 0;
 
 function applySettings() {
   input.sens = settings.sens;
   input.invert = settings.invert;
   input.autoRun = settings.autoRun;
-  renderer.quality = settings.quality === 'low' || (settings.quality === 'auto' && autoLow) ? 'low' : 'high';
+  renderer.quality = settings.quality === 'auto' ? QUALITIES[autoStep] : QUALITIES.includes(settings.quality) ? settings.quality : 'high';
   renderer.resize();
 }
 applySettings();
@@ -419,7 +421,7 @@ function settingsHtml(short = false) {
   return `
     ${short ? '' : `<div class="field"><label for="diff">Difficulty</label><select id="diff">${DIFFICULTIES.map((x) => `<option value="${x.id}" ${x.id === difficulty().id ? 'selected' : ''}>${x.name} · ${x.blurb}</option>`).join('')}</select></div>`}
     <div class="field"><label for="snd">Sound</label><select id="snd"><option value="on" ${settings.muted ? '' : 'selected'}>On</option><option value="off" ${settings.muted ? 'selected' : ''}>Off</option></select>
-      <label for="q">Quality</label><select id="q"><option value="auto" ${q === 'auto' ? 'selected' : ''}>Auto${autoLow ? ' (low)' : ''}</option><option value="high" ${q === 'high' ? 'selected' : ''}>High</option><option value="low" ${q === 'low' ? 'selected' : ''}>Low</option></select></div>
+      <label for="q">Quality</label><select id="q"><option value="auto" ${q === 'auto' ? 'selected' : ''}>Auto${autoStep ? ` (${QUALITIES[autoStep]})` : ''}</option><option value="high" ${q === 'high' ? 'selected' : ''}>High</option><option value="medium" ${q === 'medium' ? 'selected' : ''}>Medium</option><option value="low" ${q === 'low' ? 'selected' : ''}>Low</option></select></div>
     <div class="field"><label for="sens">Mouse</label><input id="sens" type="range" min="0.3" max="3" step="0.05" value="${settings.sens}" /><label for="inv">Look</label><select id="inv"><option value="no" ${settings.invert ? '' : 'selected'}>Normal</option><option value="yes" ${settings.invert ? 'selected' : ''}>Inverted</option></select></div>
     <div class="field"><label for="aimline">Aim line</label><select id="aimline"><option value="on" ${settings.aimLine ? 'selected' : ''}>On</option><option value="off" ${settings.aimLine ? '' : 'selected'}>Off</option></select>
       <label for="runmode">Run</label><select id="runmode"><option value="hold" ${settings.autoRun ? '' : 'selected'}>Hold Shift</option><option value="auto" ${settings.autoRun ? 'selected' : ''}>By default</option></select></div>`;
@@ -1381,10 +1383,11 @@ function frame(now) {
     frames.fps = Math.round(frames.n / frames.t);
     frames.n = 0;
     frames.t = 0;
-    if (state === 'play' && settings.quality === 'auto' && !autoLow) {
+    if (state === 'play' && settings.quality === 'auto' && autoStep < QUALITIES.length - 1) {
       slowSeconds = frames.fps < 40 ? slowSeconds + 1 : 0;
       if (slowSeconds >= 3) {
-        autoLow = true;
+        autoStep++;
+        slowSeconds = 0;
         applySettings();
       }
     }

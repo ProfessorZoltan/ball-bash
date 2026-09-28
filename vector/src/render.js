@@ -3,9 +3,13 @@
 // culled against the view; what moves is drawn from a list the art (art.js)
 // fills each frame, from a few shapes turned and scaled by a matrix. Through
 // each open wormhole end the scene is drawn again from the twin's side, into
-// a texture the mouth then shows, so a wormhole is a window.
-import { createGL, program, mesh, freeMesh, target, freeTarget, lin } from './gl.js';
-import { WORLD_VS, WORLD_FS, SKY_VS, SKY_FS, POINT_VS, POINT_FS, MOUTH_FS } from './shaders.js';
+// a texture the mouth then shows, so a wormhole is a window. At High quality
+// the sun casts shadows in the real world's levels (a depth map drawn from
+// the sun first, over a square of ground round the view), and the frame is
+// drawn off screen so its bright parts can bloom: the grid's neon most of all.
+import { createGL, program, mesh, freeMesh, target, freeTarget, lin, posMesh, depthTarget, colorTarget, msaaTarget } from './gl.js';
+import { WORLD_VS, WORLD_FS, SKY_VS, SKY_FS, POINT_VS, POINT_FS, MOUTH_FS, SHADOW_VS, SHADOW_FS, POST_VS, BLOOM_BRIGHT_FS, BLOOM_DOWN_FS, BLOOM_UP_FS, BLOOM_MIX_FS } from './shaders.js';
+import { effects, sunBox, casts } from './effects.js';
 import { MeshData, MAT, solidFaces, unitBox, sphere, cylinder, cone, torus, polyhedron, mouth, throat, STRIDE } from './meshes.js';
 import { perspective, viewFromBasis, mul4, mat4, camBasis, dot, sub, norm } from './math.js';
 import { through, turn, CORNER } from './wormholes.js';
@@ -16,6 +20,11 @@ const CHUNK = 32; // m: the still scenery is cut into squares this big, culled w
 const FOV = (68 * Math.PI) / 180;
 const NEAR = 0.05;
 const FAR = 520;
+const SHADOW_RES = 2048; // texels across the sun's depth map
+const SHADOW_SIZE = 90; // m of ground it covers, round where you look
+const SHADOW_DEPTH = 150; // m either side of the ground that still casts: a low sun's long shadows
+const BLOOM_STEPS = 5; // halvings of the frame the glow is blurred through
+const BLOOM_GAIN = 0.7;
 
 export class Renderer {
   constructor(canvas) {
@@ -35,7 +44,7 @@ export class Renderer {
     this.glassList = [];
     this.pts = [];
     this.lights = [];
-    this.quality = 'high';
+    this.quality = 'high'; // high, medium (no shadows or bloom) or low (and no views through wormholes)
     this.theme = null;
     this.targets = [null, null, null, null];
     this.pointBuf = gl.createBuffer();
@@ -51,6 +60,25 @@ export class Renderer {
     gl.bindVertexArray(null);
     this.mouthMesh = mesh(gl, mouth(WORM.a, WORM.b, CORNER));
     this.throatMesh = mesh(gl, throat(WORM.a, WORM.b, CORNER, 1.2));
+    // High quality's extras: the sun's shadows and bloom.
+    this.shadowProg = program(gl, SHADOW_VS, SHADOW_FS);
+    this.brightProg = program(gl, POST_VS, BLOOM_BRIGHT_FS);
+    this.downProg = program(gl, POST_VS, BLOOM_DOWN_FS);
+    this.upProg = program(gl, POST_VS, BLOOM_UP_FS);
+    this.mixProg = program(gl, POST_VS, BLOOM_MIX_FS);
+    this.floatOk = !!gl.getExtension('EXT_color_buffer_float');
+    this.shadowMap = null; // made the first time a level has shadows
+    this.noShadow = depthTarget(gl, 1); // bound in its place when there are none: the shader always has one
+    // A mouth with no view through it samples this, never whatever was bound last (which
+    // could be the very target it is being drawn into).
+    this.blank = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, this.blank);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
+    this.post = null; // bloom's targets, at the screen's size
+    this.postFailed = false;
+    this.sun = null; // this frame's shadows: the sun's view, and how strong
+    this.fx = { shadow: 0, bloom: 0, threshold: 1 };
+    this.drawn = { shadow: false, bloom: false }; // what the last frame had, for the tools
     this.w = 1;
     this.h = 1;
     this.resize();
@@ -117,19 +145,29 @@ export class Renderer {
    */
   setLevel(bp, world) {
     const gl = this.gl;
-    for (const c of this.chunks) freeMesh(gl, c.mesh);
-    for (const m of this.dyn.values()) freeMesh(gl, m);
+    for (const c of this.chunks) {
+      freeMesh(gl, c.mesh);
+      freeMesh(gl, c.glass);
+      freeMesh(gl, c.cast);
+    }
+    for (const d of this.dyn.values()) freeMesh(gl, d.mesh);
     this.chunks = [];
     this.dyn.clear();
     this.theme = themeUniforms(bp.theme);
+    this.fx = effects(bp.theme, bp.def || {});
     this.bp = bp;
     this.worldRef = world;
     const bins = new Map();
     const bin = (x, z) => {
       const k = `${Math.floor(x / CHUNK)},${Math.floor(z / CHUNK)}`;
       let b = bins.get(k);
-      if (!b) bins.set(k, (b = { m: new MeshData(), glass: new MeshData(), min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] }));
+      if (!b) bins.set(k, (b = { m: new MeshData(), glass: new MeshData(), cast: [], min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] }));
       return b;
+    };
+    // What casts a shadow, as bare positions: the corners just added to a chunk's mesh.
+    const castFrom = (b, start) => {
+      const v = b.m.v;
+      for (let i = start; i < b.m.count; i++) b.cast.push(v[i * STRIDE], v[i * STRIDE + 1], v[i * STRIDE + 2]);
     };
     const grow = (b, min, max) => {
       for (let i = 0; i < 3; i++) {
@@ -144,22 +182,28 @@ export class Renderer {
         const m = new MeshData();
         solidFaces(m, s, look.col, look.mat, look.glow, look.top);
         // Built where it is now, drawn offset by how far it has moved since.
-        this.dyn.set(s.id, { mesh: mesh(gl, m), at: [...s.min], glass: !!s.glass });
+        this.dyn.set(s.id, { mesh: mesh(gl, m), at: [...s.min], glass: !!s.glass, casts: casts(s) });
         continue;
       }
       const b = bin((s.min[0] + s.max[0]) / 2, (s.min[2] + s.max[2]) / 2);
+      const start = b.m.count;
       solidFaces(s.glass ? b.glass : b.m, s, look.col, look.mat, look.glow, look.top);
+      if (!s.glass && casts(s)) castFrom(b, start);
       grow(b, s.min, s.max);
     }
     for (const p of bp.props || []) {
       const b = bin(p.p[0], p.p[2]);
+      const start = b.m.count;
       const box = buildProp(b.m, p, this.theme.real);
+      // The ground far below takes shadows; it casts none.
+      if (p.kind !== 'plane') castFrom(b, start);
       if (box) grow(b, box.min, box.max);
     }
     for (const b of bins.values()) {
       const c = { min: b.min, max: b.max };
       if (b.m.count) c.mesh = mesh(gl, b.m);
       if (b.glass.count) c.glass = mesh(gl, b.glass);
+      if (b.cast.length) c.cast = posMesh(gl, new Float32Array(b.cast));
       this.chunks.push(c);
     }
   }
@@ -219,6 +263,13 @@ export class Renderer {
     const B = camBasis(cam.yaw, cam.pitch);
     const main = { eye: cam.eye, right: B.right, up: B.up, fwd: B.fwd };
     this.time = view.time;
+    // High draws everything; Medium leaves out the shadows and the bloom; Low the views through wormholes too.
+    const high = this.quality === 'high';
+    // The sun's view first, for its shadows, in the levels real enough to have them.
+    this.sun = null;
+    if (high && this.fx.shadow > 0) this.sunPass(cam, B);
+    const post = high && this.fx.bloom > 0 ? this.postTargets() : null;
+    this.drawn = { shadow: !!this.sun, bloom: !!post };
     // Each end we can see through, drawn from its twin's side first.
     const live = new Map();
     if (this.quality !== 'low') {
@@ -244,9 +295,11 @@ export class Renderer {
         live.set(e, t);
       }
     }
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, post ? post.scene.fb : null);
     gl.viewport(0, 0, this.w, this.h);
     this.scene(proj, main, [0, 0, 0, 1], ends, live, false, view);
+    // The glow goes on before the blaster in hand, so the hand stays crisp in front of it.
+    if (post) this.bloomPass(post);
     if (view.viewmodel) {
       gl.clear(gl.DEPTH_BUFFER_BIT);
       const vproj = perspective((52 * Math.PI) / 180, aspect, 0.01, 10);
@@ -254,9 +307,168 @@ export class Renderer {
       this.list.length = 0;
       this.glassList.length = 0;
       view.viewmodel(this);
+      gl.enable(gl.DEPTH_TEST);
+      gl.disable(gl.CULL_FACE);
       this.useWorld(vproj, ident, [0, 0, 0], [0, 0, 0, 1], true);
       this.drawList(this.list, false);
     }
+  }
+
+  // ------------------------------------------------------------ the sun's shadows
+
+  /**
+   * The sun's depth map: everything that casts, seen down the sun over a
+   * square of ground round where the camera looks. The ground far below and
+   * roofs, lamps and glass cast nothing (effects.js).
+   */
+  sunPass(cam, B) {
+    const gl = this.gl;
+    if (!this.shadowMap) this.shadowMap = depthTarget(gl, SHADOW_RES);
+    const box = sunBox(cam.eye, B.fwd, this.theme.sunDir, SHADOW_SIZE, SHADOW_RES, SHADOW_DEPTH);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.shadowMap.fb);
+    gl.viewport(0, 0, SHADOW_RES, SHADOW_RES);
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LEQUAL);
+    gl.depthMask(true);
+    gl.clear(gl.DEPTH_BUFFER_BIT);
+    gl.disable(gl.CULL_FACE);
+    gl.disable(gl.BLEND);
+    // Pushed back a little, more on a slope, so a surface lit at a glance does not shade itself in stripes.
+    gl.enable(gl.POLYGON_OFFSET_FILL);
+    gl.polygonOffset(1.5, 3);
+    const P = this.shadowProg;
+    gl.useProgram(P.p);
+    gl.uniformMatrix4fv(P.u.u_lvp, false, box.vp);
+    gl.uniformMatrix4fv(P.u.u_model, false, IDENT);
+    for (const c of this.chunks) {
+      if (!c.cast || !boxInFrustum(box.vp, c.min, c.max)) continue;
+      gl.bindVertexArray(c.cast.vao);
+      gl.drawArrays(gl.TRIANGLES, 0, c.cast.count);
+    }
+    for (const s of this.worldRef.dynamic) {
+      const d = this.dyn.get(s.id);
+      if (!d || !d.casts || d.glass || s.gone || s.hidden) continue;
+      gl.uniformMatrix4fv(P.u.u_model, false, translation(s.min[0] - d.at[0], s.min[1] - d.at[1], s.min[2] - d.at[2]));
+      gl.bindVertexArray(d.mesh.vao);
+      gl.drawArrays(gl.TRIANGLES, 0, d.mesh.count);
+    }
+    // What moves: machines, the boss, every robot (your own too: you see your shadow).
+    for (const e of this.list) {
+      gl.uniformMatrix4fv(P.u.u_model, false, e.m);
+      gl.bindVertexArray(e.mesh.vao);
+      gl.drawArrays(gl.TRIANGLES, 0, e.mesh.count);
+    }
+    gl.disable(gl.POLYGON_OFFSET_FILL);
+    gl.bindVertexArray(null);
+    this.sun = { vp: box.vp, texel: 1 / SHADOW_RES, bias: box.texel * 1.5, amt: this.fx.shadow };
+  }
+
+  // ------------------------------------------------------------------ bloom
+
+  /** Bloom's targets at the screen's size: the frame (multisampled, and resolved), and its halvings. */
+  postTargets() {
+    if (this.postFailed) return null;
+    const P = this.post;
+    if (P && P.w === this.w && P.h === this.h) return P;
+    this.freePost();
+    const gl = this.gl;
+    const w = this.w;
+    const h = this.h;
+    const max = gl.getParameter(gl.MAX_SAMPLES) || 0;
+    const samples = Math.min(max, w * h > 2.5e6 ? 2 : 4);
+    const post = { w, h, mips: [] };
+    if (samples > 1) {
+      post.scene = msaaTarget(gl, w, h, samples);
+      post.resolved = colorTarget(gl, w, h);
+    } else post.scene = target(gl, w, h);
+    let mw = w;
+    let mh = h;
+    for (let i = 0; i < BLOOM_STEPS; i++) {
+      mw = Math.max(1, Math.ceil(mw / 2));
+      mh = Math.max(1, Math.ceil(mh / 2));
+      post.mips.push(colorTarget(gl, mw, mh, this.floatOk));
+    }
+    this.post = post;
+    // A browser that cannot draw into one of these gets the plain frame.
+    for (const t of [post.scene, post.resolved, ...post.mips]) {
+      if (!t) continue;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, t.fb);
+      if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+        this.freePost();
+        this.postFailed = true;
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        return null;
+      }
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    return post;
+  }
+
+  freePost() {
+    const P = this.post;
+    if (!P) return;
+    for (const t of [P.scene, P.resolved, ...P.mips]) freeTarget(this.gl, t);
+    this.post = null;
+  }
+
+  /** One full-target pass of a post program, from a texture into a target. */
+  pass(prog, src, dst, uniforms) {
+    const gl = this.gl;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, dst ? dst.fb : null);
+    gl.viewport(0, 0, dst ? dst.w : this.w, dst ? dst.h : this.h);
+    gl.useProgram(prog.p);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, src.tex);
+    if (prog.u.u_src) gl.uniform1i(prog.u.u_src, 0);
+    for (const [k, v] of Object.entries(uniforms)) {
+      if (!prog.u[k]) continue;
+      if (Array.isArray(v)) gl.uniform2fv(prog.u[k], v);
+      else gl.uniform1f(prog.u[k], v);
+    }
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+
+  /**
+   * The frame's glow: what is brighter than the level's threshold, at half
+   * size, blurred down through smaller and smaller copies and back up again,
+   * then laid over the frame in linear light.
+   */
+  bloomPass(P) {
+    const gl = this.gl;
+    if (P.resolved) {
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, P.scene.fb);
+      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, P.resolved.fb);
+      gl.blitFramebuffer(0, 0, P.w, P.h, 0, 0, P.w, P.h, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+    }
+    const frame = P.resolved || P.scene;
+    gl.disable(gl.DEPTH_TEST);
+    gl.disable(gl.CULL_FACE);
+    gl.disable(gl.BLEND);
+    gl.depthMask(false);
+    gl.bindVertexArray(this.skyVao);
+    const M = P.mips;
+    this.pass(this.brightProg, frame, M[0], { u_texel: [1 / frame.w, 1 / frame.h], u_thresh: this.fx.threshold });
+    for (let i = 1; i < M.length; i++) this.pass(this.downProg, M[i - 1], M[i], { u_texel: [1 / M[i - 1].w, 1 / M[i - 1].h] });
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE);
+    for (let i = M.length - 2; i >= 0; i--) this.pass(this.upProg, M[i + 1], M[i], { u_texel: [0.5 / M[i + 1].w, 0.5 / M[i + 1].h] });
+    gl.disable(gl.BLEND);
+    // Onto the screen: the frame, and its glow.
+    const X = this.mixProg;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, this.w, this.h);
+    gl.useProgram(X.p);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, frame.tex);
+    gl.uniform1i(X.u.u_scene, 0);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, M[0].tex);
+    gl.uniform1i(X.u.u_bloom, 1);
+    gl.uniform1f(X.u.u_amt, this.fx.bloom * BLOOM_GAIN);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.depthMask(true);
+    gl.bindVertexArray(null);
   }
 
   /** Is an end's mouth anywhere in the view? */
@@ -285,6 +497,16 @@ export class Renderer {
     gl.uniform3fv(P.u.u_edgeCol, T.edgeCol);
     gl.uniform4fv(P.u.u_clip, clip);
     gl.uniform1f(P.u.u_rain, T.rain);
+    // The sun's shadows, if this frame has them; the blaster in hand takes none.
+    const sun = !flatLight && this.sun;
+    gl.uniformMatrix4fv(P.u.u_shadowVP, false, sun ? sun.vp : IDENT);
+    gl.uniform1f(P.u.u_shadowBias, sun ? sun.bias : 0);
+    gl.uniform1f(P.u.u_shadowAmt, sun ? sun.amt : 0);
+    gl.uniform1f(P.u.u_shadowTexel, sun ? sun.texel : 0);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, sun ? this.shadowMap.tex : this.noShadow.tex);
+    gl.uniform1i(P.u.u_shadow, 1);
+    gl.activeTexture(gl.TEXTURE0);
     const n = flatLight ? 0 : this.lights.length;
     gl.uniform1i(P.u.u_nl, n);
     if (n) {
@@ -400,11 +622,9 @@ export class Renderer {
       gl.uniform1f(M.u.u_live, t ? 1 : 0);
       gl.uniform1f(M.u.u_open, 1);
       gl.uniform2f(M.u.u_res, this.w, this.h);
-      if (t) {
-        gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D, t.tex);
-        gl.uniform1i(M.u.u_view2, 0);
-      }
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, t ? t.tex : this.blank);
+      gl.uniform1i(M.u.u_view2, 0);
       const mm = endMatrix(e);
       gl.uniformMatrix4fv(M.u.u_model, false, mm);
       gl.bindVertexArray(this.mouthMesh.vao);
@@ -454,7 +674,7 @@ export class Renderer {
 
   /** Where a screen point looks, for the tools. */
   info() {
-    return { w: this.w, h: this.h, chunks: this.chunks.length, shapes: this.shapes.size, verts: this.chunks.reduce((n, c) => n + (c.mesh ? c.mesh.count : 0), 0) };
+    return { w: this.w, h: this.h, chunks: this.chunks.length, shapes: this.shapes.size, verts: this.chunks.reduce((n, c) => n + (c.mesh ? c.mesh.count : 0), 0), casters: this.chunks.reduce((n, c) => n + (c.cast ? c.cast.count : 0), 0), quality: this.quality, fx: this.fx, drawn: this.drawn };
   }
 }
 

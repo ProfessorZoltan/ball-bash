@@ -1661,8 +1661,10 @@ can hold fire and turn). A controller works as in any shooter.
 **Aim line** turns off the dotted line of where a shot will go (its bounces
 and bends included, the same flight flown ahead) and the outline of where a
 wormhole end would open (a red cross where none can), and **Quality** is
-High, Low, or Auto (the default), which starts High and drops to Low for the
-session if the frame rate stays under 40 for three seconds of play. Low draws
+High, Medium, Low, or Auto (the default), which starts High and steps down,
+to Medium and then to Low, for the rest of the session each time the frame
+rate stays under 40 for three seconds of play. High has the sun's shadows
+and bloom (below, under **Levels**); Medium leaves both out; Low also draws
 at a lower resolution and shows a swirl in a wormhole's mouth instead of the
 view through it (`applySettings` in `vector/src/main.js`).
 
@@ -1710,7 +1712,7 @@ found in.
 Defector's pair, light end and dark end, as mouths on surfaces: a rounded
 doorway 1.6 m wide and 2.4 m tall. What crosses one comes out of the other
 turned by the angle between them, speed kept. With both ends open and the
-Quality setting High, each mouth is a window: the scene is drawn again from
+Quality setting High or Medium, each mouth is a window: the scene is drawn again from
 the twin's side into a texture that the mouth shows, so you see where it
 goes, and yourself through it (`frame` in `vector/src/render.js`).
 
@@ -1828,6 +1830,40 @@ corrugated steel are painted in the shader from the surface's position
 (`WORLD_FS` in `vector/src/shaders.js`, `THEMES` in `vector/src/levels.js`).
 The sky goes the same way: a banded sun over a grid on the void, a wire
 moon, a night city, dawn over water, a clear sky over snow.
+
+At High quality the light goes that way too. The grid **blooms**: the frame
+is drawn off screen, what is brighter than a threshold is blurred down
+through five halvings of it and back up (a dual filter), and laid back over
+it in linear light, so the neon bleeds into the dark round it. The blaster
+in your hand is drawn after, and stays crisp. The glow thins as the levels
+get real and its threshold rises, until only the world's lamps and its sun
+glow at all. The **sun casts shadows** once the world is real enough to
+have one: a depth map drawn from the sun each frame over a square of ground
+90 m across round where you look, stepped a whole texel at a time so an
+edge holds still as you walk, looked up nine times a spot for a soft edge,
+and faded out toward the square's edge. Everything casts (the scenery, the
+machines, the boss, every robot, your own included) except roofs, lamps
+and glass: under a roof the level's "sun" is the room's own light, and its
+shadows are softer, as they are in rain.
+
+| Level | Shadows | Bloom | Glows above | Source |
+| --- | --- | --- | --- | --- |
+| 1 · Edge of the Grid | none | 0.80 | 0.62 | `effects` in `vector/src/effects.js` |
+| 2 · Wireframe Wilds | none | 0.68 | 0.65 | same |
+| 3 · Render Farm | none | 0.55 | 0.68 | same |
+| 4 · The Foundry | 0.23, under a roof | 0.42 | 0.71 | same |
+| 5 · Night Freeway | 0.78 | 0.33 | 0.74 | same |
+| 6 · Rain City | 0.69, in rain | 0.27 | 0.77 | same |
+| 7 · Underline | 0.65, under a roof | 0.23 | 0.80 | same |
+| 8 · Harbour at Dawn | 1 | 0.19 | 0.83 | same |
+| 9 · Pine Ridge | 1 | 0.17 | 0.85 | same |
+| 10 · The Workshop | 0.65, under a roof | 0.16 | 0.88 | same |
+
+Shadows is how much of the sun a shadow takes away, bloom how strongly the
+glow is laid on, and "glows above" the brightness (0 to 1, on the screen's
+curve) a pixel needs before it glows. The passes are `sunPass` and
+`bloomPass` in `vector/src/render.js`; the sun's square is `sunBox` in
+`vector/src/effects.js`.
 
 ### Music
 
@@ -1985,6 +2021,7 @@ end drops any that are for another match. All of Vector's messages start with
 | The trilogy's order | each level is more real than the one before and sounds more human; every level has its own track, as human as the level | `vector/test/levels.test.js` |
 | Music and sound | every track is well formed and humanity rises across it; every voice a track names exists; every cue sounds at every humanity, placed and scaled as the game asks, and once however often it is fired at once | `vector/test/audio.test.js` |
 | The art | every machine in every roster and every boss draws, with nothing but numbers in what it asks the renderer for | `vector/test/art.test.js` |
+| Shadows and bloom | shadows come in and bloom goes out as the levels get real, softer under a roof or in rain; the sun's square is centred ahead of the eye, 90 m across, casts from 150 m toward the sun, and moves in whole texels; roofs, lamps and glass cast nothing; no shader asks for a smoothstep backwards | `vector/test/effects.test.js` |
 | Co-op | the team side by side; each robot on its own shields; out, and back at a checkpoint or the boss with one; the level lost only with the whole team out; the team locked into an ambush room and the arena together; enemies after the nearest robot; a pair of wormhole ends each, anyone's to go through; a teammate's charge through you; a drop for each | `vector/test/coop.test.js` |
 | Versus arenas | four, no two built from the same parts or wearing the same level; on each, the autopilot flies the arena's tour from every spawn and reaches every spawn and every power-up spot without losing a shield; standing still on any of them is safe for 12 s | `vector/tools/tour.mjs`, `vector/test/versus.test.js` |
 | Versus rules | the countdown; a hit and the furthest spawn; flickering; your own charges; a Hammer; Frost; a fall; the last one standing; power-ups every 30 to 60 s, never more than three and never nearer one robot than half as far as the next, over hundreds of placements on every arena; standing under the black hole safe and a jump there taken | `vector/test/versus.test.js` |
@@ -1993,7 +2030,9 @@ end drops any that are for another match. All of Vector's messages start with
 Each tool also runs on its own: `node vector/tools/autopilot.mjs 4`,
 `node vector/tools/fight.mjs 8 noportals`, `node vector/tools/tour.mjs
 foundry`, and `node vector/tools/shots.mjs level 4 out/` (or `boss 4`,
-`portal 1`, `title`) screenshots the real game in headless Chromium.
+`portal 1`, `title`, and `compare 8`, the same view at High and at Medium)
+screenshots the real game in headless Chromium, at High quality unless
+`QUALITY` says otherwise.
 `node vector/tools/play.mjs all` plays every level in the real page with the
 autopilot (`BUDGET=900` gives each longer than its 420 s), and
 `node vector/tools/multi.mjs versus 2 foundry out/` plays a multiplayer match
@@ -2005,8 +2044,9 @@ against the host's. `window.__vector` is the browser handle (`state`,
 
 ### Roadmap
 
-1. **Shadows** from the sun in the real-world levels.
-2. **Bloom** for the grid's neon at high quality.
+1. **Shadows further off**: a second, coarser square of shadow round the
+   first (cascades), so a long view at dawn is shaded to the horizon rather
+   than to 90 m.
 
 ## Online multiplayer (different networks)
 

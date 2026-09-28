@@ -6,10 +6,12 @@
 //   node vector/tools/shots.mjs boss 4 out/      level 4's boss, 5 s into the fight
 //   node vector/tools/shots.mjs portal 1 out/    a pair of ends opened, and the view through one
 //   node vector/tools/shots.mjs title out/       the title screen
+//   node vector/tools/shots.mjs compare 8 out/   a view of level 8 at High quality (shadows, bloom) and at Medium (neither)
 //
 // Uses the game at DEFLECTOR_URL, or one on port 8099, or starts server.js
 // there (tools/browser.mjs). WebGL runs in software (SwiftShader), so a frame
-// is slow; the robot is made untouchable for the shots.
+// is slow; the robot is made untouchable for the shots. Quality is held at
+// High (QUALITY=medium or low for the others): Auto would step down on so slow a machine.
 import { chromium, serve, watchErrors } from '../../tools/browser.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -22,6 +24,14 @@ const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--ena
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
 const errs = [];
 watchErrors(page, errs);
+const quality = process.env.QUALITY || 'high';
+await page.addInitScript((q) => {
+  try {
+    localStorage.setItem('vector.settings', JSON.stringify({ ...JSON.parse(localStorage.getItem('vector.settings') || '{}'), quality: q }));
+  } catch (_) {
+    // no storage: Auto it is
+  }
+}, quality);
 await page.goto(`${url}vector/`);
 await page.waitForTimeout(1200);
 const shot = (name) => page.screenshot({ path: path.join(out, name), timeout: 90000 });
@@ -60,6 +70,25 @@ if (what === 'title') {
     });
     await page.waitForTimeout(400);
     await shot(`boss${id}.png`);
+  } else if (what === 'compare') {
+    // A third of the way in, looking along the way: once with High quality's extras, once without (Medium).
+    await page.evaluate(() => {
+      const g = window.__vector.game;
+      const secs = g.bp.sections.filter((s) => s.type !== 'turn' && s.type !== 'checkpoint');
+      const s = secs[Math.floor(secs.length * 0.35)];
+      g.bot.spawn([s.from[0], s.from[1] + 0.91, s.from[2]], Math.atan2(s.to[0] - s.from[0], s.to[2] - s.from[2]));
+    });
+    for (const q of ['high', 'medium']) {
+      await page.evaluate((qq) => {
+        const r = window.__vector.renderer;
+        r.quality = qq;
+        r.resize();
+      }, q);
+      await page.waitForTimeout(900);
+      const info = await page.evaluate(() => window.__vector.renderer.info());
+      console.log(q, JSON.stringify({ fx: info.fx, drawn: info.drawn, casters: info.casters }));
+      await shot(`compare${id}-${q}.png`);
+    }
   } else if (what === 'portal') {
     await page.evaluate(() => {
       const g = window.__vector.game;
