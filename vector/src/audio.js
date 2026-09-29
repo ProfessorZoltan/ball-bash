@@ -251,7 +251,7 @@ export const AMBIENCE = Object.keys(AMB);
 const AMB_LEVEL = 0.5;
 
 // Sounds that can come many to a frame; one each is plenty.
-const CUE_GAP = { step: 0.06, ricochet: 0.03, hit: 0.03, thunk: 0.04, shot: 0.03, dry: 0.08, fizzle: 0.08, pop: 0.02 };
+const CUE_GAP = { step: 0.06, ricochet: 0.03, hit: 0.03, thunk: 0.04, hollow: 0.04, hum: 0.5, shot: 0.03, dry: 0.08, fizzle: 0.08, pop: 0.02 };
 
 export class VectorAudio extends AudioEngine {
   constructor() {
@@ -1977,6 +1977,24 @@ const CUES = {
       this.tone(o, t, 'sine', 180, 120, 0.12, 0.3 * b);
       this.hiss(o, t + 0.03, 'bandpass', 1200, 700, 1, 0.12 * b, 0.2);
     }
+  },
+  // A panel with room behind it: not a crack but a knock that rings low and dies slowly.
+  hollow(o, t, e, m, b) {
+    if (m > 0.05) {
+      this.tone(o, t, 'triangle', 150, 105, 0.4, 0.3 * m);
+      this.tone(o, t, 'square', 300, 210, 0.05, 0.08 * m);
+    }
+    if (b > 0.05) {
+      this.tone(o, t, 'sine', 118, 92, 0.5, 0.42 * b);
+      this.tone(o, t, 'sine', 236, 190, 0.22, 0.12 * b);
+      this.hiss(o, t, 'bandpass', 500, 420, 2, 0.12 * b, 0.12);
+    }
+  },
+  // Near a secret still shut, a low hum, two notes a hair apart so it beats; a wall the grid never finished buzzes.
+  hum(o, t, e) {
+    const f = e.glitch ? 92 : 68;
+    this.tone(o, t, e.glitch ? 'sawtooth' : 'sine', f, f, 1.8, e.glitch ? 0.03 : 0.06, 0.6);
+    this.tone(o, t, 'sine', f * 1.012, f * 1.012, 1.8, 0.05, 0.6);
   },
   thunk(o, t, e, m, b) {
     if (m > 0.05) this.tone(o, t, 'square', 400, 200, 0.06, 0.16 * m);

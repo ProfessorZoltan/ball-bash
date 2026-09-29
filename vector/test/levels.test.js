@@ -67,6 +67,7 @@ test('every level is crossed by the autopilot, flying the robot\'s own physics, 
   for (const L of LEVEL_DEFS) {
     const r = fly(L.id);
     assert.ok(r.ok, `${L.title}: ${r.why}`);
+    assert.equal(r.game.stats.secrets, 0, `${L.title}: the way through takes no secret`);
   }
 });
 

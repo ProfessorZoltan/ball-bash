@@ -6,7 +6,9 @@
 // list of sections (sections.js) with a theme, a roster and scenery.
 // DOM-free.
 import { Builder } from './build.js';
+import { rng } from './math.js';
 import { SECTIONS } from './sections.js';
+import { SECRETS } from './secrets.js';
 import { WORKSHOP_LINES } from './story.js';
 
 /**
@@ -346,17 +348,20 @@ export const LEVEL_DEFS = [
       ['gap', { gap: 2.6 }],
       ['climb', { steps: 2 }],
       ['run', { len: 16, foes: 1 }],
+      ['glitch'],
       ['stones', { n: 3, flat: true }],
       ['checkpoint'],
       ['switchdoor'],
       ['gap', { gap: 5, run: true }],
       ['turn', { dir: 1 }],
       ['run', { len: 14, foes: 2 }],
+      ['cache'],
       ['secret', { prize: 'triple' }],
       ['bulkhead', { gapH: 1.3, thick: 2 }],
       ['checkpoint'],
       ['mover', { gap: 12 }],
       ['run', { len: 12, foes: 1 }],
+      ['crawl'],
       ['tower', { h: 10 }],
       ['gap', { gap: 3.2, rise: -1 }],
       ['turn', { dir: -1 }],
@@ -369,10 +374,11 @@ export const LEVEL_DEFS = [
       0: 'Look with the mouse (click to capture it). Move with W A S D, and hold Shift to run.',
       1: 'Space jumps: hold it for higher.',
       4: 'Click to fire the blaster. A charge turns off walls at the speed it arrived.',
-      7: 'An amber switch opens its door: shoot it.',
-      11: 'That panel is cracked. A few charges break it.',
-      12: 'Too low to crawl under. Right click (or Q) opens the light end of a wormhole where you look, E the dark one. One through the slot, onto the floor beyond; one at your feet.',
-      14: 'A platform to ride. Stand on it and it carries you.',
+      8: 'An amber switch opens its door: shoot it.',
+      12: 'Listen when you shoot. A panel with room behind it knocks hollow, and near one there is a hum.',
+      13: 'That panel is cracked. A few charges break it.',
+      14: 'Too low to crawl under. Right click (or Q) opens the light end of a wormhole where you look, E the dark one. One through the slot, onto the floor beyond; one at your feet.',
+      16: 'A platform to ride. Stand on it and it carries you.',
     },
   },
   {
@@ -398,10 +404,12 @@ export const LEVEL_DEFS = [
     sections: [
       ['start', { len: 14 }],
       ['run', { len: 16, foes: 1 }],
+      ['lookback'],
       ['stones', { n: 4 }],
       ['turn', { dir: -1 }],
       ['gap', { gap: 5.5, run: true }],
       ['run', { len: 14, foes: 2 }],
+      ['targets'],
       ['checkpoint'],
       ['chasm', { gap: 12 }],
       ['climb', { steps: 3 }],
@@ -411,6 +419,7 @@ export const LEVEL_DEFS = [
       ['loft', { prize: 'shield' }],
       ['checkpoint'],
       ['run', { len: 14, foes: 2 }],
+      ['glitch'],
       ['stones', { n: 5, hard: true }],
       ['bulkhead', { gapH: 1.2, thick: 3 }],
       ['gap', { gap: 5, run: true, rise: 1 }],
@@ -418,7 +427,7 @@ export const LEVEL_DEFS = [
       ['run', { len: 12, foes: 2 }],
       ['arena', { boss: 'stag' }],
     ],
-    signs: { 7: 'Too far to jump. One end on the far wall, one at your feet.', 9: 'A timed door: shoot the switch, then run.' },
+    signs: { 9: 'Too far to jump. One end on the far wall, one at your feet.', 11: 'A timed door: shoot the switch, then run.' },
   },
   {
     id: 3,
@@ -446,6 +455,7 @@ export const LEVEL_DEFS = [
     sections: [
       ['start', { len: 14 }],
       ['run', { len: 16, foes: 1 }],
+      ['rooftop'],
       ['laser', { n: 2 }],
       ['gap', { gap: 3 }],
       ['fans', { h: 6 }],
@@ -453,6 +463,7 @@ export const LEVEL_DEFS = [
       ['vault'],
       ['turn', { dir: 1 }],
       ['run', { len: 16, foes: 2 }],
+      ['glitch'],
       ['lift', { h: 6 }],
       ['secret', { prize: 'strong' }],
       ['checkpoint'],
@@ -462,9 +473,10 @@ export const LEVEL_DEFS = [
       ['turn', { dir: -1 }],
       ['checkpoint'],
       ['run', { len: 14, foes: 2 }],
+      ['crawl', { hidden: true }],
       ['arena', { boss: 'scheduler', height: 12, roofed: true, roofPortal: true, size: 36 }],
     ],
-    signs: { 4: 'A fan. Step off the edge into its draft: it carries you up to the lit ledge.', 6: 'Armoured glass: you can see through it, and open an end on what is behind it. Nothing solid gets in.' },
+    signs: { 5: 'A fan. Step off the edge into its draft: it carries you up to the lit ledge.', 7: 'Armoured glass: you can see through it, and open an end on what is behind it. Nothing solid gets in.' },
   },
   {
     id: 4,
@@ -493,11 +505,13 @@ export const LEVEL_DEFS = [
     sections: [
       ['start', { len: 14 }],
       ['run', { len: 16, foes: 1 }],
+      ['lookback', { hidden: true }],
       ['crusher', { n: 2 }],
       ['gap', { gap: 5, run: true }],
       ['checkpoint'],
       ['launch', { gap: 10 }],
       ['run', { len: 14, foes: 2 }],
+      ['targets'],
       ['turn', { dir: -1 }],
       ['mover', { gap: 13 }],
       ['climb', { steps: 3, rise: 1.5 }],
@@ -510,12 +524,13 @@ export const LEVEL_DEFS = [
       ['checkpoint'],
       ['chasm', { gap: 13, rise: 1 }],
       ['run', { len: 14, foes: 2 }],
+      ['rooftop', { hidden: true }],
       ['stones', { n: 4, hard: true }],
       ['checkpoint'],
       ['run', { len: 10, foes: 1 }],
       ['arena', { boss: 'forgewright', height: 14, size: 40 }],
     ],
-    signs: { 5: 'Too far to jump, and the shimmer over the gap takes no end. Go round the ramp to the edge and look back: one end on its face, one at your feet, and it throws you across.', 6: 'That one carries a shield. Come at it from the side.', 13: 'A fan. Step off the edge into its draft: it carries you up to the lit ledge.' },
+    signs: { 6: 'Too far to jump, and the shimmer over the gap takes no end. Go round the ramp to the edge and look back: one end on its face, one at your feet, and it throws you across.', 7: 'That one carries a shield. Come at it from the side.', 15: 'A fan. Step off the edge into its draft: it carries you up to the lit ledge.' },
   },
   {
     id: 5,
@@ -548,12 +563,14 @@ export const LEVEL_DEFS = [
       ['checkpoint'],
       ['mover', { gap: 16 }],
       ['run', { len: 18, foes: 2 }],
+      ['cache', { hidden: true }],
       ['ambush', { waves: 2 }],
       ['turn', { dir: 1 }],
       ['checkpoint'],
       ['chasm', { gap: 14, rise: -2 }],
       ['gap', { gap: 6.2, run: true }],
       ['run', { len: 16, foes: 2 }],
+      ['rooftop'],
       ['secret', { prize: 'durable' }],
       ['launch', { gap: 10.5, rise: 1 }],
       ['checkpoint'],
@@ -561,6 +578,7 @@ export const LEVEL_DEFS = [
       ['turn', { dir: -1 }],
       ['switchdoor', { timed: 6 }],
       ['run', { len: 18, foes: 2 }],
+      ['crawl', { hidden: true }],
       ['checkpoint'],
       ['springs', { h: 7 }],
       ['run', { len: 12, foes: 2 }],
@@ -594,11 +612,13 @@ export const LEVEL_DEFS = [
     sections: [
       ['start', { len: 14 }],
       ['run', { len: 16, foes: 1 }],
+      ['rooftop'],
       ['blink', { n: 4 }],
       ['gap', { gap: 5.5, run: true }],
       ['checkpoint'],
       ['wellpit', { gap: 9 }],
       ['run', { len: 16, foes: 2 }],
+      ['lookback', { hidden: true }],
       ['turn', { dir: -1 }],
       ['orbit'],
       ['climb', { steps: 3 }],
@@ -609,6 +629,7 @@ export const LEVEL_DEFS = [
       ['turn', { dir: 1 }],
       ['checkpoint'],
       ['run', { len: 16, foes: 3 }],
+      ['targets'],
       ['wellpit', { gap: 10, pull: 380 }],
       ['stones', { n: 5, hard: true }],
       ['vault'],
@@ -616,7 +637,7 @@ export const LEVEL_DEFS = [
       ['run', { len: 12, foes: 2 }],
       ['arena', { boss: 'broadcaster', size: 40 }],
     ],
-    signs: { 5: 'The grid is leaking through here: a black hole under the gap. Every jump over it bends.', 8: 'A switch in a pocket nothing straight can reach. Fire up past the black hole.' },
+    signs: { 6: 'The grid is leaking through here: a black hole under the gap. Every jump over it bends.', 10: 'A switch in a pocket nothing straight can reach. Fire up past the black hole.' },
   },
   {
     id: 7,
@@ -646,6 +667,7 @@ export const LEVEL_DEFS = [
     sections: [
       ['start', { len: 14 }],
       ['run', { len: 18, foes: 2 }],
+      ['cache', { hidden: true }],
       ['crusher', { n: 2, period: 3 }],
       ['gap', { gap: 5, run: true }],
       ['checkpoint'],
@@ -656,6 +678,7 @@ export const LEVEL_DEFS = [
       ['checkpoint'],
       ['mover', { gap: 15 }],
       ['run', { len: 16, foes: 2 }],
+      ['crawl', { hidden: true }],
       ['secret', { prize: 'big' }],
       ['lift', { h: 5 }],
       ['turn', { dir: -1 }],
@@ -667,6 +690,7 @@ export const LEVEL_DEFS = [
       ['checkpoint'],
       ['vault'],
       ['run', { len: 16, foes: 3 }],
+      ['rooftop', { hidden: true }],
       ['drop', { h: 3 }],
       ['checkpoint'],
       ['run', { len: 12, foes: 2 }],
@@ -700,6 +724,7 @@ export const LEVEL_DEFS = [
     sections: [
       ['start', { len: 14 }],
       ['run', { len: 16, foes: 1 }],
+      ['lookback', { hidden: true }],
       ['gap', { gap: 5.5, run: true }],
       ['mover', { gap: 16 }],
       ['checkpoint'],
@@ -708,6 +733,7 @@ export const LEVEL_DEFS = [
       ['turn', { dir: 1 }],
       ['launch', { gap: 10, rise: 1 }],
       ['run', { len: 16, foes: 2 }],
+      ['rooftop'],
       ['checkpoint'],
       ['lift', { h: 7 }],
       ['stones', { n: 5, hard: true }],
@@ -718,6 +744,7 @@ export const LEVEL_DEFS = [
       ['vault'],
       ['mover', { gap: 18 }],
       ['run', { len: 16, foes: 3 }],
+      ['targets'],
       ['checkpoint'],
       ['bulkhead', { gapH: 1.2, thick: 3 }],
       ['gap', { gap: 6, run: true, rise: -1 }],
@@ -752,6 +779,7 @@ export const LEVEL_DEFS = [
     sections: [
       ['start', { len: 14 }],
       ['run', { len: 18, foes: 2 }],
+      ['targets'],
       ['springs', { h: 6 }],
       ['stones', { n: 5, hard: true }],
       ['checkpoint'],
@@ -762,6 +790,7 @@ export const LEVEL_DEFS = [
       ['checkpoint'],
       ['blink', { n: 6 }],
       ['run', { len: 18, foes: 3 }],
+      ['crawl', { hidden: true }],
       ['orbit'],
       ['secret', { prize: 'shield' }],
       ['turn', { dir: -1 }],
@@ -773,6 +802,7 @@ export const LEVEL_DEFS = [
       ['bulkhead', { gapH: 1.1, thick: 4 }],
       ['springs', { h: 7 }],
       ['run', { len: 16, foes: 3 }],
+      ['cache', { hidden: true }],
       ['turn', { dir: 1 }],
       ['checkpoint'],
       ['vault'],
@@ -810,6 +840,7 @@ export const LEVEL_DEFS = [
     sections: [
       ['start', { len: 14 }],
       ['run', { len: 16, foes: 2 }],
+      ['rooftop', { hidden: true }],
       ['climb', { steps: 3 }],
       ['crusher', { n: 2, period: 3 }],
       ['checkpoint'],
@@ -826,11 +857,13 @@ export const LEVEL_DEFS = [
       ['checkpoint'],
       ['launch', { gap: 10 }],
       ['stones', { n: 6, hard: true }],
+      ['targets'],
       ['bulkhead', { gapH: 1.15, thick: 3 }],
       ['checkpoint'],
       ['laser', { n: 3, on: 1.5 }],
       ['chasm', { gap: 14 }],
       ['run', { len: 16, foes: 3 }],
+      ['lookback', { hidden: true }],
       ['turn', { dir: 1 }],
       ['checkpoint'],
       ['wellpit', { gap: 10, pull: 420 }],
@@ -851,12 +884,19 @@ export function level(id, opts = {}) {
   const def = levelDef(id);
   const b = new Builder(def);
   def.sections.forEach(([type, o], i) => {
-    const fn = SECTIONS[type];
+    const own = SECRETS[type];
+    const fn = SECTIONS[type] || own;
     if (!fn) throw new Error(`no section ${type}`);
     b.difficulty = i / def.sections.length;
     const before = b.route.length;
     const at = b.cur.p;
-    fn(b, o || {});
+    if (own) {
+      // A secret's stretch draws on its own numbers, so adding one leaves the rest of the level as it was.
+      const keep = b.r;
+      b.r = rng((def.seed || 1) * 31 + i);
+      fn(b, o || {});
+      b.r = keep;
+    } else fn(b, o || {});
     const text = def.signs && def.signs[i];
     if (text) b.signs.push({ p: at, text, reach: 9 });
     b.sections[b.sections.length - 1].route = [before, b.route.length];

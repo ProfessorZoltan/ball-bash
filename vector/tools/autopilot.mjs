@@ -19,9 +19,10 @@ const DT = PHYSICS_DT;
 const flatDist = (a, b) => Math.hypot(a[0] - b[0], a[2] - b[2]);
 
 export class Autopilot {
-  constructor(game) {
+  /** `route` flies something other than the level's own way: a secret's detour (build.js). */
+  constructor(game, route = game.bp.route) {
     this.g = game;
-    this.route = game.bp.route;
+    this.route = route;
     this.i = 0;
     this.s = {}; // the current step's own state
     this.t = 0;
@@ -407,6 +408,65 @@ export class Autopilot {
           S.wander = [c[0] + Math.cos(ang) * 5, b.pos[1], c[2] + Math.sin(ang) * 5];
         }
         return this.steer(S.wander, true, 0.5).it;
+      }
+      case 'break': {
+        // A panel (a secret's cover, a crate) shot until it gives: from a spot, at a point on it.
+        const s = g.world.solids.find((x) => x.id === st.solid);
+        if (!s || s.gone) {
+          this.next();
+          return {};
+        }
+        if (this.t > 20) {
+          this.fail('the panel never broke');
+          return {};
+        }
+        if (!S.there) {
+          const r = this.steer(st.from, false, 0.3);
+          if (r.there && b.onGround && Math.hypot(b.vel[0], b.vel[2]) < 0.3) S.there = true;
+          return r.it;
+        }
+        this.face(st.at, true);
+        S.wait = (S.wait || 0) + DT;
+        if (S.wait > 0.08 && g.cooldown <= 0) {
+          S.wait = 0;
+          return { firePress: true };
+        }
+        return {};
+      }
+      case 'take': {
+        // The nearest prize still there, near a point: walk (or fall) onto it. One taken on the way there counts.
+        const near = g.pickups.filter((q) => dist(q.pos, st.near) < 4);
+        const p = near.filter((q) => !q.taken).sort((x, y) => dist(x.pos, st.near) - dist(y.pos, st.near))[0];
+        if (!p) {
+          if (S.had || near.some((q) => q.taken)) this.next();
+          else if (this.t > 3) this.fail(`no prize near ${st.near.map((v) => v.toFixed(1))}`);
+          return {};
+        }
+        S.had = true;
+        if (this.t > 20) {
+          this.fail('never reached the prize');
+          return {};
+        }
+        return this.steer(p.pos, false, 0.05).it;
+      }
+      case 'drop': {
+        // Off an edge and down onto a spot: walk at it, and once falling, steer at it.
+        if (this.t > 10) {
+          this.fail('never came down where it was going');
+          return {};
+        }
+        if (b.onGround && S.left) {
+          if (flatDist(b.pos, st.to) < 1.2 && Math.abs(b.pos[1] - st.to[1]) < 0.8) this.next();
+          else this.fail(`came down at ${b.pos.map((v) => v.toFixed(1))}, not ${st.to.map((v) => v.toFixed(1))}`);
+          return {};
+        }
+        if (!b.onGround) S.left = true;
+        if (S.left) return airSteer(b, st.to);
+        return { ...this.steer(st.to, false, 0.05).it, mz: 1 };
+      }
+      case 'wait': {
+        if (this.t >= st.t) this.next();
+        return {};
       }
       case 'boss':
         this.done = true;

@@ -149,7 +149,7 @@ function cue(e) {
     const L = Math.hypot(d[0], d[1], d[2]);
     const B = camBasis(b.yaw, 0);
     e.pan = clamp(dot(d, B.right) / Math.max(1, L), -1, 1) * 0.8;
-    e.vol = clamp(1 - L / 60, 0, 1);
+    e.vol = clamp(1 - L / (e.reach || 60), 0, 1);
     if (e.vol <= 0.02) return;
   }
   try {
@@ -1491,8 +1491,30 @@ function frame(now) {
     viewmodel: inPlay || state === 'paused' ? (r) => art.viewmodel(r, g, { time: now / 1000 }) : null,
   });
   aimMark(g, cam);
+  if (state === 'play' || state === 'mpmenu') hums(g, cam.eye, now / 1000);
   nameTags(mp && (state === 'play' || state === 'mpmenu') ? cam : null);
 }
+
+let humList = null;
+let humGame = null;
+
+/**
+ * Near a secret's panel still shut, or a wall the grid never finished, a low
+ * hum every few seconds, louder the nearer: the clue that there is something
+ * there, for a panel that looks like any other.
+ */
+function hums(g, eye, t) {
+  if (humGame !== g) {
+    humGame = g;
+    humList = g.world.solids.filter((s) => (s.cover && s.secret) || s.glitch).map((s) => ({ s, at: [(s.min[0] + s.max[0]) / 2, (s.min[1] + s.max[1]) / 2, (s.min[2] + s.max[2]) / 2], last: -9 }));
+  }
+  for (const h of humList) {
+    if (h.s.gone || dist(h.at, eye) > HUM_REACH || t - h.last < 2.8) continue;
+    h.last = t;
+    cue({ s: 'hum', at: h.at, reach: HUM_REACH, glitch: !!h.s.glitch });
+  }
+}
+const HUM_REACH = 13;
 
 /**
  * The crosshair sits where what the eye looks straight at is seen: in the

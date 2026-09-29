@@ -9,6 +9,8 @@
 //   node vector/tools/shots.mjs compare 8 out/   a view of level 8 at High quality (shadows, bloom) and at Medium (neither)
 //   node vector/tools/shots.mjs lens 6 out/      level 6's black holes, each from where its section starts, at High,
 //                                                Medium (both bend the picture round it) and Low (which does not)
+//   node vector/tools/shots.mjs secrets 4 out/   each of level 4's new secrets as a player first meets it: from where
+//                                                its way starts, looking at what hides it
 //
 // Uses the game at DEFLECTOR_URL, or one on port 8099, or starts server.js
 // there (tools/browser.mjs). WebGL runs in software (SwiftShader), so a frame
@@ -90,6 +92,27 @@ if (what === 'title') {
       const info = await page.evaluate(() => window.__vector.renderer.info());
       console.log(q, JSON.stringify({ fx: info.fx, drawn: info.drawn, casters: info.casters }));
       await shot(`compare${id}-${q}.png`);
+    }
+  } else if (what === 'secrets') {
+    const n = await page.evaluate(() => window.__vector.game.bp.detours.length);
+    for (let i = 0; i < n; i++) {
+      const kind = await page.evaluate((k) => {
+        const g = window.__vector.game;
+        const d = g.bp.detours[k];
+        const sec = g.bp.sections.filter((s) => s.type === d.kind)[g.bp.detours.slice(0, k).filter((x) => x.kind === d.kind).length];
+        const id = sec.cover ?? sec.ghost ?? sec.crate;
+        const s = id != null ? g.world.solids.find((x) => x.id === id) : g.world.solids.find((x) => x.door && x.door.id === sec.door);
+        g.bot.spawn(d.start, d.yaw);
+        g.bot.vel = [0, 0, 0];
+        const e = g.bot.eyePos();
+        const c = [(s.min[0] + s.max[0]) / 2, (s.min[1] + s.max[1]) / 2, (s.min[2] + s.max[2]) / 2];
+        const v = [c[0] - e[0], c[1] - e[1], c[2] - e[2]];
+        g.bot.yaw = Math.atan2(v[0], v[2]);
+        g.bot.pitch = Math.max(-1.3, Math.min(1.3, Math.atan2(v[1], Math.hypot(v[0], v[2]))));
+        return d.kind;
+      }, i);
+      await page.waitForTimeout(900);
+      await shot(`secret${id}-${i + 1}-${kind}.png`);
     }
   } else if (what === 'lens') {
     const holes = await page.evaluate(() => window.__vector.game.world.wells.length);

@@ -33,6 +33,7 @@ export class Builder {
     this.sections = [];
     this.ambushes = [];
     this.secrets = 0;
+    this.detours = []; // the ways to the secrets, off the route: the tests fly each
     this.doorId = 1;
     this.minY = 0;
     this.roof = def.roof || 0; // enclosed levels: walls and a roof this high over the path
@@ -158,6 +159,21 @@ export class Builder {
     this.route.push(s);
   }
 
+  /**
+   * The way to a secret, written like the route but kept apart from it: where
+   * a robot starts it (standing at local x, y, z, facing along the way) and
+   * the steps `fn` writes. The tests start a robot there, fly the steps and
+   * see the prize taken; the level's own route never takes it.
+   */
+  detour(kind, x, y, z, fn) {
+    const main = this.route;
+    this.route = [];
+    const start = standAt(...this.P(x, y, z));
+    fn();
+    this.detours.push({ kind, start, yaw: this.yaw, route: this.route });
+    this.route = main;
+  }
+
   /** Walk (or run) to a point on the floor at local (x, y, z). */
   go(x, y, z, run = false) {
     this.step({ a: 'go', to: standAt(...this.P(x, y, z)), run });
@@ -248,6 +264,7 @@ export class Builder {
       sections: this.sections,
       ambushes: this.ambushes,
       secrets: this.secrets,
+      detours: this.detours,
       floorY: this.minY,
     };
   }

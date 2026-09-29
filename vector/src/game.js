@@ -91,6 +91,7 @@ export class Game {
     this.nextEnemy = 10000;
     this.pickups = (bp.pickups || []).map((p, i) => ({ ...p, id: i, taken: false, pos: [...p.p] }));
     this.pickupId = 1000;
+    this.found = new Set(); // the secrets taken, each once
     this.ambushes = (bp.ambushes || []).map((a) => ({ ...a, state: 'wait', wave: -1 }));
     this.noWaves = !!opts.noWaves;
     this.boss = null;
@@ -717,17 +718,19 @@ export class Game {
     if (s.hp <= 0) {
       this.world.remove(s);
       this.emit({ s: 'crate', at: centre(s), cover: !!s.cover, nid: s.nid });
-      if (s.drop) this.dropAt(centre(s), s.drop);
+      if (s.drop) this.dropAt(centre(s), s.drop, !!s.secret);
       if (s.cover && s.secret) this.emit({ s: 'secretOpen', at: centre(s) });
-    } else this.emit({ s: 'thunk', at: [...c.pos] });
+    } else this.emit({ s: s.secret ? 'hollow' : 'thunk', at: [...c.pos] }); // a secret sounds hollow: there is room behind it
   }
 
   /** Something drops: alone, one pickup; in co-op, one for each robot still in, only theirs to take. */
-  dropAt(p, kind) {
+  dropAt(p, kind, secret = false) {
     const owners = this.mode === 'coop' ? this.live().map((pl) => pl.slot) : [null];
+    // A secret's prize dropped for each robot is still one secret, found by whoever takes theirs first.
+    const key = secret ? `drop${this.pickupId}` : false;
     owners.forEach((owner, i) => {
       const at = owners.length > 1 ? [p[0] + (i - (owners.length - 1) / 2) * 0.9, p[1], p[2]] : [...p];
-      this.pickups.push({ id: this.pickupId++, kind: kind === 'shield' ? 'shield' : 'power', power: kind === 'shield' ? null : kind, p: [...at], pos: [...at], taken: false, dropped: true, vy: 4, owner });
+      this.pickups.push({ id: this.pickupId++, kind: kind === 'shield' ? 'shield' : 'power', power: kind === 'shield' ? null : kind, p: [...at], pos: [...at], taken: false, dropped: true, vy: 4, owner, secret: key });
     });
   }
 
@@ -735,9 +738,11 @@ export class Game {
     if (sw.on && !sw.timer) return;
     // A switch far from every robot takes no charge: a stray shot down a long hall never opens a door you have not reached.
     if (!this.live().some((pl) => dist(sw.p, pl.bot.pos) <= 70)) return;
-    this.world.setSwitch(sw, true);
+    const moved = this.world.setSwitch(sw, true);
     this.emit({ s: 'switch', at: sw.p });
-    this.emit({ s: 'door', at: sw.p });
+    if (moved) this.emit({ s: 'door', at: sw.p });
+    // The last of a group of hidden targets: somewhere, a wall opens.
+    if (moved && sw.group != null) this.emit({ s: 'secretOpen', at: sw.p });
   }
 
   hitEnemy(en, c) {
@@ -924,7 +929,9 @@ export class Game {
       pl.stats.powerups++;
       this.emit({ s: 'powerup', power: k, at: p.pos, slot: pl.slot });
     }
-    if (p.secret) {
+    const key = p.secret === true ? p.id : p.secret;
+    if (key !== false && key != null && !this.found.has(key)) {
+      this.found.add(key);
       this.stats.secrets++;
       this.emit({ s: 'secret', slot: pl.slot });
     }

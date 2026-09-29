@@ -25,7 +25,7 @@ export class World {
 
   add(s) {
     this.solids.push(s);
-    if (s.move || s.door || s.blink || s.crate || s.cover || s.crush || s.dynamic) {
+    if (s.move || s.door || s.blink || s.crate || s.cover || s.crush || s.dynamic || s.glitch) {
       s.base = [...s.min];
       s.off = [0, 0, 0];
       this.dynamic.push(s);
@@ -241,6 +241,11 @@ export class World {
         // The last moments before it goes, it flickers: the warning.
         s.warn = on && b.off - u < 0.45;
       }
+      if (s.glitch) {
+        // A wall the grid forgot to finish: nothing there to stop you, and every few seconds it shows.
+        const G = s.glitch;
+        s.warn = (((t + G.phase) % G.period) + G.period) % G.period < G.show;
+      }
     }
     for (const h of this.hazards) {
       if (!h.laser) continue;
@@ -257,10 +262,22 @@ export class World {
     }
   }
 
+  /**
+   * A switch on or off, and its doors with it. A switch in a group (targets)
+   * opens its doors only once every switch in the group is on. Returns
+   * whether any door was told to move.
+   */
   setSwitch(sw, on) {
     sw.on = on;
     if (on && sw.timer) sw.left = sw.timer;
-    for (const s of this.solids) if (s.door && sw.doors.includes(s.door.id)) s.door.open = on;
+    const open = sw.group != null ? this.switches.filter((x) => x.group === sw.group).every((x) => x.on) : on;
+    let moved = false;
+    for (const s of this.solids) {
+      if (!s.door || !sw.doors.includes(s.door.id) || s.door.open === open) continue;
+      s.door.open = open;
+      moved = true;
+    }
+    return moved;
   }
 }
 

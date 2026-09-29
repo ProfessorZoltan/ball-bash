@@ -88,6 +88,7 @@ Vector is the third game, in `vector/` (its README section is "Vector (the
 third game)"). The tests hold its levels and bosses to these rules:
 
 - **Every level is crossed by the autopilot.** A section builds its solids and writes its route (`b.go`, `b.jump`, `b.step`) in its own frame; `vector/tools/autopilot.mjs` flies every level's route with the robot's own physics and must lose no shield. A new section needs a route, and a new kind of step needs its handler there.
+- **Every secret can be found, and none is on the way.** A secret's stretch (`vector/src/secrets.js`) writes the way to its prize as a detour (`b.detour`); `vector/tools/secrets.mjs` must fly each to its prize with no shield lost, and the level's own route must take none. A secret's stretch draws on its own random numbers, so adding one leaves the rest of its level as it was.
 - **A puzzle fails the obvious way.** A new puzzle kind gets a negative test in `vector/test/puzzles.test.js` (walked at, jumped at a full run, shot from everywhere with no wormhole, its black hole removed) and records itself in `b.links`.
 - **Every boss can be beaten.** `vector/tools/fight.mjs` fights it in the real game. A wormhole-only boss must lose to it only with wormholes.
 - **The trilogy runs one way.** Each level is more real (`theme.real`, which the world shader reads) and sounds more human (`humanity`, which the audio reads) than the one before, and each has its own track in `vector/src/tracks.js`.
