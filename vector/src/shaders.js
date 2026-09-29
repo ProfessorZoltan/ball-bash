@@ -6,7 +6,9 @@
 // linear light and leave through a filmic curve. At High quality the sun
 // casts shadows (a depth map drawn from the sun, SHADOW_*), and what is
 // bright glows (the frame drawn off screen, its bright parts blurred and
-// laid back over it, BLOOM_*).
+// laid back over it, BLOOM_*). At High and Medium a black hole bends the
+// picture round it (LENS_FS, the frame drawn again through each hole).
+import { LENS } from './lens.js';
 
 export const WORLD_VS = `#version 300 es
 layout(location=0) in vec3 a_pos;
@@ -641,4 +643,102 @@ void main() {
   vec3 c = pow(pow(sc, vec3(2.2)) + b, vec3(1.0 / 2.2));
   c += (h21(gl_FragCoord.xy) - 0.5) / 255.0;
   o = vec4(c, 1.0);
+}`;
+
+/**
+ * Gravitational lensing, over the finished frame: each pixel shows what its
+ * line of sight would have shown bent round every hole in view (lens.js has
+ * the same sums, per point, and their tests). Only what is behind a hole's
+ * plane is bent, read from the frame's depth; a sample that lands on
+ * something in front of a hole, or off the screen, is not what is behind
+ * it, so the pixel keeps its own. Inside a black hole's shadow the light
+ * would have had to come from the far side: black, with a thin ring of light
+ * at its edge.
+ */
+export const LENS_FS = `#version 300 es
+precision highp float;
+in vec2 v_uv;
+uniform sampler2D u_src;
+uniform sampler2D u_depth;
+uniform vec3 u_eye;
+uniform vec3 u_right;
+uniform vec3 u_up;
+uniform vec3 u_fwd;
+uniform vec2 u_tan;
+uniform vec2 u_clip;
+uniform float u_px;
+uniform float u_ramp;
+uniform float u_near;
+uniform vec3 u_rimCol;
+uniform int u_count;
+uniform vec4 u_lensA[${LENS.max}];
+uniform vec4 u_lensB[${LENS.max}];
+out vec4 o;
+vec3 rayAt(vec2 uv) {
+  vec2 q = uv * 2.0 - 1.0;
+  return u_fwd + u_right * (q.x * u_tan.x) + u_up * (q.y * u_tan.y);
+}
+vec2 uvOf(vec3 p) {
+  vec3 d = p - u_eye;
+  float z = max(dot(d, u_fwd), 1e-6);
+  return vec2(dot(d, u_right) / (z * u_tan.x), dot(d, u_up) / (z * u_tan.y)) * 0.5 + 0.5;
+}
+// Where the thing a pixel shows stands, from the frame's depth.
+vec3 seen(vec2 uv) {
+  float d = texture(u_depth, uv).r * 2.0 - 1.0;
+  float z = 2.0 * u_clip.x * u_clip.y / (u_clip.y + u_clip.x - d * (u_clip.y - u_clip.x));
+  return u_eye + rayAt(uv) * z;
+}
+float bendB(float b, vec4 L, float k) {
+  float u = 1.0 - b / L.y;
+  if (L.w > 0.5) return b + k * L.z * b * u * u;
+  return b - k * L.x * L.x * u * u / max(b, 1e-6);
+}
+void main() {
+  vec3 p = seen(v_uv);
+  vec2 q = v_uv;
+  float shadow = 0.0;
+  float rim = 0.0;
+  float used[${LENS.max}];
+  for (int i = 0; i < ${LENS.max}; i++) {
+    used[i] = 0.0;
+    if (i >= u_count) continue;
+    vec3 c = u_lensA[i].xyz;
+    float D = u_lensA[i].w;
+    vec4 L = u_lensB[i];
+    vec3 n = (c - u_eye) / D;
+    float k = smoothstep(0.0, 1.0, clamp(dot(p - c, n) / u_ramp, 0.0, 1.0));
+    if (k <= 0.0) continue;
+    vec3 dir = rayAt(q);
+    float dn = dot(dir, n);
+    if (dn <= 1e-4) continue;
+    vec3 off = u_eye + dir * (D / dn) - c;
+    float b = length(off);
+    if (b >= L.y) continue;
+    float bs = bendB(b, L, k);
+    if (L.w < 0.5) {
+      // About a pixel of bent metres at this point, for a smooth edge to the shadow and a ring a few pixels wide.
+      float w = D * u_px * (1.0 + k * L.x * L.x / max(b * b, 1e-6)) / dn;
+      shadow = max(shadow, 1.0 - smoothstep(-w, w, bs));
+      rim = max(rim, k * exp(-bs * bs / (9.0 * w * w)));
+      if (bs <= 0.0) continue;
+    }
+    vec3 src = c + off * (bs / b);
+    if (dot(src - u_eye, u_fwd) < u_near) continue;
+    q = uvOf(src);
+    used[i] = 1.0;
+  }
+  // What a bent sample lands on must be behind every hole that bent it, and on the screen.
+  vec3 ps = seen(q);
+  float keep = 1.0;
+  for (int i = 0; i < ${LENS.max}; i++) {
+    if (used[i] < 0.5) continue;
+    vec3 c = u_lensA[i].xyz;
+    keep = min(keep, smoothstep(-0.6, -0.1, dot(ps - c, (c - u_eye) / u_lensA[i].w)));
+  }
+  vec2 e = min(q, 1.0 - q);
+  keep *= clamp(min(e.x, e.y) * 60.0 + 1.0, 0.0, 1.0);
+  vec3 col = mix(texture(u_src, v_uv).rgb, texture(u_src, q).rgb, keep);
+  col = mix(col, vec3(0.0), shadow) + u_rimCol * rim;
+  o = vec4(col, 1.0);
 }`;

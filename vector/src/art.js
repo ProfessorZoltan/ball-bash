@@ -472,17 +472,18 @@ export class Art {
     this.r.light(pos, col, 3.5);
   }
 
+  /** A hole, and all of it marked `hole`: the lens bends what is behind a hole, never the hole itself. */
   well(w) {
     const t = this.t;
-    this.d('sphere', w.p, 0, 0, 0, [w.horizon * 2, w.horizon * 2, w.horizon * 2], '#000000', {});
-    this.d('torus', w.p, t * 1.3, 0.35, 0, [w.horizon * 4, w.horizon * 4, w.horizon * 4], '#ff9a4a', { glow: 2.5, alpha: 0.85 });
-    this.d('ring', w.p, -t * 0.8, 1.1, 0.4, [w.horizon * 5.5, w.horizon * 5.5, w.horizon * 5.5], '#c9a2ff', { glow: 2, alpha: 0.5 });
+    this.d('sphere', w.p, 0, 0, 0, [w.horizon * 2, w.horizon * 2, w.horizon * 2], '#000000', { hole: true });
+    this.d('torus', w.p, t * 1.3, 0.35, 0, [w.horizon * 4, w.horizon * 4, w.horizon * 4], '#ff9a4a', { glow: 2.5, alpha: 0.85, hole: true });
+    this.d('ring', w.p, -t * 0.8, 1.1, 0.4, [w.horizon * 5.5, w.horizon * 5.5, w.horizon * 5.5], '#c9a2ff', { glow: 2, alpha: 0.5, hole: true });
     // A few motes being drawn in.
     for (let i = 0; i < 14; i++) {
       const k = ((t * 0.4 + i / 14) % 1);
       const rr = w.horizon * (1.2 + (1 - k) * 5);
       const a = i * 2.4 + k * 6;
-      this.r.point(add(w.p, [Math.cos(a) * rr, Math.sin(i) * rr * 0.25, Math.sin(a) * rr]), 0.08, '#ffd0a0', 0.8);
+      this.r.point(add(w.p, [Math.cos(a) * rr, Math.sin(i) * rr * 0.25, Math.sin(a) * rr]), 0.08, '#ffd0a0', 0.8, true);
     }
   }
 

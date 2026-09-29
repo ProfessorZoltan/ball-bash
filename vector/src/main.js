@@ -10,14 +10,14 @@ import { NET, MSG, HostLink, Mirror, GuestInputs } from './netplay.js';
 import { NetClient, relayConfig, saveRelay } from '../../src/net.js';
 import { BOSSES } from './bosses.js';
 import { Game } from './game.js';
-import { Renderer, FOV } from './render.js';
+import { Renderer } from './render.js';
 import { Art } from './art.js';
 import { FX } from './fx.js';
 import { Input } from './input.js';
 import { VectorAudio } from './audio.js';
 import { VECTOR_TRACKS } from './tracks.js';
 import { STORY } from './story.js';
-import { lerp, clamp, dist, sub, dot, camBasis } from './math.js';
+import { lerp, clamp, dist, sub, dot, add, scale, camBasis } from './math.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('game');
@@ -1159,7 +1159,6 @@ function nameTags(cam) {
   const B = camBasis(cam.yaw, cam.pitch);
   const w = canvas.clientWidth;
   const h = canvas.clientHeight;
-  const f = h / 2 / Math.tan(FOV / 2);
   let html = '';
   for (const pl of game.players) {
     if (pl.slot === game.local || pl.out) continue;
@@ -1167,8 +1166,11 @@ function nameTags(cam) {
     const d = sub(p, cam.eye);
     const z = dot(d, B.fwd);
     if (z < 0.5) continue;
-    const x = w / 2 + (dot(d, B.right) / z) * f;
-    const y = h / 2 - (dot(d, B.up) / z) * f;
+    // Where the robot is seen, a black hole's lens and all.
+    const uv = renderer.seenAt(p);
+    if (!uv) continue;
+    const x = uv[0] * w;
+    const y = (1 - uv[1]) * h;
     if (x < -50 || x > w + 50 || y < -20 || y > h + 20) continue;
     const L = Math.hypot(...d);
     const shields = Number.isFinite(pl.shields) ? '◆'.repeat(Math.min(pl.shields, 9)) : '∞';
@@ -1488,7 +1490,30 @@ function frame(now) {
     time: now / 1000,
     viewmodel: inPlay || state === 'paused' ? (r) => art.viewmodel(r, g, { time: now / 1000 }) : null,
   });
+  aimMark(g, cam);
   nameTags(mp && (state === 'play' || state === 'mpmenu') ? cam : null);
+}
+
+/**
+ * The crosshair sits where what the eye looks straight at is seen: in the
+ * middle, unless a black hole's lens has bent the picture there, when it
+ * goes with the picture, so it is still on what a shot is aimed at.
+ */
+function aimMark(g, cam) {
+  let dx = 0;
+  let dy = 0;
+  if (renderer.lenses.length) {
+    const B = camBasis(cam.yaw, cam.pitch);
+    const hit = g.world.raycast(cam.eye, B.fwd, 400, { glass: 'through' });
+    const uv = renderer.seenAt(add(cam.eye, scale(B.fwd, hit ? hit.t : 400)));
+    if (uv) {
+      dx = (uv[0] - 0.5) * canvas.clientWidth;
+      dy = (0.5 - uv[1]) * canvas.clientHeight;
+    }
+  }
+  const t = Math.abs(dx) + Math.abs(dy) > 0.5 ? `translate(${dx.toFixed(1)}px, ${dy.toFixed(1)}px)` : '';
+  const el = $('crosshair');
+  if (el.style.transform !== t) el.style.transform = t;
 }
 
 // --------------------------------------------------------------- the keys

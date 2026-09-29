@@ -7,6 +7,8 @@
 //   node vector/tools/shots.mjs portal 1 out/    a pair of ends opened, and the view through one
 //   node vector/tools/shots.mjs title out/       the title screen
 //   node vector/tools/shots.mjs compare 8 out/   a view of level 8 at High quality (shadows, bloom) and at Medium (neither)
+//   node vector/tools/shots.mjs lens 6 out/      level 6's black holes, each from where its section starts, at High,
+//                                                Medium (both bend the picture round it) and Low (which does not)
 //
 // Uses the game at DEFLECTOR_URL, or one on port 8099, or starts server.js
 // there (tools/browser.mjs). WebGL runs in software (SwiftShader), so a frame
@@ -88,6 +90,51 @@ if (what === 'title') {
       const info = await page.evaluate(() => window.__vector.renderer.info());
       console.log(q, JSON.stringify({ fx: info.fx, drawn: info.drawn, casters: info.casters }));
       await shot(`compare${id}-${q}.png`);
+    }
+  } else if (what === 'lens') {
+    const holes = await page.evaluate(() => window.__vector.game.world.wells.length);
+    for (let i = 0; i < holes; i++) {
+      // From somewhere on the way that sees the hole clear, 3.5 to 14 m off, with the level close behind it
+      // (a bend shows in what it bends), looking a little to one side of it so the ring and the shadow both show.
+      await page.evaluate((k) => {
+        const g = window.__vector.game;
+        const w = g.world.wells[k];
+        let best = null;
+        for (const s of g.bp.sections) {
+          for (let t = 0; t <= 1; t += 0.05) {
+            const f = [s.from[0] + (s.to[0] - s.from[0]) * t, s.from[1] + (s.to[1] - s.from[1]) * t, s.from[2] + (s.to[2] - s.from[2]) * t];
+            const e = [f[0], f[1] + 1.52, f[2]];
+            const d = [w.p[0] - e[0], w.p[1] - e[1], w.p[2] - e[2]];
+            const L = Math.hypot(...d);
+            const flat = Math.hypot(d[0], d[2]);
+            if (flat < 3.5 || flat > 14) continue;
+            const dir = d.map((v) => v / L);
+            const hit = g.world.raycast(e, dir, L + 60, { glass: 'through' });
+            if (hit && hit.t < L - w.horizon) continue;
+            const behind = hit ? hit.t - L : 60;
+            if (behind < 3) continue;
+            if (!best || behind < best.behind) best = { f, behind };
+          }
+        }
+        const f = best ? best.f : g.bp.sections[0].from;
+        g.bot.spawn([f[0], f[1] + 0.91, f[2]], 0);
+        g.bot.vel = [0, 0, 0];
+        const e = g.bot.eyePos();
+        const d = [w.p[0] - e[0], w.p[1] - e[1], w.p[2] - e[2]];
+        g.bot.yaw = Math.atan2(d[0], d[2]) + 0.1;
+        g.bot.pitch = Math.atan2(d[1], Math.hypot(d[0], d[2]));
+      }, i);
+      for (const q of ['high', 'medium', 'low']) {
+        await page.evaluate((qq) => {
+          const r = window.__vector.renderer;
+          r.quality = qq;
+          r.resize();
+        }, q);
+        await page.waitForTimeout(900);
+        const info = await page.evaluate(() => window.__vector.renderer.info());
+        console.log(`hole ${i + 1}`, q, JSON.stringify(info.drawn));
+        await shot(`lens${id}-${i + 1}-${q}.png`);
+      }
     }
   } else if (what === 'portal') {
     await page.evaluate(() => {

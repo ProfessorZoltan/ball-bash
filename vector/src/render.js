@@ -7,9 +7,14 @@
 // the sun casts shadows in the real world's levels (a depth map drawn from
 // the sun first, over a square of ground round the view), and the frame is
 // drawn off screen so its bright parts can bloom: the grid's neon most of all.
-import { createGL, program, mesh, freeMesh, target, freeTarget, lin, posMesh, depthTarget, colorTarget, msaaTarget } from './gl.js';
-import { WORLD_VS, WORLD_FS, SKY_VS, SKY_FS, POINT_VS, POINT_FS, MOUTH_FS, SHADOW_VS, SHADOW_FS, POST_VS, BLOOM_BRIGHT_FS, BLOOM_DOWN_FS, BLOOM_UP_FS, BLOOM_MIX_FS } from './shaders.js';
+// At High and Medium, a black hole in view bends the picture round it: the
+// frame is drawn again through every hole (lens.js), and the holes
+// themselves go on after, so the lens bends what is behind a hole and never
+// the hole.
+import { createGL, program, mesh, freeMesh, target, freeTarget, lin, posMesh, depthTarget, depthTexture, colorTarget, msaaTarget } from './gl.js';
+import { WORLD_VS, WORLD_FS, SKY_VS, SKY_FS, POINT_VS, POINT_FS, MOUTH_FS, SHADOW_VS, SHADOW_FS, POST_VS, BLOOM_BRIGHT_FS, BLOOM_DOWN_FS, BLOOM_UP_FS, BLOOM_MIX_FS, LENS_FS } from './shaders.js';
 import { effects, sunBoxes, casts, CASCADES } from './effects.js';
+import { LENS, lensesFor, seenAt as lensSeenAt } from './lens.js';
 import { MeshData, MAT, solidFaces, unitBox, sphere, cylinder, cone, torus, polyhedron, mouth, throat, STRIDE } from './meshes.js';
 import { perspective, viewFromBasis, mul4, mat4, camBasis, dot, sub, norm } from './math.js';
 import { through, turn, CORNER } from './wormholes.js';
@@ -22,6 +27,7 @@ const NEAR = 0.05;
 const FAR = 520;
 const BLOOM_STEPS = 5; // halvings of the frame the glow is blurred through
 const BLOOM_GAIN = 0.7;
+const RIM = lin('#ffe2b8'); // the thin ring of light at a black hole's shadow
 
 export class Renderer {
   constructor(canvas) {
@@ -63,6 +69,14 @@ export class Renderer {
     this.downProg = program(gl, POST_VS, BLOOM_DOWN_FS);
     this.upProg = program(gl, POST_VS, BLOOM_UP_FS);
     this.mixProg = program(gl, POST_VS, BLOOM_MIX_FS);
+    this.lensProg = program(gl, POST_VS, LENS_FS);
+    // The holes' own look, drawn after the lens; and this frame's lenses and camera, for the crosshair.
+    this.holeList = [];
+    this.holeGlass = [];
+    this.holePts = [];
+    this.lenses = [];
+    this.lensCam = null;
+    this.lensing = false;
     this.floatOk = !!gl.getExtension('EXT_color_buffer_float');
     this.shadowMaps = CASCADES.map(() => null); // the sun's depth maps, near and far, made the first time a level has shadows
     this.noShadow = depthTarget(gl, 1); // bound in its place when there are none: the shader always has one
@@ -75,7 +89,7 @@ export class Renderer {
     this.postFailed = false;
     this.sun = null; // this frame's shadows: the sun's views, near and far, and how strong
     this.fx = { shadow: 0, bloom: 0, threshold: 1 };
-    this.drawn = { shadow: false, bloom: false }; // what the last frame had, for the tools
+    this.drawn = { shadow: false, bloom: false, lenses: 0 }; // what the last frame had, for the tools
     this.w = 1;
     this.h = 1;
     this.resize();
@@ -221,14 +235,15 @@ export class Renderer {
   draw(shape, m, col, o = {}) {
     const c = typeof col === 'string' ? lin(col) : col;
     const e = { mesh: this.shape(shape, o.mat ? MAT[o.mat] ?? o.mat : 0), m, col: c, glow: o.glow || 0, alpha: o.alpha ?? 1, onlyPortal: !!o.onlyPortal, notPortal: !!o.notPortal };
-    if (e.alpha < 1) this.glassList.push(e);
-    else this.list.push(e);
+    // A hole's own parts (`hole`) are kept apart: the lens bends what is behind a hole, not the hole.
+    if (e.alpha < 1) (o.hole ? this.holeGlass : this.glassList).push(e);
+    else (o.hole ? this.holeList : this.list).push(e);
   }
 
-  /** A soft glowing point (sparks, the aim line, charges' halos). */
-  point(p, size, col, alpha = 1) {
+  /** A soft glowing point (sparks, the aim line, charges' halos); `hole` for the motes falling into a hole. */
+  point(p, size, col, alpha = 1, hole = false) {
     const c = typeof col === 'string' ? lin(col) : col;
-    this.pts.push(p[0], p[1], p[2], size, c[0], c[1], c[2], alpha);
+    (hole ? this.holePts : this.pts).push(p[0], p[1], p[2], size, c[0], c[1], c[2], alpha);
   }
 
   /** A lamp that lights what is near it this frame: a charge, a muzzle, an explosion. */
@@ -243,6 +258,9 @@ export class Renderer {
     this.glassList.length = 0;
     this.pts.length = 0;
     this.lights.length = 0;
+    this.holeList.length = 0;
+    this.holeGlass.length = 0;
+    this.holePts.length = 0;
   }
 
   // ----------------------------------------------------------------- drawing
@@ -265,8 +283,15 @@ export class Renderer {
     // The sun's view first, for its shadows, in the levels real enough to have them.
     this.sun = null;
     if (high && this.fx.shadow > 0) this.sunPass(cam, B);
-    const post = high && this.fx.bloom > 0 ? this.postTargets() : null;
-    this.drawn = { shadow: !!this.sun, cascades: this.sun ? this.sun.views.length : 0, bloom: !!post };
+    // The holes in view bend the picture, at High and Medium; the lens reads the frame, so it is drawn off screen.
+    const tan = Math.tan(FOV / 2);
+    this.lensCam = { eye: cam.eye, right: B.right, up: B.up, fwd: B.fwd, tx: tan * aspect, ty: tan };
+    this.lenses = this.quality !== 'low' && this.worldRef ? lensesFor(this.lensCam, this.worldRef.wells) : [];
+    const bloom = high && this.fx.bloom > 0;
+    const post = bloom || this.lenses.length ? this.postTargets() : null;
+    if (!post) this.lenses = [];
+    this.lensing = this.lenses.length > 0;
+    this.drawn = { shadow: !!this.sun, cascades: this.sun ? this.sun.views.length : 0, bloom: !!(post && bloom), lenses: this.lenses.length };
     // Each end we can see through, drawn from its twin's side first.
     const live = new Map();
     if (this.quality !== 'low') {
@@ -295,8 +320,10 @@ export class Renderer {
     gl.bindFramebuffer(gl.FRAMEBUFFER, post ? post.scene.fb : null);
     gl.viewport(0, 0, this.w, this.h);
     this.scene(proj, main, [0, 0, 0, 1], ends, live, false, view);
+    if (this.lensing) this.lensPass(post, proj, main);
     // The glow goes on before the blaster in hand, so the hand stays crisp in front of it.
-    if (post) this.bloomPass(post);
+    if (post && bloom) this.bloomPass(post);
+    else if (post) this.present(post);
     if (view.viewmodel) {
       gl.clear(gl.DEPTH_BUFFER_BIT);
       const vproj = perspective((52 * Math.PI) / 180, aspect, 0.01, 10);
@@ -352,8 +379,8 @@ export class Renderer {
         gl.bindVertexArray(d.mesh.vao);
         gl.drawArrays(gl.TRIANGLES, 0, d.mesh.count);
       }
-      // What moves: machines, the boss, every robot (your own too: you see your shadow).
-      for (const e of this.list) {
+      // What moves: machines, the boss, every robot (your own too: you see your shadow), and the holes.
+      for (const e of [...this.list, ...this.holeList]) {
         gl.uniformMatrix4fv(P.u.u_model, false, e.m);
         gl.bindVertexArray(e.mesh.vao);
         gl.drawArrays(gl.TRIANGLES, 0, e.mesh.count);
@@ -379,10 +406,9 @@ export class Renderer {
     const max = gl.getParameter(gl.MAX_SAMPLES) || 0;
     const samples = Math.min(max, w * h > 2.5e6 ? 2 : 4);
     const post = { w, h, mips: [] };
-    if (samples > 1) {
-      post.scene = msaaTarget(gl, w, h, samples);
-      post.resolved = colorTarget(gl, w, h);
-    } else post.scene = target(gl, w, h);
+    post.scene = samples > 1 ? msaaTarget(gl, w, h, samples) : target(gl, w, h);
+    post.resolved = colorTarget(gl, w, h);
+    post.depth = depthTexture(gl, w, h);
     let mw = w;
     let mh = h;
     for (let i = 0; i < BLOOM_STEPS; i++) {
@@ -392,7 +418,7 @@ export class Renderer {
     }
     this.post = post;
     // A browser that cannot draw into one of these gets the plain frame.
-    for (const t of [post.scene, post.resolved, ...post.mips]) {
+    for (const t of [post.scene, post.resolved, post.depth, ...post.mips]) {
       if (!t) continue;
       gl.bindFramebuffer(gl.FRAMEBUFFER, t.fb);
       if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
@@ -409,7 +435,7 @@ export class Renderer {
   freePost() {
     const P = this.post;
     if (!P) return;
-    for (const t of [P.scene, P.resolved, ...P.mips]) freeTarget(this.gl, t);
+    for (const t of [P.scene, P.resolved, P.depth, ...P.mips]) freeTarget(this.gl, t);
     this.post = null;
   }
 
@@ -437,12 +463,8 @@ export class Renderer {
    */
   bloomPass(P) {
     const gl = this.gl;
-    if (P.resolved) {
-      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, P.scene.fb);
-      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, P.resolved.fb);
-      gl.blitFramebuffer(0, 0, P.w, P.h, 0, 0, P.w, P.h, gl.COLOR_BUFFER_BIT, gl.NEAREST);
-    }
-    const frame = P.resolved || P.scene;
+    this.resolve(P);
+    const frame = P.resolved;
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.CULL_FACE);
     gl.disable(gl.BLEND);
@@ -471,6 +493,124 @@ export class Renderer {
     gl.activeTexture(gl.TEXTURE0);
     gl.depthMask(true);
     gl.bindVertexArray(null);
+  }
+
+  /** The frame drawn off screen, resolved into a texture to be read. */
+  resolve(P) {
+    const gl = this.gl;
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, P.scene.fb);
+    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, P.resolved.fb);
+    gl.blitFramebuffer(0, 0, P.w, P.h, 0, 0, P.w, P.h, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+  }
+
+  /** The frame drawn off screen onto the screen as it is: Medium, when a lens needed it off screen. */
+  present(P) {
+    const gl = this.gl;
+    this.resolve(P);
+    gl.disable(gl.DEPTH_TEST);
+    gl.disable(gl.CULL_FACE);
+    gl.disable(gl.BLEND);
+    gl.depthMask(false);
+    gl.bindVertexArray(this.skyVao);
+    const X = this.mixProg;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, this.w, this.h);
+    gl.useProgram(X.p);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, P.resolved.tex);
+    gl.uniform1i(X.u.u_scene, 0);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, P.mips[0].tex);
+    gl.uniform1i(X.u.u_bloom, 1);
+    gl.uniform1f(X.u.u_amt, 0);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.depthMask(true);
+    gl.bindVertexArray(null);
+  }
+
+  // ------------------------------------------------------------------ the lens
+
+  /**
+   * The holes' lens: the frame and its depth resolved, then drawn again
+   * through every hole in view back into the frame, whose own depth still
+   * stands; then the holes themselves, against it.
+   */
+  lensPass(P, proj, cam) {
+    const gl = this.gl;
+    this.resolve(P);
+    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, P.depth.fb);
+    gl.blitFramebuffer(0, 0, P.w, P.h, 0, 0, P.w, P.h, gl.DEPTH_BUFFER_BIT, gl.NEAREST);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, P.scene.fb);
+    gl.viewport(0, 0, P.w, P.h);
+    gl.disable(gl.DEPTH_TEST);
+    gl.disable(gl.CULL_FACE);
+    gl.disable(gl.BLEND);
+    gl.depthMask(false);
+    const X = this.lensProg;
+    const u = X.u;
+    gl.useProgram(X.p);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, P.resolved.tex);
+    gl.uniform1i(u.u_src, 0);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, P.depth.tex);
+    gl.uniform1i(u.u_depth, 1);
+    const C = this.lensCam;
+    gl.uniform3fv(u.u_eye, C.eye);
+    gl.uniform3fv(u.u_right, C.right);
+    gl.uniform3fv(u.u_up, C.up);
+    gl.uniform3fv(u.u_fwd, C.fwd);
+    gl.uniform2f(u.u_tan, C.tx, C.ty);
+    gl.uniform2f(u.u_clip, NEAR, FAR);
+    gl.uniform1f(u.u_px, (2 * C.ty) / P.h);
+    gl.uniform1f(u.u_ramp, LENS.ramp);
+    gl.uniform1f(u.u_near, LENS.near);
+    gl.uniform3fv(u.u_rimCol, RIM);
+    const A = new Float32Array(4 * LENS.max);
+    const Bv = new Float32Array(4 * LENS.max);
+    this.lenses.forEach((l, i) => {
+      A.set([l.c[0], l.c[1], l.c[2], l.D], i * 4);
+      Bv.set([l.L.E, l.L.R, l.L.c, l.L.white ? 1 : 0], i * 4);
+    });
+    gl.uniform1i(u.u_count, this.lenses.length);
+    gl.uniform4fv(u.u_lensA, A);
+    gl.uniform4fv(u.u_lensB, Bv);
+    gl.bindVertexArray(this.skyVao);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.depthMask(true);
+    this.drawHoles(proj, viewFromBasis(cam.eye, cam.right, cam.up, cam.fwd), cam.eye, [0, 0, 0, 1]);
+  }
+
+  /** The holes' own look: the black sphere, its rings and the motes falling in. */
+  drawHoles(proj, viewM, eye, clip) {
+    const gl = this.gl;
+    if (!this.holeList.length && !this.holeGlass.length && !this.holePts.length) return;
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LEQUAL);
+    gl.depthMask(true);
+    gl.enable(gl.CULL_FACE);
+    gl.cullFace(gl.BACK);
+    gl.disable(gl.BLEND);
+    this.useWorld(proj, viewM, eye, clip);
+    this.drawList(this.holeList, false);
+    gl.disable(gl.CULL_FACE);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.depthMask(false);
+    this.drawList(this.holeGlass, false);
+    this.drawPoints(this.holePts, proj, viewM, clip);
+    gl.depthMask(true);
+    gl.disable(gl.BLEND);
+    gl.bindVertexArray(null);
+  }
+
+  /** Where a point in the world is seen on the screen this frame, through the lenses: [u, v], v up; null behind the eye. */
+  seenAt(p) {
+    const C = this.lensCam;
+    if (!C || dot(sub(p, C.eye), C.fwd) < NEAR) return null;
+    return lensSeenAt(C, this.lenses, p);
   }
 
   /** Is an end's mouth anywhere in the view? */
@@ -660,22 +800,30 @@ export class Renderer {
       gl.drawArrays(gl.TRIANGLES, 0, d.mesh.count);
     }
     this.drawList(this.glassList, portal);
-    if (this.pts.length) {
-      gl.blendFunc(gl.ONE, gl.ONE);
-      const P = this.points;
-      gl.useProgram(P.p);
-      gl.uniformMatrix4fv(P.u.u_proj, false, proj);
-      gl.uniformMatrix4fv(P.u.u_view, false, viewM);
-      gl.uniform1f(P.u.u_scale, (this.h / 2) / Math.tan(FOV / 2));
-      gl.uniform4fv(P.u.u_clip, clip);
-      gl.bindVertexArray(this.pointVao);
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.pointBuf);
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.pts), gl.STREAM_DRAW);
-      gl.drawArrays(gl.POINTS, 0, this.pts.length / 8);
-    }
+    this.drawPoints(this.pts, proj, viewM, clip);
     gl.depthMask(true);
     gl.disable(gl.BLEND);
     gl.bindVertexArray(null);
+    // The holes here too, unless the lens is to bend what is behind them first.
+    if (portal || !this.lensing) this.drawHoles(proj, viewM, cam.eye, clip);
+  }
+
+  /** Glowing points, added onto what is there. */
+  drawPoints(pts, proj, viewM, clip) {
+    if (!pts.length) return;
+    const gl = this.gl;
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE);
+    const P = this.points;
+    gl.useProgram(P.p);
+    gl.uniformMatrix4fv(P.u.u_proj, false, proj);
+    gl.uniformMatrix4fv(P.u.u_view, false, viewM);
+    gl.uniform1f(P.u.u_scale, (this.h / 2) / Math.tan(FOV / 2));
+    gl.uniform4fv(P.u.u_clip, clip);
+    gl.bindVertexArray(this.pointVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.pointBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pts), gl.STREAM_DRAW);
+    gl.drawArrays(gl.POINTS, 0, pts.length / 8);
   }
 
   /** Where a screen point looks, for the tools. */

@@ -1667,9 +1667,10 @@ wormhole end would open (a red cross where none can), and **Quality** is
 High, Medium, Low, or Auto (the default), which starts High and steps down,
 to Medium and then to Low, for the rest of the session each time the frame
 rate stays under 40 for three seconds of play. High has the sun's shadows
-and bloom (below, under **Levels**); Medium leaves both out; Low also draws
-at a lower resolution and shows a swirl in a wormhole's mouth instead of the
-view through it (`applySettings` in `vector/src/main.js`).
+and bloom (below, under **Levels**); Medium leaves both out but keeps the
+black holes' lensing; Low leaves that out too, draws at a lower resolution
+and shows a swirl in a wormhole's mouth instead of the view through it
+(`applySettings` in `vector/src/main.js`).
 
 ### Movement
 
@@ -1878,6 +1879,39 @@ curve) a pixel needs before it glows. The passes are `sunPass` and
 `bloomPass` in `vector/src/render.js`; the sun's squares are `CASCADES`
 and `sunBoxes` in `vector/src/effects.js`.
 
+At High and Medium, in the campaign and in versus alike, a **black hole
+bends the picture round it** (gravitational lensing), as it already bends a
+charge's flight and a wormhole's line of sight. It is a lens on the drawn
+frame, never a change to the world: the physics, the levels and the aim
+stay as they are. Each hole's lens lies in a plane through the hole, square
+to your line of sight. What is behind that plane is seen pulled out from
+the hole, stretched round it into a ring, with a black shadow inside where
+the light would have had to come from the far side and a thin ring of light
+at the shadow's edge; what is in front of the hole is seen as it is, and
+the hole's own sphere and rings are drawn after, so the lens never bends
+the hole. The bend is strongest just outside the shadow and fades to
+nothing at the edge of the hole's reach, so there is no seam, and it only
+ever grows with the distance from the hole, so everything is seen once. A
+stronger pull casts a wider shadow. The crosshair and the name over
+another robot go with the picture: in the middle of the screen until a
+lens bends the picture there, then onto where what you are aimed at is
+seen, so a shot still goes to what the crosshair is on. A white hole
+(none is in the game yet) would draw the picture in instead, with no
+shadow.
+
+| Hole | Pull | Reach | Shadow's edge | Source |
+| --- | --- | --- | --- | --- |
+| Under a pit's stepping stone (levels 6, 9 and 10) | 330 to 420 | 11 m | 2.1 horizons, 1.9 m | `wellpit` in `vector/src/sections.js`; `lensOf` in `vector/src/lens.js` |
+| Over an orbit's pocket (levels 6, 9 and 10) | 4000 | 12 m | 2.6 horizons, 1.8 m | `orbit` in `vector/src/sections.js`; same |
+| Over Event Horizon's pit (versus) | 2600 | 15 m | 2.5 horizons, 2.3 m | `horizon` in `vector/src/maps.js`; same |
+
+The frame and its depth are resolved and drawn again through up to four
+holes in view, nearest first (`lensPass` and `LENS_FS` in
+`vector/src/render.js` and `vector/src/shaders.js`); `vector/src/lens.js`
+has the same sums per point, and where a point is seen through them, for
+the crosshair and the tests. A pixel whose bent sample lands on something
+in front of a hole, or off the screen, keeps its own colour.
+
 ### Music
 
 Each level has its own track on Deflector's engine (`src/audio/engine.js`),
@@ -2037,6 +2071,7 @@ end drops any that are for another match. All of Vector's messages start with
 | The trilogy's order | each level is more real than the one before and sounds more human; every level has its own track, as human as the level | `vector/test/levels.test.js` |
 | Music and sound | every track is well formed and humanity rises across it; every voice a track names exists; every cue sounds at every humanity, placed and scaled as the game asks, and once however often it is fired at once | `vector/test/audio.test.js` |
 | The art | every machine in every roster and every boss draws, with nothing but numbers in what it asks the renderer for | `vector/test/art.test.js` |
+| Lensing | every hole in the levels and the arenas has a lens reaching as far as its pull, bending nothing at the edge of its reach nor what is in front of it; the bend only ever grows, for every hole and every share of it, and unbend undoes it both ways; a black hole's shadow reaches past its glowing ring and not past the outer one, wider for a stronger pull; a white hole draws the picture in; only what is behind a hole's plane is bent; the frame's lenses are the holes in view that are on, nearest first, at most four; where a point is seen undoes what the lens pass shows there, from three places and two holes at once; the background just behind a hole is seen at its shadow's edge | `vector/test/lens.test.js` |
 | Shadows and bloom | shadows come in and bloom goes out as the levels get real, softer under a roof or in rain; the sun's near square is centred ahead of the eye, 90 m across, casts from 150 m toward the sun, and moves in whole texels; the far one holds the near one and its blending band clear of its own fading edge, shades the ground 250 m ahead whichever way you look and wherever the sun is, casts from 250 m toward the sun, and moves in whole texels too; roofs, lamps and glass cast nothing; no shader asks for a smoothstep backwards | `vector/test/effects.test.js` |
 | Co-op | the team side by side; each robot on its own shields; out, and back at a checkpoint or the boss with one; the level lost only with the whole team out; the team locked into an ambush room and the arena together; enemies after the nearest robot; a pair of wormhole ends each, anyone's to go through; a teammate's charge through you; a drop for each | `vector/test/coop.test.js` |
 | Versus arenas | four, no two built from the same parts or wearing the same level; on each, the autopilot flies the arena's tour from every spawn and reaches every spawn and every power-up spot without losing a shield; standing still on any of them is safe for 12 s | `vector/tools/tour.mjs`, `vector/test/versus.test.js` |
@@ -2046,7 +2081,8 @@ end drops any that are for another match. All of Vector's messages start with
 Each tool also runs on its own: `node vector/tools/autopilot.mjs 4`,
 `node vector/tools/fight.mjs 8 noportals`, `node vector/tools/tour.mjs
 foundry`, and `node vector/tools/shots.mjs level 4 out/` (or `boss 4`,
-`portal 1`, `title`, and `compare 8`, the same view at High and at Medium)
+`portal 1`, `title`, `compare 8`, the same view at High and at Medium, and
+`lens 6`, each of level 6's black holes at High, Medium and Low)
 screenshots the real game in headless Chromium, at High quality unless
 `QUALITY` says otherwise.
 `node vector/tools/play.mjs all` plays every level in the real page with the
