@@ -6,6 +6,7 @@
 // moment it is scheduled, the tempo can follow the ball speed continuously.
 
 const LOOKAHEAD = 0.3; // seconds of audio scheduled ahead of the clock: a main thread held up for less than this costs no note
+const MAX_AHEAD = 1.2; // how far ahead it reaches once the page has held it up: a hitch that long costs no note either
 const TICK_MS = 25;
 /** How much output latency to ask for: 'snappy' is the browser's smallest buffer, 'steady' a 60 ms one that rides out a busy machine. */
 export const AUDIO_LATENCY = { snappy: 'interactive', steady: 0.06 };
@@ -26,6 +27,8 @@ export class AudioEngine {
     this.lastWall = 0;
     this.lastKickAt = 0; // audio-clock time of the most recent scheduled kick
     this.latency = 'snappy'; // a key of AUDIO_LATENCY
+    this.ahead = LOOKAHEAD; // how far ahead the music is scheduled now: further after the page has held it up
+    this.revived = 0; // how often the sound has been brought back from a context that died
     // The player's own levels, 0 to 1 each: the music, and separately the sound
     // effects (and everything that is not music: ambience, voices). Kept while
     // there is no context yet, and put on the graph when there is.
@@ -39,6 +42,7 @@ export class AudioEngine {
 
   /** Must be called from a user gesture (click/tap/key) to unlock audio. */
   async init() {
+    this.held = false; // sound wanted again, whatever paused it
     if (this.ctx) {
       if (this.ctx.state === 'suspended') await this.ctx.resume();
       return;
@@ -48,6 +52,18 @@ export class AudioEngine {
     this.ctx = new AC({ latencyHint: AUDIO_LATENCY[this.latency] ?? 'interactive' });
     this.buildGraph();
     if (this.ctx.state === 'suspended') await this.ctx.resume();
+  }
+
+  /** The game's own pause: the sound stops where it is, and the watchdog leaves it stopped until resume(). */
+  suspend() {
+    this.held = true;
+    if (this.ctx && this.ctx.state !== 'closed') this.ctx.suspend().catch(() => {});
+  }
+
+  /** And on again from where it stopped. */
+  resume() {
+    this.held = false;
+    if (this.ctx && this.ctx.state !== 'closed') this.ctx.resume().catch(() => {});
   }
 
   /** Change the output latency: the context is rebuilt, and whatever was playing starts over on it. */
@@ -84,6 +100,13 @@ export class AudioEngine {
     this.comp.release.value = 0.2;
     this.master.connect(this.comp);
     this.comp.connect(c.destination);
+    // A listener on the output, for the watchdog: a NaN that gets into the mix silences it for good.
+    if (c.createAnalyser) {
+      this.probe = c.createAnalyser();
+      this.probe.fftSize = 256;
+      this.probeBuf = new Float32Array(256);
+      this.comp.connect(this.probe);
+    }
 
     // Each bus has its level in the mix, and after it the player's volume for it.
     this.musicVol = gain(volumeGain(this.musicVolume));
@@ -285,10 +308,15 @@ export class AudioEngine {
     this.intensity = approach(this.intensity, this.intensityTarget, 1.2 * dt);
 
     const now = c.currentTime;
+    this.watch();
+    // Held up (a page busy drawing): the music ran nearly dry before this tick. Schedule further ahead from
+    // now on, so the next hitch as long costs no note, and come back down slowly once it keeps up.
+    if (this.nextStepTime < now + 0.02) this.ahead = Math.min(MAX_AHEAD, this.ahead + 0.3);
+    else this.ahead = Math.max(LOOKAHEAD, this.ahead - 0.0005);
     // If the tab was backgrounded and we fell far behind, skip ahead instead of
     // dumping a pile of late notes at once.
     if (this.nextStepTime < now - 0.25) this.nextStepTime = now + 0.05;
-    while (this.nextStepTime < now + LOOKAHEAD) {
+    while (this.nextStepTime < now + this.ahead) {
       const bpm = T.bpm * this.tempoScale;
       this.currentBpm = bpm;
       const stepDur = 60 / bpm / 4;
@@ -299,6 +327,70 @@ export class AudioEngine {
     const beat = 60 / (T.bpm * this.tempoScale);
     this.dl.delayTime.setTargetAtTime(beat * this.delayBeats, now, 0.25);
     this.dr.delayTime.setTargetAtTime(beat * this.delayBeats, now, 0.25);
+  }
+
+  /**
+   * The watchdog, from each tick: a context the browser or the system has
+   * suspended or interrupted (not the game, with suspend()) is resumed; one that has closed, whose clock has
+   * stopped though it says it is running, or whose output has gone to NaN is
+   * dead, and a new one is built with the music started again on it.
+   */
+  watch() {
+    const c = this.ctx;
+    // An offline render (the listening tools) has a clock of its own that stands still until it starts.
+    if (!c || this.reviving || typeof c.startRendering === 'function') return;
+    if (typeof document !== 'undefined' && document.hidden) {
+      this.clockSeen = null;
+      return;
+    }
+    const wall = this.wall();
+    if (c.state === 'suspended' || c.state === 'interrupted') {
+      this.clockSeen = null;
+      // Paused by the game itself (suspend()): left as it is.
+      if (!this.held && wall - (this.lastResume ?? -9) > 1) {
+        this.lastResume = wall;
+        c.resume().catch(() => {});
+      }
+      return;
+    }
+    if (c.state === 'closed') {
+      this.revive('closed');
+      return;
+    }
+    if (!this.clockSeen || c.currentTime !== this.clockSeen.t) this.clockSeen = { t: c.currentTime, at: wall };
+    else if (wall - this.clockSeen.at > 1.5) {
+      this.revive('stopped');
+      return;
+    }
+    if (this.probe && wall - (this.probeAt ?? 0) > 1) {
+      this.probeAt = wall;
+      this.probe.getFloatTimeDomainData(this.probeBuf);
+      for (const x of this.probeBuf) {
+        if (!Number.isFinite(x)) {
+          this.revive('nan');
+          return;
+        }
+      }
+    }
+  }
+
+  /** The time on the page's own clock, in seconds: the watchdog's, for how long the sound's has stood still. */
+  wall() {
+    return performance.now() / 1000;
+  }
+
+  /** A new context in place of a dead one, the music started again on it; at most once every ten seconds. */
+  revive(why) {
+    const wall = this.wall();
+    if (this.reviving || wall - (this.lastRevive ?? -99) < 10) return null;
+    this.lastRevive = wall;
+    this.revived++;
+    this.lastRevivedFor = why;
+    this.reviving = true;
+    this.clockSeen = null;
+    return this.setLatency(this.latency).finally(() => {
+      this.reviving = false;
+    });
   }
 
   sectionAt(bar) {

@@ -1670,7 +1670,10 @@ rate stays under 40 for three seconds of play. High has the sun's shadows
 and bloom (below, under **Levels**); Medium leaves both out but keeps the
 black holes' lensing; Low leaves that out too, draws at a lower resolution
 and shows a swirl in a wormhole's mouth instead of the view through it
-(`applySettings` in `vector/src/main.js`).
+(`applySettings` in `vector/src/main.js`). **Sound** is Steady (the default)
+or Snappy, as in Deflector (under **Performance** below): a world this heavy
+to draw keeps the music in time on the steadier buffer, and Snappy hears a
+shot a hair sooner.
 
 ### Movement
 
@@ -2825,7 +2828,14 @@ renderer does three things about it:
   lands; Steady asks for a 60 ms one, which a machine busy drawing (or a
   guest's, parsing sixty snapshots a second) can keep fed, at the cost of
   hearing hits a hair later. The music's sequencer schedules 300 ms ahead of
-  the audio clock, so a main thread held up for less than that costs no note.
+  the audio clock, so a main thread held up for less than that costs no note;
+  once a hitch has run it nearly dry, it looks further ahead, up to 1.2 s, and
+  comes back down over about 45 seconds of keeping up. A watchdog in the engine
+  all three games share brings the sound back when it dies: a context the
+  browser suspended is resumed (one the game paused is left paused), and one
+  that has closed, whose clock has stopped, or whose output has gone to NaN
+  is built anew with the track started over, at most once every ten seconds
+  (`watch` and `revive` in `src/audio/engine.js`).
 * **Quality setting** under Settings on the title screen: Auto, High or Low. Low caps the
   pixel density at 1 and turns off the glow on moving things (the cached
   static layer keeps its glow). Auto starts high and steps down to Low for the

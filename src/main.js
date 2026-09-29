@@ -2017,7 +2017,7 @@ function handleGlobalKeys() {
 function pause() {
   state = 'paused';
   setInGame(false);
-  if (audio.ctx) audio.ctx.suspend();
+  audio.suspend();
   showOverlay(`
     <h1>PAUSED</h1>
     <p class="muted">Level ${game.def.id} · ${game.def.title}</p>
@@ -2034,7 +2034,7 @@ function pause() {
 function resume() {
   hideOverlay();
   setInGame(true);
-  if (audio.ctx) audio.ctx.resume();
+  audio.resume();
   last = performance.now();
   state = 'playing';
   golfMapBare = false;
@@ -2046,7 +2046,7 @@ function resume() {
 
 /** Leave the current level (from pause or an end screen) and show the title. */
 function goToMenu() {
-  if (audio.ctx && audio.ctx.state === 'suspended') audio.ctx.resume();
+  audio.resume();
   audio.stopTrack(0.6);
   netReset();
   campaign = null;
@@ -5287,7 +5287,7 @@ function switchKey(g) {
 function golfMap(mode) {
   state = 'paused';
   setInGame(false);
-  if (audio.ctx && mode !== 'brief') audio.ctx.suspend();
+  if (mode !== 'brief') audio.suspend();
   golfMapBare = mode === 'map';
   if (mode === 'map') {
     hideOverlay();
@@ -5297,7 +5297,7 @@ function golfMap(mode) {
   const def = g.def;
   const course = () => {
     audio.stopTrack(0.6);
-    if (audio.ctx && audio.ctx.state === 'suspended') audio.ctx.resume();
+    audio.resume();
     showCourse(golfRound ? golfRound.course : courseShown);
   };
   if (mode === 'menu') {

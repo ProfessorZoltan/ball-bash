@@ -1545,7 +1545,7 @@ export class VectorAudio extends AudioEngine {
       src.start(t, this.rand() * src.buffer.duration);
       a.sources.push(src);
     } while (horizon !== undefined);
-    const until = horizon ?? t + LOOKAHEAD;
+    const until = horizon ?? t + (this.ahead ?? LOOKAHEAD);
     for (const e of a.events) {
       // A tab left in the background doesn't come back to a flock of gulls at once.
       if (e.next < t - 1) e.next = t + 0.05;

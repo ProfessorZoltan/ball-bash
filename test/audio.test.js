@@ -166,3 +166,127 @@ test('no note of the music goes through the effects\' volume, and no effect, ech
   assert.ok(fx.length > 50, `${fx.length} nodes of effects`);
   for (const x of fx) assert.ok(!downstream(x).has(a.musicVol), 'an effect went through the music');
 });
+
+/** A rig with a track playing, its timer stopped so the test drives each tick. */
+function playing() {
+  const r = rig();
+  r.a.playTrack(TRACKS.antechamber);
+  clearInterval(r.a.timer);
+  r.a.timer = null;
+  return r;
+}
+
+test('a page that holds the music up makes it schedule further ahead, so the next hitch as long drops no note, and it comes back down once it keeps up', () => {
+  const { a, ctx } = playing();
+  for (let t = 0; t < 3; t += 0.025) {
+    ctx.currentTime = t;
+    a.tick();
+  }
+  assert.equal(a.ahead, 0.3, 'a page that keeps up schedules 0.3 s ahead');
+  // Held up 0.5 s: the music ran dry, and from then on it looks further.
+  ctx.currentTime += 0.5;
+  a.tick();
+  assert.ok(a.ahead >= 0.55, `looks ${a.ahead.toFixed(2)} s ahead after a hitch`);
+  assert.ok(a.nextStepTime >= ctx.currentTime + a.ahead - 0.2, 'and has scheduled that far');
+  // The same hitch again: the notes were already there.
+  ctx.currentTime += 0.5;
+  assert.ok(a.nextStepTime > ctx.currentTime, 'nothing ran dry the second time');
+  a.tick();
+  for (let k = 0; k < 60 * 40; k++) {
+    ctx.currentTime += 0.025;
+    a.tick();
+  }
+  assert.equal(a.ahead, 0.3, 'a minute of keeping up brings it back to 0.3 s');
+});
+
+test('a context the browser suspends is resumed and one the game paused is left paused; one that has closed, whose clock has stopped, or whose output has gone to NaN is built anew', async () => {
+  let wall = 100;
+  const setUp = (extra = {}) => {
+    const { a, ctx } = playing();
+    Object.assign(ctx, extra);
+    a.wall = () => wall;
+    const built = [];
+    a.setLatency = async (k) => {
+      built.push(k);
+    };
+    return { a, ctx, built };
+  };
+  // Suspended: resumed, at most once a second.
+  {
+    let resumed = 0;
+    const { a } = setUp({ state: 'suspended', resume: async () => resumed++ });
+    a.tick();
+    a.tick();
+    assert.equal(resumed, 1);
+    wall += 1.1;
+    a.tick();
+    assert.equal(resumed, 2);
+  }
+  // Paused by the game itself: left paused, however long, until the game carries on.
+  {
+    let resumed = 0;
+    const { a, ctx, built } = setUp({ resume: async () => resumed++, suspend: async () => (ctx.state = 'suspended') });
+    a.suspend();
+    for (let k = 0; k < 400; k++) {
+      wall += 0.025;
+      a.tick();
+    }
+    assert.equal(resumed, 0, 'not resumed behind the pause');
+    assert.deepEqual(built, [], 'nor built anew');
+    a.resume();
+    assert.equal(resumed, 1);
+    wall += 20;
+  }
+  // A clock standing still for over a second and a half while it says it is running.
+  {
+    const { a, ctx, built } = setUp();
+    ctx.currentTime = 5;
+    for (let k = 0; k < 80; k++) {
+      wall += 0.025;
+      a.tick();
+    }
+    assert.deepEqual(built, ['snappy'], 'a new context, on the same latency');
+    assert.equal(a.revived, 1);
+    assert.equal(a.lastRevivedFor, 'stopped');
+    await Promise.resolve();
+    for (let k = 0; k < 80; k++) {
+      wall += 0.025;
+      a.tick();
+    }
+    assert.equal(built.length, 1, 'never twice in ten seconds');
+  }
+  // Closed.
+  {
+    wall += 20;
+    const { a, built } = setUp({ state: 'closed' });
+    a.tick();
+    assert.equal(built.length, 1);
+    assert.equal(a.lastRevivedFor, 'closed');
+  }
+  // The output gone to NaN.
+  {
+    wall += 20;
+    const { a, ctx, built } = setUp();
+    a.probe = { getFloatTimeDomainData: (b) => b.fill(NaN) };
+    a.probeBuf = new Float32Array(8);
+    for (let k = 0; k < 50; k++) {
+      wall += 0.025;
+      ctx.currentTime += 0.025;
+      a.tick();
+    }
+    assert.equal(built.length, 1);
+    assert.equal(a.lastRevivedFor, 'nan');
+  }
+  // An offline render, its clock still until it starts, is left alone.
+  {
+    wall += 20;
+    const { a, ctx, built } = setUp({ startRendering: () => {} });
+    ctx.currentTime = 0;
+    for (let k = 0; k < 120; k++) {
+      wall += 0.025;
+      a.tick();
+    }
+    assert.equal(built.length, 0);
+  }
+});
+
