@@ -390,6 +390,97 @@ test('a relay\'s room: no shot reaches its switch straight, shutter up or down, 
   assert.ok(endAt(g, 0, link.back), 'an end once it is up');
 });
 
+test('a relay\'s open shutter lets the eye into its room and no body: nobody gets in by jumping at it, or from the top of a jump right in it', () => {
+  const { bp, sec } = mini('relay');
+  const { P, local } = frame(sec);
+  const w = 4;
+  const inRoom = (p) => local(p)[0] > w + 0.6;
+  const shutUp = () => {
+    const g = new Game(mini('relay').bp, { invulnerable: true, noWaves: true });
+    g.flip(g.world.switches.find((x) => x.id === sec.sw1));
+    hold(g, {}, 0.6);
+    return g;
+  };
+  // At full run and walking, from across the way and close by, jumping at every distance from the wall.
+  for (const x0 of [-3, 0, 2]) {
+    for (const z of [9.6, 11, 12.4]) {
+      for (const at of [0.6, 1, 1.4, 1.8, 2.4]) {
+        for (const run of [true, false]) {
+          const g = shutUp();
+          const to = P(w + 3, 0, z);
+          g.bot.spawn(standAt(...P(x0, 0, z)), 0);
+          let jumped = false;
+          hold(g, () => {
+            g.bot.yaw = Math.atan2(to[0] - g.bot.pos[0], to[2] - g.bot.pos[2]);
+            const now = !jumped && local(g.bot.pos)[0] > w - at;
+            if (now) jumped = true;
+            return { mz: 1, run, jump: true, jumpPress: now };
+          }, 2.5, () => inRoom(g.bot.pos));
+          assert.ok(!inRoom(g.bot.pos), `got in from ${x0}, jumping ${at} m out${run ? ' at a run' : ''}`);
+        }
+      }
+    }
+  }
+  // Set right in the opening, standing on the sill, and pushed on in.
+  const g = shutUp();
+  const [a, c] = [P(w, 0, 11), P(w + 3, 0, 11)];
+  g.bot.spawn(standAt(...P(w + 0.1, 2, 11)), Math.atan2(c[0] - a[0], c[2] - a[2]));
+  hold(g, { mz: 1, run: true, jump: true, jumpPress: true }, 1.5, () => inRoom(g.bot.pos));
+  assert.ok(!inRoom(g.bot.pos), 'got past the glass');
+  assert.ok(bp.world.solids.some((s) => s.glass), 'glass behind the shutter');
+});
+
+test('whoever walks into a relay\'s room through its ends is let out onto the way by its switch, ends or no ends', () => {
+  const { bp, sec } = mini('relay');
+  const { P, local } = frame(sec);
+  const w = 4;
+  const link = bp.links.find((k) => k.kind === 'relay');
+  const g = new Game(bp, { invulnerable: true, noWaves: true });
+  const exit = g.world.solids.find((s) => s.door && s.door.id === sec.exit);
+  const [ez0, ez1] = sec.exitAt;
+  const ez = (ez0 + ez1) / 2;
+  // Its door out is shut from the way until the switch is shot: walked at, nobody gets in.
+  g.bot.spawn(standAt(...P(0, 0, ez)), 0);
+  const door = P(w + 3, 0, ez);
+  hold(g, () => {
+    g.bot.yaw = Math.atan2(door[0] - g.bot.pos[0], door[2] - g.bot.pos[2]);
+    return { mz: 1, run: true };
+  }, 2);
+  assert.equal(exit.door.open, false);
+  assert.ok(local(g.bot.pos)[0] < w, 'walked in through the shut door');
+  // In through the ends: the shutter up, one end on the back wall and one across the way, and walked into.
+  g.bot.spawn(standAt(...P(0, 0, 11)), 0);
+  g.flip(g.world.switches.find((x) => x.id === link.sw1));
+  hold(g, {}, 0.6);
+  assert.ok(endAt(g, 0, link.back) && endAt(g, 1, link.across), 'both ends open');
+  hold(g, () => {
+    g.bot.yaw = Math.atan2(link.across[0] - g.bot.pos[0], link.across[2] - g.bot.pos[2]);
+    return { mz: 1 };
+  }, 4, () => local(g.bot.pos)[0] > w + 0.6);
+  assert.ok(local(g.bot.pos)[0] > w + 0.6, 'came out in the room');
+  hold(g, {}, 1);
+  // Both ends gone: nothing in there takes one but the back wall. The switch, shot close to.
+  g.closeEnd(0);
+  g.closeEnd(1);
+  const sw2 = g.world.switches.find((x) => x.id === link.sw2);
+  const yp = yawPitch(sub(sw2.p, g.bot.eyePos()));
+  g.bot.yaw = yp.yaw;
+  g.bot.pitch = yp.pitch;
+  g.step(DT, { firePress: true });
+  hold(g, {}, 1.5);
+  assert.equal(sw2.on, true, 'the switch is lit');
+  assert.equal(exit.door.open, true, 'and the door out is open');
+  // Out through it, and on along the way.
+  const inside = P(w + 2, 0, ez);
+  const out = P(0, 0, ez);
+  hold(g, () => {
+    const to = local(g.bot.pos)[0] > w + 1.2 && Math.abs(local(g.bot.pos)[2] - ez) > 0.4 ? inside : out;
+    g.bot.yaw = Math.atan2(to[0] - g.bot.pos[0], to[2] - g.bot.pos[2]);
+    return { mz: 1 };
+  }, 6, () => local(g.bot.pos)[0] < 0.5);
+  assert.ok(local(g.bot.pos)[0] < 0.5 && g.bot.onGround, `back on the way at ${local(g.bot.pos).map((v) => v.toFixed(1))}`);
+});
+
 test('a beam without wormholes ends on the wall across the way, and no charge lights its lens', () => {
   const { bp, sec } = mini('beam');
   const link = bp.links.find((k) => k.kind === 'beam');

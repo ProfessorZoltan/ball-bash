@@ -231,7 +231,8 @@ export const PUZZLES = {
    * sill, and everything in there soaks a charge up. Shoot the amber switch;
    * while the shutter is up, one end on the back wall; one on the wall across
    * the way; fire into yours and the charge comes out at the room's switch,
-   * and the bridge comes down.
+   * and the bridge comes down. Glass behind the shutter keeps a body out, and
+   * whoever walks in through the ends finds the switch opens a door out too.
    */
   relay(b, o = {}) {
     const w = b.W / 2;
@@ -254,26 +255,39 @@ export const PUZZLES = {
     const RH = 5;
     const oz0 = 9;
     const oz1 = 13;
+    // The way out, for whoever comes in through the ends: a door onto the way at the far end, as tall as the sill.
+    const ez0 = 13.6;
+    const ez1 = 15.6;
     b.box([w, -2, 0], [w + 0.6, H, R0], { role: 'wall' });
     b.box([w, -2, R1], [w + 0.6, H, L], { role: 'wall' });
-    b.box([X0, -2, R0], [X0 + 0.6, 2, R1], { role: 'wall', noPortal: true });
+    b.box([X0, -2, R0], [X0 + 0.6, 2, ez0], { role: 'wall', noPortal: true });
+    b.box([X0, -2, ez1], [X0 + 0.6, 2, R1], { role: 'wall', noPortal: true });
+    b.box([X0, -2, ez0], [X0 + 0.6, 0, ez1], { role: 'wall', noPortal: true });
     b.box([X0, 4, R0], [X0 + 0.6, H, R1], { role: 'wall', noPortal: true });
     b.box([X0, 2, R0], [X0 + 0.6, 4, oz0], { role: 'wall', noPortal: true });
     b.box([X0, 2, oz1], [X0 + 0.6, 4, R1], { role: 'wall', noPortal: true });
     const shut = b.doorId++;
     b.box([X0 + 0.1, 2, oz0 + 0.05], [X0 + 0.5, 4, oz1 - 0.05], { role: 'door', door: { id: shut, lift: 2.1, speed: 6, open: false, at: 0 } });
+    // Armoured glass behind the shutter: the eye goes through, to the back wall, and nobody climbs in after it.
+    b.box([X0 + 0.52, 2, oz0], [X0 + 0.6, 4, oz1], { glass: true, mat: 'glass', color: '#9fe8ff', role: 'glass' });
+    const exit = b.doorId++;
+    b.box([X0 + 0.1, 0, ez0 + 0.05], [X0 + 0.5, 2, ez1 - 0.05], { role: 'door', door: { id: exit, lift: 2.1, speed: 4, open: false, at: 0 } });
     // Inside: soaking floor, roof, ends and the front's inner face; the back wall takes an end but no charge turns off it.
     b.box([X0 + 0.6, -2, R0], [X1, 0, R1], { ...soak, role: 'floor' });
     b.box([X0 + 0.6, RH, R0], [X1 + 1, RH + 0.5, R1], { ...soak, role: 'roof' });
     b.box([X0 + 0.6, 0, R0 - 0.5], [X1 + 1, RH, R0], soak);
     b.box([X0 + 0.6, 0, R1], [X1 + 1, RH, R1 + 0.5], soak);
-    b.box([X0 + 0.6, 0, R0], [X0 + 0.65, 1.8, R1], soak);
+    b.box([X0 + 0.6, 0, R0], [X0 + 0.65, 1.8, ez0], soak);
+    b.box([X0 + 0.6, 0, ez1], [X0 + 0.65, 1.8, R1], soak);
     b.box([X0 + 0.6, 1.8, R0], [X0 + 0.9, 4, oz0], soak);
-    b.box([X0 + 0.6, 1.8, oz1], [X0 + 0.9, 4, R1], soak);
+    b.box([X0 + 0.6, 1.8, oz1], [X0 + 0.9, 4, ez0], soak);
+    b.box([X0 + 0.6, 2, ez0], [X0 + 0.9, 4, ez1], soak);
+    b.box([X0 + 0.6, 1.8, ez1], [X0 + 0.9, 4, R1], soak);
     b.box([X1, -2, R0], [X1 + 1, RH, R1], { role: 'wall', stopsCharges: true });
-    // Its switch, low on the inside of the front, under the opening.
+    // Its switch, low on the inside of the front, under the opening: it lets the bridge down, and lets out
+    // whoever walked in through the ends to shoot it close to (nothing else in the room takes an end).
     const bridge = b.doorId++;
-    const sw2 = { id: b.doorId++, p: null, doors: [bridge], timer: 0, on: false };
+    const sw2 = { id: b.doorId++, p: null, doors: [bridge, exit], timer: 0, on: false };
     const s2 = b.box([X0 + 0.65, 0.6, 9.9], [X0 + 0.85, 1.5, 12.1], { role: 'switch', switchRef: sw2, dynamic: true, noPortal: true });
     sw2.p = [(s2.min[0] + s2.max[0]) / 2, (s2.min[1] + s2.max[1]) / 2, (s2.min[2] + s2.max[2]) / 2];
     sw2.solid = s2;
@@ -290,7 +304,7 @@ export const PUZZLES = {
     const back = b.P(X1, 3, 11);
     const across = b.P(-w, 1.5, 8.5);
     const stand = b.P(0, 0, 11);
-    mark(b, 'relay', 0, L, { gap: G1 - G0, lip: G0, shutter: shut, bridge, sw1: sw1.id, sw2: sw2.id });
+    mark(b, 'relay', 0, L, { gap: G1 - G0, lip: G0, shutter: shut, bridge, exit, exitAt: [ez0, ez1], sw1: sw1.id, sw2: sw2.id });
     b.links.push({ kind: 'relay', sw1: sw1.id, sw2: sw2.id, back, across });
     b.go(0, 0, 11);
     b.step({ a: 'shoot', from: standAt(...stand), at: sw1.p, sw: sw1.id });
