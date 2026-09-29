@@ -11,6 +11,8 @@
 //                                                Medium (both bend the picture round it) and Low (which does not)
 //   node vector/tools/shots.mjs secrets 4 out/   each of level 4's new secrets as a player first meets it: from where
 //                                                its way starts, looking at what hides it
+//   node vector/tools/shots.mjs routes 4 out/    each of level 4's risky ways from where it starts, looking at its door
+//                                                or its prize
 //
 // Uses the game at DEFLECTOR_URL, or one on port 8099, or starts server.js
 // there (tools/browser.mjs). WebGL runs in software (SwiftShader), so a frame
@@ -93,12 +95,29 @@ if (what === 'title') {
       console.log(q, JSON.stringify({ fx: info.fx, drawn: info.drawn, casters: info.casters }));
       await shot(`compare${id}-${q}.png`);
     }
-  } else if (what === 'secrets') {
+  } else if (what === 'secrets' || what === 'routes') {
     const n = await page.evaluate(() => window.__vector.game.bp.detours.length);
     for (let i = 0; i < n; i++) {
-      const kind = await page.evaluate((k) => {
+      const kind = await page.evaluate(([k, routes]) => {
         const g = window.__vector.game;
         const d = g.bp.detours[k];
+        if ((d.secret === false) !== routes) return null;
+        if (routes) {
+          // A risky way: its door, or else its prize.
+          const sec = g.bp.sections.filter((s) => s.type === d.kind)[g.bp.detours.slice(0, k).filter((x) => x.kind === d.kind).length];
+          const door = sec.door != null && g.world.solids.find((x) => x.door && x.door.id === sec.door);
+          const mid = [(sec.from[0] + sec.to[0]) / 2, sec.from[1], (sec.from[2] + sec.to[2]) / 2];
+          const far = (q) => Math.hypot(q.pos[0] - mid[0], q.pos[2] - mid[2]);
+          const prize = g.pickups.filter((q) => q.route).sort((u, v) => far(u) - far(v))[0];
+          const c = door ? [(door.min[0] + door.max[0]) / 2, (door.min[1] + door.max[1]) / 2, (door.min[2] + door.max[2]) / 2] : prize.pos;
+          g.bot.spawn(d.start, d.yaw);
+          g.bot.vel = [0, 0, 0];
+          const e = g.bot.eyePos();
+          const v = [c[0] - e[0], c[1] - e[1], c[2] - e[2]];
+          g.bot.yaw = Math.atan2(v[0], v[2]);
+          g.bot.pitch = Math.max(-0.5, Math.min(0.5, Math.atan2(v[1], Math.hypot(v[0], v[2]))));
+          return d.kind;
+        }
         const sec = g.bp.sections.filter((s) => s.type === d.kind)[g.bp.detours.slice(0, k).filter((x) => x.kind === d.kind).length];
         const id = sec.cover ?? sec.ghost ?? sec.crate;
         const s = id != null ? g.world.solids.find((x) => x.id === id) : g.world.solids.find((x) => x.door && x.door.id === sec.door);
@@ -110,9 +129,10 @@ if (what === 'title') {
         g.bot.yaw = Math.atan2(v[0], v[2]);
         g.bot.pitch = Math.max(-1.3, Math.min(1.3, Math.atan2(v[1], Math.hypot(v[0], v[2]))));
         return d.kind;
-      }, i);
+      }, [i, what === 'routes']);
+      if (!kind) continue;
       await page.waitForTimeout(900);
-      await shot(`secret${id}-${i + 1}-${kind}.png`);
+      await shot(`${what === 'routes' ? 'route' : 'secret'}${id}-${i + 1}-${kind}.png`);
     }
   } else if (what === 'lens') {
     const holes = await page.evaluate(() => window.__vector.game.world.wells.length);

@@ -9,10 +9,16 @@ import { level, LEVEL_DEFS } from '../src/levels.js';
 import { PHYSICS_DT } from '../src/config.js';
 import { Autopilot } from './autopilot.mjs';
 
-/** Fly detour k of level id. Returns { ok, why, kind, time }. */
+/**
+ * Fly detour k of level id. A secret's must find it (one secret); a risky
+ * way's must take its prize and come back to the way. A locked room's fight
+ * is fought with its waves on and the robot untouchable, as the level test
+ * fights the ambush rooms. Returns { ok, why, kind, time }.
+ */
 export function flyDetour(id, k, opts = {}) {
   const bp = level(id, { noEnemies: true });
-  const g = new Game(bp, { shields: Infinity, maxShields: Infinity, noWaves: true });
+  const fight = !!bp.detours[k].fight;
+  const g = new Game(bp, { shields: Infinity, maxShields: Infinity, noWaves: !fight, invulnerable: fight });
   const d = bp.detours[k];
   g.bot.spawn(d.start, d.yaw);
   const ap = new Autopilot(g, d.route);
@@ -33,8 +39,10 @@ export function flyDetour(id, k, opts = {}) {
   }
   if (!ap.done && !ap.failed) ap.fail('ran out of time');
   const found = g.stats.secrets;
-  const ok = ap.done && !ap.failed && hurts === 0 && found === 1;
-  return { ok, kind: d.kind, time: t, found, why: ap.failed || (hurts ? why.join('; ') : found !== 1 ? `${found} secrets found` : ''), game: g };
+  const took = g.pickups.filter((p) => p.taken).length;
+  const got = d.secret === false ? took >= 1 && found === 0 : found === 1;
+  const ok = ap.done && !ap.failed && hurts === 0 && got;
+  return { ok, kind: d.kind, time: t, found, took, secret: d.secret !== false, why: ap.failed || (hurts ? why.join('; ') : !got ? `${found} secrets found, ${took} prizes taken` : ''), game: g };
 }
 
 if (typeof process !== 'undefined' && import.meta.url === `file://${process.argv[1]}`) {
@@ -44,7 +52,7 @@ if (typeof process !== 'undefined' && import.meta.url === `file://${process.argv
     const n = level(id, { noEnemies: true }).detours.length;
     for (let k = 0; k < n; k++) {
       const r = flyDetour(id, k);
-      console.log(`level ${id} ${r.kind}: ${r.ok ? 'found' : 'FAILED'} in ${r.time.toFixed(1)} s${r.why ? ` — ${r.why}` : ''}`);
+      console.log(`level ${id} ${r.kind}: ${r.ok ? (r.secret ? 'found' : 'taken') : 'FAILED'} in ${r.time.toFixed(1)} s${r.why ? ` — ${r.why}` : ''}`);
     }
   }
 }

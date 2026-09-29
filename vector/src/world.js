@@ -264,8 +264,9 @@ export class World {
 
   /**
    * A switch on or off, and its doors with it. A switch in a group (targets)
-   * opens its doors only once every switch in the group is on. Returns
-   * whether any door was told to move.
+   * opens its doors only once every switch in the group is on; a door two
+   * switches open (a vault's, from either side) stays open while either is.
+   * Returns whether any door was told to move.
    */
   setSwitch(sw, on) {
     sw.on = on;
@@ -273,8 +274,10 @@ export class World {
     const open = sw.group != null ? this.switches.filter((x) => x.group === sw.group).every((x) => x.on) : on;
     let moved = false;
     for (const s of this.solids) {
-      if (!s.door || !sw.doors.includes(s.door.id) || s.door.open === open) continue;
-      s.door.open = open;
+      if (!s.door || !sw.doors.includes(s.door.id)) continue;
+      const want = open || (sw.group == null && this.switches.some((x) => x !== sw && x.on && x.group == null && x.doors.includes(s.door.id)));
+      if (s.door.open === want) continue;
+      s.door.open = want;
       moved = true;
     }
     return moved;

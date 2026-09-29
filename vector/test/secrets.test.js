@@ -18,7 +18,7 @@ test('every level hides five secrets or more, of three kinds or more, one of the
   for (const L of LEVEL_DEFS) {
     const bp = level(L.id);
     assert.ok(bp.secrets >= 5, `${L.title}: ${bp.secrets} secrets`);
-    assert.ok(bp.detours.length >= 4, `${L.title}: ways to its secrets`);
+    assert.ok(bp.detours.filter((d) => d.secret !== false).length >= 4, `${L.title}: ways to its secrets`);
     assert.equal(bp.sections.filter((s) => s.type === 'hideaway').length, 1, `${L.title}: one hideaway`);
     const kinds = new Set(bp.sections.map((s) => s.type).filter((t) => ['secret', 'loft', 'crawl', 'cache', 'lookback', 'glitch', 'targets', 'rooftop', 'hideaway'].includes(t)));
     assert.ok(kinds.size >= 3, `${L.title}: ${[...kinds].join(', ')}`);
@@ -35,8 +35,9 @@ test('from the fourth level on, some secrets wear the look of the wall, floor or
 
 test('every secret\'s way is flown with the robot\'s own physics, to its prize, no shield lost', () => {
   for (const L of LEVEL_DEFS) {
-    const n = level(L.id, { noEnemies: true }).detours.length;
-    for (let k = 0; k < n; k++) {
+    const ways = level(L.id, { noEnemies: true }).detours;
+    for (let k = 0; k < ways.length; k++) {
+      if (ways[k].secret === false) continue; // a risky way (routes.test.js)
       const r = flyDetour(L.id, k);
       assert.ok(r.ok, `${L.title}, ${r.kind}: ${r.why}`);
       if (r.kind === 'hideaway') assert.ok([...r.game.said].some((l) => l.text === STORY.hideaways[L.id - 1].text), `${L.title}: the record is read out in the hideaway`);

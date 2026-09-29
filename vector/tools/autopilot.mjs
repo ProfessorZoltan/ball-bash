@@ -464,6 +464,20 @@ export class Autopilot {
         if (S.left) return airSteer(b, st.to);
         return { ...this.steer(st.to, false, 0.05).it, mz: 1 };
       }
+      case 'enter': {
+        // Onto a wormhole end already open, and through it.
+        if (S.warps == null) S.warps = g.warps || 0;
+        if ((g.warps || 0) > S.warps) {
+          this.next();
+          return {};
+        }
+        if (this.t > 6) {
+          this.fail('walked onto the end and never went through');
+          return {};
+        }
+        const r = this.steer(st.at, false, 0.05);
+        return { ...r.it, mz: Math.max(0.5, r.it.mz) };
+      }
       case 'wait': {
         if (this.t >= st.t) this.next();
         return {};

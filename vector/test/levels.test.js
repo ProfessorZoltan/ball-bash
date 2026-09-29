@@ -68,6 +68,8 @@ test('every level is crossed by the autopilot, flying the robot\'s own physics, 
     const r = fly(L.id);
     assert.ok(r.ok, `${L.title}: ${r.why}`);
     assert.equal(r.game.stats.secrets, 0, `${L.title}: the way through takes no secret`);
+    assert.equal(r.game.pickups.filter((p) => p.route && p.taken).length, 0, `${L.title}: nor any risky way's prize`);
+    assert.ok(r.game.ambushes.filter((a) => a.optional).every((a) => a.state === 'wait'), `${L.title}: nor goes into a locked room`);
   }
 });
 
@@ -82,12 +84,13 @@ test('scenery and solids build into meshes with no holes in the numbers', () => 
   }
 });
 
-test('with its machines awake, every level is still crossed, and every ambush room fought and cleared', () => {
+test('with its machines awake, every level is still crossed, and every ambush room on the way fought and cleared', () => {
   for (const L of LEVEL_DEFS) {
     const bp = level(L.id);
     const r = fly(L.id, { enemies: true, invulnerable: true });
     assert.ok(r.ok, `${L.title}: ${r.why}`);
-    for (const a of r.game.ambushes) assert.equal(a.state, 'done', `${L.title}: an ambush room left locked`);
+    // A locked room off the way (routes.js) is nobody's to go into.
+    for (const a of r.game.ambushes) assert.equal(a.state, a.optional ? 'wait' : 'done', `${L.title}: an ambush room left locked`);
     assert.equal(r.game.ambushes.length, bp.ambushes.length);
   }
 });

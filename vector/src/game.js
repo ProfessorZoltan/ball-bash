@@ -308,7 +308,7 @@ export class Game {
         if (a.wave >= waves.length) {
           a.state = 'done';
           doors(a, true);
-          if (a.drop) this.dropAt(a.dropAt, a.drop);
+          if (a.drop) this.dropAt(a.dropAt, a.drop, false, !!a.stash);
           this.emit({ s: 'unlock', at });
           continue;
         }
@@ -724,13 +724,14 @@ export class Game {
   }
 
   /** Something drops: alone, one pickup; in co-op, one for each robot still in, only theirs to take. */
-  dropAt(p, kind, secret = false) {
+  dropAt(p, kind, secret = false, stash = false) {
     const owners = this.mode === 'coop' ? this.live().map((pl) => pl.slot) : [null];
     // A secret's prize dropped for each robot is still one secret (its key, the same on every play), found by whoever takes theirs first.
     const key = secret || false;
     owners.forEach((owner, i) => {
       const at = owners.length > 1 ? [p[0] + (i - (owners.length - 1) / 2) * 0.9, p[1], p[2]] : [...p];
-      this.pickups.push({ id: this.pickupId++, kind: kind === 'shield' ? 'shield' : 'power', power: kind === 'shield' ? null : kind, p: [...at], pos: [...at], taken: false, dropped: true, vy: 4, owner, secret: key });
+      const plain = kind === 'shield' || kind === 'cell';
+      this.pickups.push({ id: this.pickupId++, kind: plain ? kind : 'power', power: plain ? null : kind, p: [...at], pos: [...at], taken: false, dropped: true, vy: 4, owner, secret: key, stash: !plain && stash });
     });
   }
 

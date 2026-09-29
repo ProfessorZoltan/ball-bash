@@ -1807,6 +1807,25 @@ Each new secret writes its way down as a detour (`detour` in
 stretch draws on its own random numbers, so adding one leaves the rest of
 its level built as it was.
 
+### Risky ways
+
+Every level has a way through that is a choice, and from the fourth level
+on two or more of different kinds: a quicker or harder way with a prize on
+it, beside the safe one. The level's own route takes the safe way, none of
+their prizes, and no locked room. Each risky way writes its way down as a
+detour, as a secret does, and the tests fly it to its prize and back to the
+way. The first of each kind has a sign.
+
+| Kind | The choice | Levels | Source |
+| --- | --- | --- | --- |
+| Fork | the way splits for a stretch and meets again: a safe low road down a ramp into a trench two machines keep, and a high road straight over the drop with a prize halfway along (a shield, or a stash) and nothing under it. The high road is narrow beams that jog in and back, floors that blink in a wave, or a beam through two laser gates | 1, 2, 4, 6, 8, 9, 10 | `fork` in `vector/src/routes.js` |
+| Locked room | a door to the side with a red lamp over it. Walk in and it shuts: three waves of 4, 5 and 6 machines, more than any fight on the way; when the last falls the door opens and the prize drops (a shield cell, or a stash). Walk past and nothing happens | 2, 4, 5, 7, 8, 10 | `gauntlet`, same |
+| Vault to rush | a vault at the far end of a 46 m hall, its door opened by a switch in a booth at the near end and shut again 2.6 s later. A stub of wall hides the switch from the rest of the hall, so nobody shoots it and runs the 34 m in time. Put a pair of wormhole ends ready, one on the face of the buttress just past the vault's door and one a few steps on from the booth; shoot the switch and step through. A switch inside lets you out | 3, 5, 7, 9, 10 | `rush`, same |
+| Slingshot | off to one side, an island 9 m out, a metre past any running jump, and a black hole hung 4 m over its far edge. A running jump from the very edge of the way is pulled on over the gap onto the island and its stash; jump again on the island and the hole takes you. Nothing on the island takes a wormhole end. The way back is a platform that shuttles out from the island to over the way | 6, 8, 9 | `slingshot`, same |
+
+A door two switches open, as a vault's is from either side, stays open
+while either is on (`setSwitch` in `vector/src/world.js`).
+
 ### Machines
 
 Every machine moves one of eleven ways; what it looks like is its level's.
@@ -1867,12 +1886,12 @@ section also writes down how it is crossed, as steps for the autopilot.
 
 | # | Level | Real | New | Source |
 | --- | --- | --- | --- | --- |
-| 1 | Edge of the Grid | 0 | looking and moving in depth, jumping, the blaster, switch doors, cracked panels, the bulkhead (wormholes), platforms, a tower | `LEVEL_DEFS` in `vector/src/levels.js` |
-| 2 | Wireframe Wilds | 0.1 | chasers, divers, the chasm, a timed door, a loft | same |
-| 3 | Render Farm | 0.22 | indoors: laser gates, fans, lifts, electrified trenches, armoured glass and the vault | same |
+| 1 | Edge of the Grid | 0 | looking and moving in depth, jumping, the blaster, switch doors, cracked panels, the bulkhead (wormholes), platforms, a tower, a fork | `LEVEL_DEFS` in `vector/src/levels.js` |
+| 2 | Wireframe Wilds | 0.1 | chasers, divers, the chasm, a timed door, a loft, a locked room | same |
+| 3 | Render Farm | 0.22 | indoors: laser gates, fans, lifts, electrified trenches, armoured glass, the vault, and a vault to rush | same |
 | 4 | The Foundry | 0.36 | crushers, molten trenches, the launch ramp, shielded guards | same |
 | 5 | Night Freeway | 0.48 | springs, long running gaps, ambush rooms, the city far below | same |
-| 6 | Rain City | 0.58 | rain, blinking floors, black holes under jumps, the orbit, folded glyphs | same |
+| 6 | Rain City | 0.58 | rain, blinking floors, black holes under jumps, the orbit, folded glyphs, the slingshot | same |
 | 7 | Underline | 0.66 | the old tunnels: everything so far, closer together | same |
 | 8 | Harbour at Dawn | 0.78 | the sea: a fall is into the water | same |
 | 9 | Pine Ridge | 0.9 | snow, the longest climb | same |
@@ -1951,6 +1970,7 @@ shadow.
 | --- | --- | --- | --- | --- |
 | Under a pit's stepping stone (levels 6, 9 and 10) | 330 to 420 | 11 m | 2.1 horizons, 1.9 m | `wellpit` in `vector/src/sections.js`; `lensOf` in `vector/src/lens.js` |
 | Over an orbit's pocket (levels 6, 9 and 10) | 4000 | 12 m | 2.6 horizons, 1.8 m | `orbit` in `vector/src/sections.js`; same |
+| Over a slingshot's island (levels 6, 8 and 9) | 2000 | 22 m | 2.6 horizons, 2.1 m | `slingshot` in `vector/src/routes.js`; same |
 | Over Event Horizon's pit (versus) | 2600 | 15 m | 2.5 horizons, 2.3 m | `horizon` in `vector/src/maps.js`; same |
 
 The frame and its depth are resolved and drawn again through up to four
@@ -2114,8 +2134,9 @@ end drops any that are for another match. All of Vector's messages start with
 | The robot | it stands, jumps as high and as far as MOVE says and no further, walks up stairs and ramps and not walls, walks off a floor onto the top of a ramp without catching on its edge, rides platforms, and walks or falls through wormholes | `vector/test/robot.test.js` |
 | Fans | in every fan's pit, a robot that walks off the edge anywhere across it and holds forward is carried up onto the ledge, with no shield lost | `vector/test/levels.test.js` |
 | Secrets | every level hides five or more, of three kinds or more, one a hideaway, and from the fourth level some wear the look of what they are set in; the autopilot flies every secret's detour with the robot's own physics to its prize, no shield lost, and the level's own route takes none; a secret's panel knocks hollow where a crate thunks; three targets open their wall only all together; a glitch wall stops no robot, shot or sight line, shows itself now and then, and is only in the grid's levels; a hideaway's record is read out as you come into its second room, and its gallery is too high for any jump from anywhere in the room below; a shield cell raises the most a robot holds by one and a stash fills a power-up | `vector/tools/secrets.mjs`, `vector/test/secrets.test.js` |
+| Risky ways | every level has one or more, and from the fourth two of different kinds, each written down and none a secret; the autopilot flies each to its prize and back to the way with the robot's own physics; a locked room shuts only on whoever walks in, and opens with its prize when the last of its three waves falls, more machines than any fight on the way; a vault's switch is hit straight (stood, or at the top of a jump) only from the near end of its hall, and from the nearest such spot a robot running flat out from the moment the charge leaves finds the door shut; without its black hole no running jump from anywhere along a slingshot's edge reaches the island, and with it one from the edge does | `vector/tools/secrets.mjs`, `vector/test/routes.test.js` |
 | The record | a level's count of secrets is known without building it; a secret has the same key every build, and counts once; every secret in a level unlocks its blaster finish, every secret in all ten opens Echo; Echo is outside the campaign, crossed by the autopilot, and its boss is beaten | `vector/test/records.test.js` |
-| Crossing | every level is crossed by the autopilot, which flies the robot's own physics along each section's route (running jumps, platforms boarded as they arrive, blinking floors taken as they light, gates run through while dark, wormholes aimed and walked into, switches shot, the orbit's shot found by flying the charge round the hole), without losing a shield; and again with every machine awake (the robot untouchable), fighting each ambush room's waves with shots it has flown ahead, banks off the walls round a guard's shield included, until the doors open | `vector/tools/autopilot.mjs`, `vector/test/levels.test.js` |
+| Crossing | every level is crossed by the autopilot, which flies the robot's own physics along each section's route (running jumps, platforms boarded as they arrive, blinking floors taken as they light, gates run through while dark, wormholes aimed and walked into, switches shot, the orbit's shot found by flying the charge round the hole), without losing a shield, taking no secret and no risky way's prize, and going into no locked room; and again with every machine awake (the robot untouchable), fighting each ambush room's waves with shots it has flown ahead, banks off the walls round a guard's shield included, until the doors open | `vector/tools/autopilot.mjs`, `vector/test/levels.test.js` |
 | Puzzles | each kind fails the obvious way: a bulkhead cannot be walked or jumped under, a chasm or a launch cannot be jumped at a full run (the launch down the open lane beside its wedge), no end opens across a launch's gap from anywhere on its near side (over 3000 aims, the wedge's top included) while its face and the floor at the lip take one, a vault's switch takes no shot from anywhere without a wormhole, an orbit's none without its black hole, a door stays shut; and the same full-run charge does clear an ordinary gap, so none of that is vacuous | `vector/test/puzzles.test.js` |
 | Wormholes | where an end may sit and how; through a pair, speed kept and the way turned; out of a floor fast enough to clear it; charges and machines through; a launch throws the way its face looks, past any jump; a sight line bends round a black hole | `vector/test/wormholes.test.js` |
 | Bosses | every boss is beaten by a robot that aims well; the Gantry not without wormholes; the Creator's glass turns every charge | `vector/tools/fight.mjs`, `vector/test/bosses.test.js` |
@@ -2130,7 +2151,7 @@ end drops any that are for another match. All of Vector's messages start with
 | Netcode | a host and a guest over a pretend network (late by 40 to 90 ms, one message in twenty lost): the guest's predicted robot agrees with the host's to under a centimetre running, jumping and turning; through a wormhole, turned the same way with no correction; riding the Foundry's lifts and timing its crusher and laser; crossing three levels' doors, switches and wormholes to the boss; its look its own except after a respawn; its shots made in the host's game; every boss fight comes through whole and draws | `vector/test/netplay.test.js` |
 
 Each tool also runs on its own: `node vector/tools/autopilot.mjs 4`,
-`node vector/tools/secrets.mjs 4` (each of level 4's secrets, flown),
+`node vector/tools/secrets.mjs 4` (each of level 4's secrets and risky ways, flown),
 `node vector/tools/fight.mjs 8 noportals`, `node vector/tools/tour.mjs
 foundry`, and `node vector/tools/shots.mjs level 4 out/` (or `boss 4`,
 `portal 1`, `title`, `compare 8`, the same view at High and at Medium, and

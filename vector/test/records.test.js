@@ -17,8 +17,9 @@ test('a level\'s count of secrets is known without building it', () => {
 
 test('a secret is known by the same key every time its level is built, and each counts once', () => {
   for (const id of [1, 5, 9]) {
-    const n = level(id, { noEnemies: true }).detours.length;
-    for (let k = 0; k < n; k++) {
+    const ways = level(id, { noEnemies: true }).detours;
+    for (let k = 0; k < ways.length; k++) {
+      if (ways[k].secret === false) continue;
       const a = [...flyDetour(id, k).game.found];
       const b = [...flyDetour(id, k).game.found];
       assert.equal(a.length, 1);
