@@ -15,6 +15,8 @@
 //                                                or its prize
 //   node vector/tools/shots.mjs puzzles 4 out/   each of level 4's puzzles of several steps from where its answer
 //                                                starts, looking at the first thing it aims at
+//   node vector/tools/shots.mjs rooms 4 out/     each of level 4's rooms from its doorway, and its set piece from
+//                                                where it starts, looking in
 //
 // Uses the game at DEFLECTOR_URL, or one on port 8099, or starts server.js
 // there (tools/browser.mjs). WebGL runs in software (SwiftShader), so a frame
@@ -135,6 +137,26 @@ if (what === 'title') {
       if (!kind) continue;
       await page.waitForTimeout(900);
       await shot(`${what === 'routes' ? 'route' : 'secret'}${id}-${i + 1}-${kind}.png`);
+    }
+  } else if (what === 'rooms') {
+    const kinds = ['hall', 'yard', 'gallery', 'fold', 'wiretree', 'queue', 'pour', 'interchange', 'billboard', 'train', 'crane', 'chairlift', 'workbench'];
+    const n = await page.evaluate((k) => window.__vector.game.bp.sections.filter((s) => k.includes(s.type)).length, kinds);
+    for (let i = 0; i < n; i++) {
+      const kind = await page.evaluate(([k, ks]) => {
+        const g = window.__vector.game;
+        const sec = g.bp.sections.filter((s) => ks.includes(s.type))[k];
+        const d = [sec.to[0] - sec.from[0], sec.to[2] - sec.from[2]];
+        const L = Math.hypot(...d);
+        const f = [d[0] / L, d[1] / L];
+        // A step back from its start, looking along it and up at what is tallest in it.
+        g.bot.spawn([sec.from[0] - f[0] * 1.5, sec.from[1] + 0.91, sec.from[2] - f[1] * 1.5], Math.atan2(f[0], f[1]));
+        g.bot.vel = [0, 0, 0];
+        const up = sec.top || sec.up || 0;
+        g.bot.pitch = Math.atan2(up * 0.6, Math.min(L, 24) * 0.6);
+        return sec.type;
+      }, [i, kinds]);
+      await page.waitForTimeout(900);
+      await shot(`room${id}-${i + 1}-${kind}.png`);
     }
   } else if (what === 'puzzles') {
     const kinds = ['fling', 'hoist', 'bend', 'relay', 'beam'];

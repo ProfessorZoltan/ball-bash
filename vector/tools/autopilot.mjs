@@ -58,6 +58,8 @@ export class Autopilot {
     const d = flatDist(b.pos, p);
     if (d < tol) return { it: { mx: 0, mz: 0 }, there: true };
     this.face(p);
+    // On a conveyor there is no easing off: it would carry the robot back.
+    if (b.onGround && b.ground && b.ground.belt) return { it: { mx: 0, mz: 1, run: true }, there: false };
     // Ease off close in, so it stops where it was sent.
     const hs = Math.hypot(b.vel[0], b.vel[2]);
     const stop = (hs * hs) / (2 * MOVE.friction) + 0.1;
@@ -71,8 +73,8 @@ export class Autopilot {
     const b = this.g.bot;
     const dir = norm([st.to[0] - st.from[0], 0, st.to[2] - st.from[2]]);
     if (!S.phase) {
-      // Where to start the run-up from: well back for a running jump, a step back for a walking one.
-      const back = st.run ? 7 : 1.2;
+      // Where to start the run-up from: well back for a running jump, a step back for a walking one, none from a standstill.
+      const back = st.stand ? 0 : st.run ? 7 : 1.2;
       const along = dot(sub(b.pos, st.from), dir);
       S.phase = along > -back + 0.3 || flatDist(b.pos, add(st.from, [dir[0] * -back, 0, dir[2] * -back])) > 1.5 ? 'back' : 'run';
       S.start = add(st.from, [dir[0] * -back, 0, dir[2] * -back]);
@@ -523,6 +525,31 @@ export class Autopilot {
         }
         if (b.onGround) return this.steer(spot, false, 0.05).it;
         return airSteer(b, spot);
+      }
+      case 'leap': {
+        // Already on the move (a conveyor under it): run on at the landing and jump at the edge.
+        const dir = norm([st.to[0] - st.edge[0], 0, st.to[2] - st.edge[2]]);
+        if (this.t > 10) {
+          this.fail('never leapt');
+          return {};
+        }
+        if (!S.air) {
+          this.face(st.to);
+          const along = dot(sub(b.pos, st.edge), dir);
+          if (along >= 0 && b.onGround) {
+            S.air = true;
+            return { mz: 1, run: true, jump: true, jumpPress: true };
+          }
+          if (!b.onGround && along < -0.3) this.fail('fell before the edge');
+          return { mz: 1, run: true };
+        }
+        if (b.onGround && !S.up) {
+          if (Math.abs(b.pos[1] - st.to[1]) < 0.7 && flatDist(b.pos, st.to) < 3.2) this.next();
+          else this.fail(`leapt to ${b.pos.map((v) => v.toFixed(2))}, not ${st.to.map((v) => v.toFixed(2))}`);
+          return {};
+        }
+        S.up = !b.onGround ? false : S.up;
+        return { ...airSteer(b, st.to), run: true, jump: true };
       }
       case 'enter': {
         // Onto a wormhole end already open, and through it.

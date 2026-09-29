@@ -44,6 +44,8 @@ export class Art {
     for (const f of g.world.fans) this.fan(f);
     for (const w of g.world.wards) this.ward(w);
     for (const bm of g.world.beams) this.beam(bm, g);
+    for (const s of g.world.belts) this.belt(s);
+    for (const t of g.world.tethers) this.tether(t, g);
     this.checkpoints(g);
     if (g.boss) this.boss(g.boss, g);
     // Every robot: your own only through a wormhole, everyone else's always, flickering after a hit.
@@ -510,9 +512,18 @@ export class Art {
     const sx = h.max[0] - h.min[0];
     const sy = h.max[1] - h.min[1];
     const sz = h.max[2] - h.min[2];
+    const col = h.color || '#ff3050';
+    if (h.stream) {
+      // A pour: a thick stream while it runs, and a thin dribble as it tips and swings back.
+      if (h.lit) {
+        this.d('box', c, 0, 0, 0, [sx * 0.8, sy, sz * 0.8], col, { glow: 2.5, alpha: 0.95 });
+        this.r.light([c[0], h.min[1] + 0.5, c[2]], col, 9);
+      } else if (h.warn) this.d('box', c, 0, 0, 0, [0.12, sy, 0.12], col, { glow: 2, alpha: 0.8 });
+      return;
+    }
     if (h.lit) {
-      this.d('box', c, 0, 0, 0, [Math.max(0.06, sx < 0.5 ? 0.08 : sx), sy, Math.max(0.06, sz < 0.5 ? 0.08 : sz)], '#ff3050', { glow: 3, alpha: 0.75 });
-      this.r.light(c, '#ff3050', 6);
+      this.d('box', c, 0, 0, 0, [Math.max(0.06, sx < 0.5 ? 0.08 : sx), sy, Math.max(0.06, sz < 0.5 ? 0.08 : sz)], col, { glow: 3, alpha: 0.75 });
+      this.r.light(c, col, 6);
     } else if (h.warn && Math.sin(t * 40) > 0) {
       this.d('box', c, 0, 0, 0, [sx < 0.5 ? 0.03 : sx, sy, sz < 0.5 ? 0.03 : sz], '#ff9aa8', { glow: 1, alpha: 0.35 });
     }
@@ -552,6 +563,40 @@ export class Art {
       this.d('box', c, 0, 0, 0, [s.max[0] - s.min[0] + 0.04, s.max[1] - s.min[1] + 0.04, s.max[2] - s.min[2] + 0.04], bm.color, { glow: 2.5, alpha: 0.55 });
       this.r.light(c, bm.color, 7);
     }
+  }
+
+  /** A conveyor: bars across its top, sliding the way it carries. */
+  belt(s) {
+    const v = s.vel;
+    const sp = len(v);
+    if (sp < 1e-3) return;
+    const d = scale(v, 1 / sp);
+    const across = [-d[2], 0, d[0]];
+    const ext = [s.max[0] - s.min[0], s.max[2] - s.min[2]];
+    const along = Math.abs(d[0]) * ext[0] + Math.abs(d[2]) * ext[1];
+    const wide = Math.abs(across[0]) * ext[0] + Math.abs(across[2]) * ext[1];
+    const c = [(s.min[0] + s.max[0]) / 2, s.max[1] + 0.01, (s.min[2] + s.max[2]) / 2];
+    const gap = 1.2;
+    const off = (this.t * sp) % gap;
+    for (let k = -along / 2 + off; k < along / 2; k += gap) {
+      this.r.draw('box', model(add(c, scale(d, k)), across, [0, 1, 0], d, [wide - 0.3, 0.02, 0.12]), '#ffd36a', { glow: 0.8, alpha: 0.6 });
+    }
+  }
+
+  /** A cable: from a point to a point, or to a moving solid's top, or straight up from it. */
+  tether(t, g) {
+    const s = t.solid != null ? g.world.solids.find((x) => x.id === t.solid) : null;
+    const top = s ? [(s.min[0] + s.max[0]) / 2, s.max[1], (s.min[2] + s.max[2]) / 2] : null;
+    const p = t.from || top;
+    const q = t.to || (t.up ? add(top, [0, t.up, 0]) : top);
+    if (!p || !q) return;
+    const d = sub(q, p);
+    const l = len(d);
+    if (l < 1e-3) return;
+    const along = scale(d, 1 / l);
+    const side = norm(Math.abs(along[1]) > 0.95 ? cross(along, [1, 0, 0]) : cross(along, [0, 1, 0]));
+    const up = cross(side, along);
+    this.r.draw('box', model(add(p, scale(d, 0.5)), side, up, along, [t.w || 0.07, t.w || 0.07, l]), t.color || '#2a2e36', { mat: 'metal' });
   }
 
   /**

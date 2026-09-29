@@ -16,6 +16,8 @@ export class World {
     this.fans = []; // updrafts: { min, max, lift }
     this.hazards = []; // volumes that cost a shield: { min, max, kind, laser? }
     this.switches = []; // { id, p, n, r, doors: [ids], timer, on, t }
+    this.belts = []; // conveyors: still solids whose top carries what stands on it (their vel), drawn moving
+    this.tethers = []; // cables, drawn only: from a point to a point, or to (or up from) a moving solid
     this.beams = []; // beams of light, each from p along dir, through wormholes, onto a receiver (wormholes.js, beamPath)
     this.wards = []; // a launch's gap: no end opens across it from its near side (wormholes.js, warded)
     this.time = 0;
@@ -296,8 +298,16 @@ export function moverOffset(m, t) {
     const [a, b] = m.orbit.axes;
     return [(Math.cos(ang) - 1) * r * a[0] + Math.sin(ang) * r * b[0], (Math.cos(ang) - 1) * r * a[1] + Math.sin(ang) * r * b[1], (Math.cos(ang) - 1) * r * a[2] + Math.sin(ang) * r * b[2]];
   }
-  // To and fro, easing at each end.
-  const k = (1 - Math.cos(u * Math.PI * 2)) / 2;
+  // To and fro, easing at each end; one that `hold`s stops at each end for that share of its period.
+  let k = (1 - Math.cos(u * Math.PI * 2)) / 2;
+  if (m.hold) {
+    const h = m.hold / 2;
+    const leg = 0.5 - h;
+    if (u < h) k = 0;
+    else if (u < 0.5) k = (1 - Math.cos((Math.PI * (u - h)) / leg)) / 2;
+    else if (u < 0.5 + h) k = 1;
+    else k = (1 + Math.cos((Math.PI * (u - 0.5 - h)) / leg)) / 2;
+  }
   return [m.to[0] * k, m.to[1] * k, m.to[2] * k];
 }
 

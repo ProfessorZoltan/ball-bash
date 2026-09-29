@@ -1841,6 +1841,46 @@ way. The first of each kind has a sign.
 A door two switches open, as a vault's is from either side, stays open
 while either is on (`setSwitch` in `vector/src/world.js`).
 
+### Rooms and set pieces
+
+The way is not all corridor. In every level two of its straight runs are
+rooms instead, of two kinds or more: wider than the way, with things in
+them to go round, over and between, machines spread through them on the
+floor and in the air, and a way out that is never straight ahead but off
+in a far corner, or up. Each keeps the machines the run it replaced had.
+
+| Room | What is in it | Source |
+| --- | --- | --- |
+| Hall | 22 m across: two rows of three pillars down its length, a low dais between them, the way out in the far corner | `hall` in `vector/src/rooms.js` |
+| Yard | 24 m across: crates in ones and twos to fight from and shoot apart, a container along one side, a clear lane down the middle to the far corner | `yard`, same file |
+| Gallery | 20 m across: a ramp along one wall up to a balcony 3.5 m high, the floor going on under it, and the way out from the balcony's far end | `gallery`, same file |
+
+Under a roof a room's own roof is higher than the halls', with a lintel
+over each doorway; in the open it has a parapet round it.
+
+And every level has one stretch built for it alone, found in no other:
+
+| Level | Set piece | What it is | Source |
+| --- | --- | --- | --- |
+| 1 | The Fold | thirty metres where the grid's floor, in strips, heaves in a long swell rolling toward you, still at either end and a man's height at its crest; never steeper than a stair, so it is walked | `fold` in `vector/src/setpieces.js` |
+| 2 | The Wire Tree | a tree of wire rising out of a gulf, six branches spiralling up round its trunk, each swaying on its own, and the highest reaching out over the gulf to the far side 8 m up | `wiretree`, same file |
+| 3 | The Render Queue | the hall's floor is three conveyors with live trench between them: the first carries you back, the second toward a trench along its edge, the third back again, faster | `queue`, same file |
+| 4 | The Pour | a bridge over the melt, and three crucibles over it that tip in turn, each pouring a stream of metal across the bridge for a moment | `pour`, same file |
+| 5 | The Interchange | three switchback ramps, each over the one before, up to a flyover 9 m above the road, street lamps along it | `interchange`, same file |
+| 6 | The Billboard | the way ends at a giant billboard, the last one lit: its ledges light and go dark with its sign in a wave across its face, the top one steady, and the way on is up them and through a gap in its top onto the roof beyond | `billboard`, same file |
+| 7 | The Train | a two-car train between two platforms over live rail, its roof level with them, stopping at each: board it and ride | `train`, same file |
+| 8 | The Crane | open water between two quays, and a crane on a tower in it slewing a container round at quay height: step on as it swings past, off at the far quay | `crane`, same file |
+| 9 | The Chairlift | a pair of cable cars over a valley, one going up as the other comes down, stopping at each station, to one 12 m higher | `chairlift`, same file |
+| 10 | The Workbench | the Creator's desk from the height of a pencil: a stack of books to climb, the desk top, a ruler across to the shelf, and three pencils to hop along | `workbench`, same file |
+
+Two things in the world are for them. A **conveyor** is a still floor with
+a speed: whatever stands on it is carried (`world.belts`), and bars slide
+across it the way it runs. A platform can **hold**, stopping at each end of
+its run for a share of its period (`moverOffset` in `vector/src/world.js`).
+Cables are drawn from a point to a point, or down to a moving car
+(`world.tethers`). Rooms and set pieces draw on their own random numbers,
+like secrets.
+
 ### Machines
 
 Every machine moves one of eleven ways; what it looks like is its level's.
@@ -1901,16 +1941,16 @@ section also writes down how it is crossed, as steps for the autopilot.
 
 | # | Level | Real | New | Source |
 | --- | --- | --- | --- | --- |
-| 1 | Edge of the Grid | 0 | looking and moving in depth, jumping, the blaster, switch doors, cracked panels, the bulkhead (wormholes), platforms, a tower, a fork | `LEVEL_DEFS` in `vector/src/levels.js` |
-| 2 | Wireframe Wilds | 0.1 | chasers, divers, the chasm, a timed door, a loft, a locked room | same |
-| 3 | Render Farm | 0.22 | indoors: laser gates, fans, lifts, electrified trenches, armoured glass, the vault, a vault to rush, a beam | same |
-| 4 | The Foundry | 0.36 | crushers, molten trenches, the launch ramp, shielded guards, the hoist, the relay | same |
-| 5 | Night Freeway | 0.48 | springs, long running gaps, ambush rooms, the city far below, the fling | same |
-| 6 | Rain City | 0.58 | rain, blinking floors, black holes under jumps, the orbit, folded glyphs, the slingshot, through-then-round | same |
-| 7 | Underline | 0.66 | the old tunnels: everything so far, closer together | same |
-| 8 | Harbour at Dawn | 0.78 | the sea: a fall is into the water | same |
-| 9 | Pine Ridge | 0.9 | snow, the longest climb | same |
-| 10 | The Workshop | 1 | the Creator's house, and the Creator | same |
+| 1 | Edge of the Grid | 0 | looking and moving in depth, jumping, the blaster, switch doors, cracked panels, the bulkhead (wormholes), platforms, a tower, a fork, the Fold | `LEVEL_DEFS` in `vector/src/levels.js` |
+| 2 | Wireframe Wilds | 0.1 | chasers, divers, the chasm, a timed door, a loft, a locked room, the Wire Tree | same |
+| 3 | Render Farm | 0.22 | indoors: laser gates, fans, lifts, electrified trenches, armoured glass, the vault, a vault to rush, a beam, the Render Queue | same |
+| 4 | The Foundry | 0.36 | crushers, molten trenches, the launch ramp, shielded guards, the hoist, the relay, the Pour | same |
+| 5 | Night Freeway | 0.48 | springs, long running gaps, ambush rooms, the city far below, the fling, the Interchange | same |
+| 6 | Rain City | 0.58 | rain, blinking floors, black holes under jumps, the orbit, folded glyphs, the slingshot, through-then-round, the Billboard | same |
+| 7 | Underline | 0.66 | the old tunnels: everything so far, closer together, and the Train | same |
+| 8 | Harbour at Dawn | 0.78 | the sea: a fall is into the water; the Crane | same |
+| 9 | Pine Ridge | 0.9 | snow, the longest climb, the Chairlift | same |
+| 10 | The Workshop | 1 | the Creator's house, the Workbench, and the Creator | same |
 
 **Real** is how far the level is from the grid, and the renderer's one
 world shader reads it: at 0 every surface is dark with lit edges and a line
@@ -2150,6 +2190,7 @@ end drops any that are for another match. All of Vector's messages start with
 | The robot | it stands, jumps as high and as far as MOVE says and no further, walks up stairs and ramps and not walls, walks off a floor onto the top of a ramp without catching on its edge, rides platforms, and walks or falls through wormholes | `vector/test/robot.test.js` |
 | Fans | in every fan's pit, a robot that walks off the edge anywhere across it and holds forward is carried up onto the ledge, with no shield lost | `vector/test/levels.test.js` |
 | Secrets | every level hides five or more, of three kinds or more, one a hideaway, and from the fourth level some wear the look of what they are set in; the autopilot flies every secret's detour with the robot's own physics to its prize, no shield lost, and the level's own route takes none; a secret's panel knocks hollow where a crate thunks; three targets open their wall only all together; a glitch wall stops no robot, shot or sight line, shows itself now and then, and is only in the grid's levels; a hideaway's record is read out as you come into its second room, and its gallery is too high for any jump from anywhere in the room below; a shield cell raises the most a robot holds by one and a stash fills a power-up | `vector/tools/secrets.mjs`, `vector/test/secrets.test.js` |
+| Rooms and set pieces | every level has rooms of two kinds or more, each with its way out off to the side or up, and one set piece of its own found in no other level; a conveyor carries what stands on it at its speed; a platform that holds stops at each end and moves smoothly between; a pour hurts only while it runs; the Crane's container, the Train and the Chairlift's cars come level with where you board them and run into nothing over a whole period | `vector/test/rooms.test.js` |
 | Risky ways | every level has one or more, and from the fourth two of different kinds, each written down and none a secret; the autopilot flies each to its prize and back to the way with the robot's own physics; a locked room shuts only on whoever walks in, and opens with its prize when the last of its three waves falls, more machines than any fight on the way; a vault's switch is hit straight (stood, or at the top of a jump) only from the near end of its hall, and from the nearest such spot a robot running flat out from the moment the charge leaves finds the door shut; without its black hole no running jump from anywhere along a slingshot's edge reaches the island, and with it one from the edge does | `vector/tools/secrets.mjs`, `vector/test/routes.test.js` |
 | The record | a level's count of secrets is known without building it; a secret has the same key every build, and counts once; every secret in a level unlocks its blaster finish, every secret in all ten opens Echo; Echo is outside the campaign, crossed by the autopilot, and its boss is beaten | `vector/test/records.test.js` |
 | Crossing | every level is crossed by the autopilot, which flies the robot's own physics along each section's route (running jumps, platforms boarded as they arrive, blinking floors taken as they light, gates run through while dark, wormholes aimed and walked into, switches shot, the orbit's shot found by flying the charge round the hole), without losing a shield, taking no secret and no risky way's prize, and going into no locked room; and again with every machine awake (the robot untouchable), fighting each ambush room's waves with shots it has flown ahead, banks off the walls round a guard's shield included, until the doors open | `vector/tools/autopilot.mjs`, `vector/test/levels.test.js` |
@@ -2171,8 +2212,10 @@ Each tool also runs on its own: `node vector/tools/autopilot.mjs 4`,
 `node vector/tools/fight.mjs 8 noportals`, `node vector/tools/tour.mjs
 foundry`, and `node vector/tools/shots.mjs level 4 out/` (or `boss 4`,
 `portal 1`, `title`, `compare 8`, the same view at High and at Medium, and
-`lens 6`, each of level 6's black holes at High, Medium and Low, and
-`secrets 4`, each of level 4's new secrets from where its way starts)
+`lens 6`, each of level 6's black holes at High, Medium and Low,
+`secrets 4`, each of level 4's new secrets from where its way starts,
+`routes 4` and `puzzles 4`, its risky ways and its puzzles of several
+steps, and `rooms 4`, its rooms and its set piece)
 screenshots the real game in headless Chromium, at High quality unless
 `QUALITY` says otherwise.
 `node vector/tools/play.mjs all` plays every level in the real page with the
