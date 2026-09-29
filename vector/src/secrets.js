@@ -6,10 +6,13 @@
 // off the map, up through a skylight or onto a tower. A panel is cracked
 // where it means to be found, or wears what it is set in (`hidden`), when
 // only its sound gives it away: a shot on it knocks hollow, and near it
-// there is a hum. Each writes the way to its prize as a detour (build.js),
+// there is a hum. One in every level is a hideaway: two rooms, the second
+// kept by a small puzzle of its own, and in it something worth the trouble
+// and a line of the record nobody meant you to read. Each writes the way to its prize as a detour (build.js),
 // which the tests fly with the robot's own physics; the way through the
 // level never takes it. DOM-free.
 import { standAt } from './player.js';
+import { STORY } from './story.js';
 
 function mark(b, type, z0, z1, extra = {}) {
   b.sections.push({ type, from: b.P(0, 0, z0), to: b.P(0, 0, z1), h: b.cur.h, ...extra });
@@ -54,6 +57,98 @@ function lamps(b, z0, z1, H) {
 }
 
 export const SECRETS = {
+  /**
+   * A hideaway: behind a panel in the side wall, a room, and past it a second
+   * kept by a small puzzle. `slit`: a door, and its switch on the far wall
+   * of the second room, seen only through a slit at eye height in the wall
+   * between. `ledge`: the second room is a gallery 3.4 m up, too high for any
+   * jump; one end on the wall above it, one at your feet. In the second: a
+   * prize (a shield cell, or a full stash of a power-up) and a line of the
+   * record, spoken as you come in.
+   */
+  hideaway(b, o = {}) {
+    const L = 18;
+    const w = b.W / 2;
+    const side = pickSide(b, o);
+    const puzzle = o.puzzle || 'slit';
+    const hs = b.roof || 4.5;
+    const hr = puzzle === 'ledge' ? 7.5 : 4.6;
+    const X0 = w + 0.5;
+    const X1 = w + 14;
+    b.floor(0, L, 0, { noRails: true });
+    rails(b, 0, L, -side);
+    b.sides(0, L, 0, null, side > 0 ? { noRight: true } : { noLeft: true });
+    // The way's wall on this side, and in it the panel.
+    sbox(b, side, w, w + 0.5, -2, hs, 0, 5, { role: 'wall' });
+    sbox(b, side, w, w + 0.5, -2, hs, 8, L, { role: 'wall' });
+    sbox(b, side, w, w + 0.5, 2.8, hs, 5, 8, { role: 'wall' });
+    if (hr > hs) sbox(b, side, w, w + 0.5, hs, hr + 0.5, 0.5, 13.5, { role: 'wall' });
+    const pa = side * w;
+    const pb = side * (w + 0.4);
+    const cov = panel(b, [Math.min(pa, pb), 0, 5], [Math.max(pa, pb), 2.8, 8], 'wall', o);
+    // The rooms' shell.
+    sbox(b, side, X0, X1, -2, 0, 0.5, 13.5, { role: 'floor' });
+    sbox(b, side, X1, X1 + 0.5, -2, hr, 0.5, 13.5, { role: 'wall' });
+    sbox(b, side, X0, X1, -2, hr, 0.5, 1, { role: 'wall' });
+    sbox(b, side, X0, X1, -2, hr, 13, 13.5, { role: 'wall' });
+    sbox(b, side, X0, X1 + 0.5, hr, hr + 0.5, 0.5, 13.5, { role: 'roof' });
+    sbox(b, side, w + 3, w + 3.6, hr - 0.08, hr, 3, 11, { mat: 'lamp', color: b.def.accent || '#e8f2ff', glow: 0.6, noPortal: true, passCharges: true });
+    let floorY = 0;
+    const inner = [w + 8.5, X1];
+    if (puzzle === 'ledge') {
+      floorY = 3.4;
+      sbox(b, side, w + 8.5, X1, -2, floorY, 1, 13, { role: 'plat' });
+      sbox(b, side, X1 - 3, X1 - 2.4, hr - 0.08, hr, 3, 11, { mat: 'lamp', color: b.def.accent || '#e8f2ff', glow: 0.6, noPortal: true, passCharges: true });
+    } else {
+      // The wall between, a door in it, and a slit at eye height.
+      const id = b.doorId++;
+      const D = (y0, y1, z0, z1) => sbox(b, side, w + 8, w + 8.5, y0, y1, z0, z1, { role: 'wall' });
+      D(0, hr, 1, 2);
+      D(0, 1.25, 2, 4);
+      D(1.65, hr, 2, 4);
+      D(0, hr, 4, 5.5);
+      D(3, hr, 5.5, 8.5);
+      D(0, hr, 8.5, 13);
+      sbox(b, side, w + 8.05, w + 8.45, 0, 3, 5.55, 8.45, { role: 'door', door: { id, lift: 2.9, speed: 3, open: false, at: 0 } });
+      const sw = { id, p: null, doors: [id], timer: 0, on: false };
+      const s = sbox(b, side, X1 - 0.15, X1, 1.25, 1.65, 2.8, 3.2, { role: 'switch', switchRef: sw, dynamic: true, noPortal: true });
+      sw.p = [(s.min[0] + s.max[0]) / 2, (s.min[1] + s.max[1]) / 2, (s.min[2] + s.max[2]) / 2];
+      sw.solid = s;
+      b.world.switches.push(sw);
+      b.hideSwitch = sw;
+    }
+    const prize = o.prize || 'cell';
+    const px = side * (w + 11.5);
+    b.pickup(prize, px, floorY, 7, prize === 'cell' ? { secret: true } : { secret: true, stash: true });
+    b.secrets++;
+    // The record, as you come into the second room.
+    const rec = STORY.hideaways[b.def.id - 1];
+    if (rec) {
+      const ia = side * inner[0];
+      const ib = side * inner[1];
+      const [min, max] = b.aabb([Math.min(ia, ib), floorY - 1, 1], [Math.max(ia, ib), floorY + 4, 13]);
+      b.lines.push({ min, max, who: rec.who, text: rec.text, name: rec.name });
+    }
+    b.dress(0, L);
+    mark(b, 'hideaway', 0, L, { side, cover: cov.id, puzzle });
+    b.go(0, 0, L - 1);
+    b.detour('hideaway', 0, 0, 3, () => {
+      b.step({ a: 'break', solid: cov.id, from: standAt(...b.P(side * (w - 1.6), 0, 6.5)), at: b.P(side * w, 1.4, 6.5) });
+      b.go(side * (w + 2), 0, 6.5);
+      if (puzzle === 'ledge') {
+        const near = b.P(side * (w + 4), 0, 7);
+        b.step({ a: 'portal', from: standAt(...b.P(side * (w + 1.2), 0, 7)), aims: [{ which: 0, at: b.P(side * X1, 5.4, 7) }, { which: 1, at: near }], enter: standAt(...near) });
+        b.step({ a: 'settle' });
+      } else {
+        const sw = b.hideSwitch;
+        b.step({ a: 'shoot', sw: sw.id, from: standAt(...b.P(side * (w + 2), 0, 3)), at: sw.p });
+        b.go(side * (w + 6.5), 0, 7);
+      }
+      b.step({ a: 'take', near: b.P(px, floorY + 0.9, 7) });
+    });
+    b.advance(L);
+  },
+
   /**
    * A panel in the floor: shot through, it drops you into a crawlspace
    * under the way, a prize at its far end, and at the other end a hatch

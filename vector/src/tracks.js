@@ -681,3 +681,34 @@ export const VECTOR_TRACKS = {
 
 /** The level tracks in campaign order, 1 to 10. */
 export const LEVEL_TRACKS = ['edge', 'wilds', 'farm', 'foundry', 'freeway', 'rain', 'underline', 'harbour', 'ridge', 'workshop'];
+
+/**
+ * Echo's track, for the bonus level: the Edge of the Grid's own, as the grid
+ * remembers it. Two semitones down, faster, a harder kick on every beat and a
+ * smaller, darker hall; its lead played a step late against itself.
+ */
+function remembered(T) {
+  const n = -2;
+  const up = (m) => m + n;
+  return {
+    ...T,
+    key: 'G minor',
+    title: 'Echo (The Grid Remembers)',
+    bpm: 118,
+    fx: { ...T.fx, reverb: 0.7, tone: 3000, delayBeats: 0.5 },
+    progression: T.progression.map((c) => ({ ...c, chord: c.chord.map(up), pad: c.pad.map(up), bass: up(c.bass), bars: c.bars })),
+    drums: { ...T.drums, kick: [1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0] },
+    // The arpeggio remembered out of order, and the song in a shorter, harder shape.
+    arp: { ...T.arp, pattern: [0, 2, 4, 1, 3, 5, 2, 4, 0, 2, 5, 3, 1, 4, 2, 5] },
+    sections: [
+      { name: 'static', bars: 8, layers: ['pad', 'arp'], arpDensity: 8, riser: true },
+      { name: 'recall', bars: 8, layers: ['pad', 'arp', 'kick', 'bass', 'hat'], fill: true, riser: true },
+      { name: 'loop', bars: 16, layers: ['pad', 'arp', 'kick', 'bass', 'hat', 'snare', 'lead', 'stab'], fill: true, padBright: 1 },
+      { name: 'fault', bars: 8, layers: ['arp', 'bell', 'kick'], arpDensity: 8, riser: true },
+      { name: 'loop2', bars: 16, layers: ['pad', 'arp', 'bell', 'kick', 'bass', 'hat', 'snare', 'lead', 'stab'], fill: true, padBright: 1 },
+    ],
+    lead: { ...T.lead, notes: T.lead.notes.map(([t, m, d]) => [(t + 2) % T.lead.length, up(m), d]).sort((a, b) => a[0] - b[0]) },
+    ambience: { hum: 0.6 },
+  };
+}
+VECTOR_TRACKS.echo = remembered(VECTOR_TRACKS.edge);

@@ -209,3 +209,11 @@ input.code { font-family: var(--display); letter-spacing: 0.3em; text-transform:
 .field.vols input[type='range'] { width: 180px; }
 .picks + .field.vols { margin-top: 14px; }
 .field.vols .pc { font-size: 12px; color: var(--muted); min-width: 3.2em; font-variant-numeric: tabular-nums; }
+
+/* Each level's secrets found, and the door every secret opens. */
+.levels .secrets { margin-right: 6px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.levels .secrets.all { color: #ffd36a; }
+.levels li.locked { cursor: default; opacity: 0.55; }
+.levels li.locked:hover { border-color: transparent; background: none; }
+.levels li.bonus .n { color: #ff3a6a; }
+.field .note { font-size: 12px; color: var(--muted); }

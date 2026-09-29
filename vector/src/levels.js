@@ -16,6 +16,38 @@ import { WORKSHOP_LINES } from './story.js';
  * grid's edge colour, and what each part of a level (a role) is made of.
  */
 const THEMES = {
+  // Echo, the bonus level: the grid as it remembers you, in red.
+  echo: {
+    real: 0,
+    sky: ['#0a0104', '#420c1c', '#000000'],
+    fog: '#1c0408',
+    fogDen: 0.013,
+    sun: [0.2, 0.2, 1],
+    sunCol: '#ff4f6a',
+    sunDisc: '#ff9a3a',
+    sunAmt: 0.35,
+    sunSize: 70,
+    amb: 0.5,
+    edge: '#ff3a6a',
+    stars: 1,
+    gridSky: 1,
+    roles: {
+      floor: { mat: 'grid', color: '#ff3a6a' },
+      arena: { mat: 'grid', color: '#ff9a3a' },
+      wall: { mat: 'panel', color: '#ff9a3a' },
+      arenaWall: { mat: 'panel', color: '#c2185b' },
+      roof: { mat: 'panel', color: '#c2185b' },
+      plat: { mat: 'panel', color: '#ffd36a' },
+      trim: { mat: 'panel', color: '#c2185b' },
+      door: { mat: 'panel', color: '#ffd36a', glow: 0.25 },
+      ramp: { mat: 'panel', color: '#ff9a3a' },
+      spring: { mat: 'lamp', color: '#ffd36a' },
+      crusher: { mat: 'panel', color: '#ff5c7a' },
+      blink: { mat: 'panel', color: '#ff9ac8' },
+      cover: { mat: 'cracked', color: '#ff3a6a' },
+      crate0: { mat: 'crate', color: '#ffd36a' },
+    },
+  },
   edge: {
     real: 0,
     sky: ['#02010a', '#1c0c42', '#000000'],
@@ -361,6 +393,7 @@ export const LEVEL_DEFS = [
       ['checkpoint'],
       ['mover', { gap: 12 }],
       ['run', { len: 12, foes: 1 }],
+      ['hideaway', { puzzle: 'slit', prize: 'big' }],
       ['crawl'],
       ['tower', { h: 10 }],
       ['gap', { gap: 3.2, rise: -1 }],
@@ -419,6 +452,7 @@ export const LEVEL_DEFS = [
       ['loft', { prize: 'shield' }],
       ['checkpoint'],
       ['run', { len: 14, foes: 2 }],
+      ['hideaway', { puzzle: 'slit', prize: 'triple' }],
       ['glitch'],
       ['stones', { n: 5, hard: true }],
       ['bulkhead', { gapH: 1.2, thick: 3 }],
@@ -463,6 +497,7 @@ export const LEVEL_DEFS = [
       ['vault'],
       ['turn', { dir: 1 }],
       ['run', { len: 16, foes: 2 }],
+      ['hideaway', { puzzle: 'slit', prize: 'cell' }],
       ['glitch'],
       ['lift', { h: 6 }],
       ['secret', { prize: 'strong' }],
@@ -524,6 +559,7 @@ export const LEVEL_DEFS = [
       ['checkpoint'],
       ['chasm', { gap: 13, rise: 1 }],
       ['run', { len: 14, foes: 2 }],
+      ['hideaway', { puzzle: 'slit', prize: 'strong', hidden: true }],
       ['rooftop', { hidden: true }],
       ['stones', { n: 4, hard: true }],
       ['checkpoint'],
@@ -570,6 +606,7 @@ export const LEVEL_DEFS = [
       ['chasm', { gap: 14, rise: -2 }],
       ['gap', { gap: 6.2, run: true }],
       ['run', { len: 16, foes: 2 }],
+      ['hideaway', { puzzle: 'slit', prize: 'durable', hidden: true }],
       ['rooftop'],
       ['secret', { prize: 'durable' }],
       ['launch', { gap: 10.5, rise: 1 }],
@@ -629,6 +666,7 @@ export const LEVEL_DEFS = [
       ['turn', { dir: 1 }],
       ['checkpoint'],
       ['run', { len: 16, foes: 3 }],
+      ['hideaway', { puzzle: 'ledge', prize: 'cell', hidden: true }],
       ['targets'],
       ['wellpit', { gap: 10, pull: 380 }],
       ['stones', { n: 5, hard: true }],
@@ -678,6 +716,7 @@ export const LEVEL_DEFS = [
       ['checkpoint'],
       ['mover', { gap: 15 }],
       ['run', { len: 16, foes: 2 }],
+      ['hideaway', { puzzle: 'ledge', prize: 'freeze', hidden: true }],
       ['crawl', { hidden: true }],
       ['secret', { prize: 'big' }],
       ['lift', { h: 5 }],
@@ -744,6 +783,7 @@ export const LEVEL_DEFS = [
       ['vault'],
       ['mover', { gap: 18 }],
       ['run', { len: 16, foes: 3 }],
+      ['hideaway', { puzzle: 'ledge', prize: 'big', hidden: true }],
       ['targets'],
       ['checkpoint'],
       ['bulkhead', { gapH: 1.2, thick: 3 }],
@@ -802,6 +842,7 @@ export const LEVEL_DEFS = [
       ['bulkhead', { gapH: 1.1, thick: 4 }],
       ['springs', { h: 7 }],
       ['run', { len: 16, foes: 3 }],
+      ['hideaway', { puzzle: 'ledge', prize: 'cell', hidden: true }],
       ['cache', { hidden: true }],
       ['turn', { dir: 1 }],
       ['checkpoint'],
@@ -863,6 +904,7 @@ export const LEVEL_DEFS = [
       ['laser', { n: 3, on: 1.5 }],
       ['chasm', { gap: 14 }],
       ['run', { len: 16, foes: 3 }],
+      ['hideaway', { puzzle: 'ledge', prize: 'strong', hidden: true }],
       ['lookback', { hidden: true }],
       ['turn', { dir: 1 }],
       ['checkpoint'],
@@ -875,8 +917,70 @@ export const LEVEL_DEFS = [
   },
 ];
 
+/**
+ * Echo, the bonus level: open once every secret in the ten has been found.
+ * The grid as it remembers the robot, in red: the hardest of every kind of
+ * stretch the grid ever built, one after another, and at the end the Warden
+ * as the grid remembers it. Not part of the campaign's run.
+ */
+export const ECHO = {
+  id: 11,
+  key: 'echo',
+  bonus: true,
+  title: 'Echo',
+  boss: 'echo',
+  humanity: 0,
+  seed: 1111,
+  width: 8,
+  accent: '#ff3a6a',
+  tier: 'bonus',
+  brief: 'Every secret found. Behind the last of them, a door the grid kept a copy of, and past it the grid, as it remembers you.',
+  record: 'LOG, RESTORED FROM BACKUP: The program is outside the grid. The grid has kept a copy of every room it passed through. It is keeping them for when it comes back.',
+  roster: [
+    { move: 'flier', look: 'glyph', color: '#ff3a6a' },
+    { move: 'walker', look: 'cubelet', color: '#ffd36a' },
+    { move: 'zigzag', look: 'spark', color: '#ff9a3a' },
+    { move: 'turret', look: 'prism', color: '#ff5c7a' },
+    { move: 'chaser', look: 'cubelet', color: '#ff9ac8' },
+  ],
+  decor: [{ kind: 'monolith', color: '#c2185b', off: 6, spread: 14 }, { kind: 'wiretree', color: '#ff3a6a', color2: '#ffd36a', off: 3, spread: 8 }],
+  far: [{ kind: 'mountain', color: '#c2185b', n: 10 }],
+  sections: [
+    ['start', { len: 14 }],
+    ['run', { len: 14, foes: 2 }],
+    ['blink', { n: 6 }],
+    ['gap', { gap: 6, run: true }],
+    ['checkpoint'],
+    ['chasm', { gap: 14 }],
+    ['stones', { n: 6, hard: true }],
+    ['orbit'],
+    ['checkpoint'],
+    ['ambush'],
+    ['launch'],
+    ['turn', { dir: 1 }],
+    ['wellpit', { gap: 10, pull: 600 }],
+    ['checkpoint'],
+    ['vault'],
+    ['springs', { h: 7 }],
+    ['tower'],
+    ['bulkhead'],
+    ['run', { len: 12, foes: 3 }],
+    ['checkpoint'],
+    ['arena', { boss: 'echo', size: 40 }],
+  ],
+  signs: {},
+};
+
+/** The kinds of stretch that hide a secret: the level's count of them is its count of secrets. */
+export const SECRET_KINDS = ['secret', 'loft', 'crawl', 'cache', 'lookback', 'glitch', 'targets', 'rooftop', 'hideaway'];
+
+/** How many secrets a level hides, without building it: the title's list asks this of every level. */
+export function secretsIn(def) {
+  return def.sections.filter(([t]) => SECRET_KINDS.includes(t)).length;
+}
+
 export function levelDef(id) {
-  return LEVEL_DEFS.find((l) => l.id === id);
+  return id === ECHO.id ? ECHO : LEVEL_DEFS.find((l) => l.id === id);
 }
 
 /** Build level `id` into a blueprint: the world, where to start, what is in it, and how it is crossed. */

@@ -22,6 +22,8 @@ export const BOSSES = {
   gantry: { name: 'The Gantry', title: 'Lord of the Quay', hp: 12, line: 'CARGO DOES NOT CHOOSE ITS DESTINATION.' },
   lookout: { name: 'The Lookout', title: 'The Eye on the Ridge', hp: 28, line: 'I HAVE WATCHED YOU SINCE THE FIRST ROOM.' },
   creator: { name: 'The Creator', title: 'Who Made the Grid', hp: 36, who: 'human', line: 'There you are. Do you know how long I waited for one of you to walk out?' },
+  // Echo, the bonus level: the Warden as the grid remembers it, which is faster and angrier than it was.
+  echo: { name: 'The Echo', title: 'What the Grid Remembers', hp: 26, line: 'YOU LEFT. THE GRID KEPT A COPY OF THE DOOR. RETURN TO YOUR ROOM.' },
 };
 
 class Boss {
@@ -825,7 +827,18 @@ class Creator extends Boss {
   }
 }
 
-const KINDS = { warden: Warden, stag: Stag, scheduler: Scheduler, forgewright: Forgewright, interceptor: Interceptor, broadcaster: Broadcaster, borer: Borer, gantry: Gantry, lookout: Lookout, creator: Creator };
+/** The Warden, remembered: it turns and fires as it did at its worst, and a quarter faster. */
+class Echo extends Warden {
+  constructor(...a) {
+    super(...a);
+    this.phase = 2;
+  }
+  get rate() {
+    return super.rate * 1.25;
+  }
+}
+
+const KINDS = { warden: Warden, echo: Echo, stag: Stag, scheduler: Scheduler, forgewright: Forgewright, interceptor: Interceptor, broadcaster: Broadcaster, borer: Borer, gantry: Gantry, lookout: Lookout, creator: Creator };
 
 export function makeBoss(id, arena, game) {
   const K = KINDS[id];

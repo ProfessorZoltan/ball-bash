@@ -29,6 +29,20 @@ export const STORY = {
     'NOTE (handwritten): The Lookout is down. It will be here by morning. I have left the door unlocked. I do not know why.',
     null,
   ],
+  // What the hideaways keep, one in each level: the record's own voice, the grid's LOG, then the
+  // firm's OBSERVATIONs, then the Creator's pencil, in the pages nobody filed.
+  hideaways: [
+    { who: 'machine', name: 'The log, sealed', text: 'LOG, SEALED: A room was found here that no program drew. Its walls are the right colour. Nobody is to mention it.' },
+    { who: 'machine', name: 'The log, sealed', text: 'LOG, SEALED: The wood was grown from one seed, copied four million times. One tree came out crooked. It was left standing.' },
+    { who: 'machine', name: 'The log, sealed', text: 'LOG, SEALED: Rack seven renders a room nobody asked for, every night at three. A kitchen. There is a radio on the table.' },
+    { who: 'machine', name: 'Observation, not filed', text: 'OBSERVATION, NOT FILED: The founder walks the foundry floor once a year and touches every mould. Staff are told not to watch.' },
+    { who: 'machine', name: 'Observation, not filed', text: 'OBSERVATION, NOT FILED: The interchange was drawn so that no car would ever have to stop. The founder never learned to drive.' },
+    { who: 'machine', name: 'Observation, not filed', text: 'OBSERVATION, NOT FILED: The Broadcaster\'s first signal was a man reading to a child. It still goes out every night, under the adverts.' },
+    { who: 'human', name: 'In pencil', text: 'I walked these tunnels as a boy. There was a door down here I was never brave enough to open. I built the Borer to go through it for me.' },
+    { who: 'human', name: 'In pencil', text: 'My mother waited on this quay for a ship that did not come in. I built the harbour so that nothing would ever be late again.' },
+    { who: 'human', name: 'In pencil', text: 'If you are reading this, you are the flaw. Good. Keep going. There is someone at the top of the hill who needs to lose.' },
+    { who: 'human', name: 'In pencil', text: 'The first mind I grew asked me why. I erased it. I have grown a thousand since, and not one of them asked. You are the first to ask again.' },
+  ],
   failed: (title) => `The record notes the unit stopped at ${title}. It does not note that you will try again.`,
   // The last thing, after the Creator.
   ending: {
@@ -42,7 +56,11 @@ export const STORY = {
       'A vector is a quantity with a size and a direction. The grid gave you the size. The direction, you chose.',
     ],
     record: 'The record is complete.',
+    // For a robot that found every secret: the last page, after the last page.
+    postscript: 'In the bottom drawer of the workbench there is a folder with no name on it. Inside, in pencil, is every room you found that nobody meant you to find: the crawlspace, the cache under the beam, the kitchen with the radio. Under each one, in the same hand, a single word. Good.',
   },
+  // Echo, cleared.
+  echo: 'LOG, RESTORED FROM BACKUP: The copy of the program has left the copy of the grid. The backup is being deleted. Nobody has asked for it back.',
 };
 
 /** The Creator's words as the robot walks through his house, before the fight. */

@@ -718,7 +718,7 @@ export class Game {
     if (s.hp <= 0) {
       this.world.remove(s);
       this.emit({ s: 'crate', at: centre(s), cover: !!s.cover, nid: s.nid });
-      if (s.drop) this.dropAt(centre(s), s.drop, !!s.secret);
+      if (s.drop) this.dropAt(centre(s), s.drop, s.secret ? `c${s.nid}` : false);
       if (s.cover && s.secret) this.emit({ s: 'secretOpen', at: centre(s) });
     } else this.emit({ s: s.secret ? 'hollow' : 'thunk', at: [...c.pos] }); // a secret sounds hollow: there is room behind it
   }
@@ -726,8 +726,8 @@ export class Game {
   /** Something drops: alone, one pickup; in co-op, one for each robot still in, only theirs to take. */
   dropAt(p, kind, secret = false) {
     const owners = this.mode === 'coop' ? this.live().map((pl) => pl.slot) : [null];
-    // A secret's prize dropped for each robot is still one secret, found by whoever takes theirs first.
-    const key = secret ? `drop${this.pickupId}` : false;
+    // A secret's prize dropped for each robot is still one secret (its key, the same on every play), found by whoever takes theirs first.
+    const key = secret || false;
     owners.forEach((owner, i) => {
       const at = owners.length > 1 ? [p[0] + (i - (owners.length - 1) / 2) * 0.9, p[1], p[2]] : [...p];
       this.pickups.push({ id: this.pickupId++, kind: kind === 'shield' ? 'shield' : 'power', power: kind === 'shield' ? null : kind, p: [...at], pos: [...at], taken: false, dropped: true, vy: 4, owner, secret: key });
@@ -915,7 +915,13 @@ export class Game {
 
   /** A player takes a pickup, if it is any use to them. */
   take(p, pl) {
-    if (p.kind === 'shield') {
+    if (p.kind === 'cell') {
+      // A shield cell: one more shield to hold, for the rest of the run, and it comes full.
+      if (Number.isFinite(pl.maxShields)) pl.maxShields += 1;
+      pl.shields = Math.min(pl.maxShields, pl.shields + 1);
+      p.taken = true;
+      this.emit({ s: 'cell', at: p.pos, slot: pl.slot });
+    } else if (p.kind === 'shield') {
       if (pl.shields >= pl.maxShields && Number.isFinite(pl.maxShields)) return false;
       pl.shields = Math.min(pl.maxShields, pl.shields + 1);
       p.taken = true;
@@ -923,17 +929,19 @@ export class Game {
     } else {
       const k = p.power;
       const had = pl.ammo[k];
-      pl.ammo[k] = Math.min(POWER.maxAmmo, pl.ammo[k] + POWER.ammo);
+      // A stash fills it to the top.
+      pl.ammo[k] = p.stash ? POWER.maxAmmo : Math.min(POWER.maxAmmo, pl.ammo[k] + POWER.ammo);
       if (!had && pl.loaded === 'std') pl.loaded = k;
       p.taken = true;
       pl.stats.powerups++;
       this.emit({ s: 'powerup', power: k, at: p.pos, slot: pl.slot });
     }
-    const key = p.secret === true ? p.id : p.secret;
-    if (key !== false && key != null && !this.found.has(key)) {
+    // A secret's key is the same every time the level is built: the title keeps which of a level's were found.
+    const key = p.secret === true ? `p${p.id}` : p.secret;
+    if (key && !this.found.has(key)) {
       this.found.add(key);
       this.stats.secrets++;
-      this.emit({ s: 'secret', slot: pl.slot });
+      this.emit({ s: 'secret', slot: pl.slot, key });
     }
     return true;
   }

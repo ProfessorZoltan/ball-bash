@@ -193,7 +193,8 @@ export class Builder {
   }
 
   pickup(kind, x, y, z, o = {}) {
-    this.pickups.push({ kind: kind === 'shield' ? 'shield' : 'power', power: kind === 'shield' ? null : kind, p: this.P(x, y + 0.9, z), ...o });
+    const plain = kind === 'shield' || kind === 'cell';
+    this.pickups.push({ kind: plain ? kind : 'power', power: plain ? null : kind, p: this.P(x, y + 0.9, z), ...o });
   }
 
   prop(kind, x, y, z, o = {}) {

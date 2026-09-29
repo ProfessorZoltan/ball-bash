@@ -7,6 +7,7 @@ import { modelYPR, model, add, sub, scale, norm, cross, rotY, lookDir, camBasis,
 import { POWERUPS, BLASTER, WORM, PICKUP, PLAYERS } from './config.js';
 import { guideLine } from './blaster.js';
 import { sightLine, placeEnd } from './wormholes.js';
+import { FINISHES } from './records.js';
 
 const TAU = Math.PI * 2;
 const PCOL = Object.fromEntries(POWERUPS.map((p) => [p.id, p.color]));
@@ -306,6 +307,12 @@ export class Art {
         this.d('box', B.pos, t * 0.4, t * 0.3, 0, [1.4, 1.4, 1.4], '#7f5cff', { mat: 'wire', glow: 0.5 });
         partsDraw('#7f5cff', 'panel');
         break;
+      case 'echo':
+        // The Warden as the grid remembers it: two cages, turning against each other, in the Echo's red.
+        this.d('box', B.pos, t * 0.7, t * 0.5, 0, [1.4, 1.4, 1.4], '#ff3a6a', { mat: 'wire', glow: 0.7 });
+        this.d('box', B.pos, -t * 0.5, 0.6, t * 0.3, [1.9, 1.9, 1.9], '#ff9a3a', { mat: 'wire', glow: 0.4 });
+        partsDraw('#ff3a6a', 'panel');
+        break;
       case 'stag': {
         const col = '#3dff9a';
         const m = { mat: 'wire', glow: 0.4 };
@@ -455,6 +462,14 @@ export class Art {
   pickup(p) {
     const t = this.t + p.id;
     const pos = add(p.pos, [0, Math.sin(t * 2) * PICKUP.bob, 0]);
+    if (p.kind === 'cell') {
+      // A shield cell: a shield in gold, bigger, with two rings round it.
+      this.d('box', pos, t * 1.2, 0, 0, [0.9, 1.05, 0.16], '#ffd36a', { glow: 1.8 });
+      this.d('ring', pos, t * 1.5, Math.PI / 2, 0, [1.5, 1.5, 1.5], '#ffd36a', { glow: 2.4 });
+      this.d('ring', pos, -t * 1.1, 0.6, 0, [1.8, 1.8, 1.8], '#fff2c8', { glow: 1.6, alpha: 0.7 });
+      this.r.light(pos, '#ffd36a', 6);
+      return;
+    }
     if (p.kind === 'shield') {
       this.d('box', pos, t * 1.5, 0, 0, [0.7, 0.8, 0.12], '#7fe9ff', { glow: 1.4 });
       this.d('ring', pos, t * 1.5, Math.PI / 2, 0, [1.1, 1.1, 1.1], '#7fe9ff', { glow: 2 });
@@ -628,8 +643,9 @@ export class Art {
   }
 
   /** The blaster in your hand, drawn in the camera's own space after everything else (x right, y up, -z ahead). */
-  viewmodel(r, g) {
+  viewmodel(r, g, view = {}) {
     const b = g.bot;
+    const F = FINISHES[view.finish] || FINISHES.standard;
     const kick = g.flash > 0 ? g.flash * 1.6 : 0;
     const hs = Math.hypot(b.vel[0], b.vel[2]);
     const k = b.onGround ? Math.min(1, hs / 6) : 0;
@@ -642,9 +658,9 @@ export class Art {
     const metal = { mat: 'metal' };
     // A part at (x, y, z) from the gun's middle, turned with its muzzle up by the kick.
     const P = (shape, x, y, z, sx, sy, sz, c, o = metal, pitch = 0) => r.draw(shape, modelYPR([base[0] + x, base[1] + y, base[2] + z], Math.PI, pitch + kick * 0.25, 0, [sx, sy, sz]), c, o);
-    P('box', 0, 0, 0, 0.05, 0.05, 0.26, '#2a3140');
-    P('box', 0, -0.055, 0.1, 0.04, 0.09, 0.05, '#1a1f28', metal, -0.3);
-    P('cyl', 0, 0.005, -0.17, 0.045, 0.1, 0.045, '#3a4556', metal, -Math.PI / 2);
+    P('box', 0, 0, 0, 0.05, 0.05, 0.26, F.body);
+    P('box', 0, -0.055, 0.1, 0.04, 0.09, 0.05, F.grip, metal, -0.3);
+    P('cyl', 0, 0.005, -0.17, 0.045, 0.1, 0.045, F.barrel, metal, -Math.PI / 2);
     P('ball', 0, 0.005, -0.225, 0.035 + kick * 0.03, 0.035 + kick * 0.03, 0.035 + kick * 0.03, col, { glow: 3 + kick * 10 });
     P('box', 0, 0.027, -0.01, 0.012, 0.005, 0.18, col, { glow: 0.8 });
     // The two wormhole lamps on its side: lit while that end is open.

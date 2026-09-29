@@ -432,7 +432,7 @@ export class HostLink {
       sh: g.shots.map((c) => [c.id, c.pos.map(r3), c.vel.map(r2), c.r, c.color || null, c.lobbed ? 1 : 0]),
       fo: g.enemies.filter((e) => e.awake || e.frozen > 0 || e.flash > 0).map((e) => ({ ...fields(e, ENEMY_SKIP), ic: e.ice ? [e.ice.min, e.ice.max] : null })),
       eg: this.gone.map(([id]) => id),
-      pk: g.pickups.filter((p) => !p.taken).map((p) => [p.id, p.kind === 'shield' ? 's' : 'p', p.power || null, p.pos.map(r3), p.owner ?? null, p.secret ? 1 : 0]),
+      pk: g.pickups.filter((p) => !p.taken).map((p) => [p.id, p.kind === 'shield' ? 's' : p.kind === 'cell' ? 'c' : 'p', p.power || null, p.pos.map(r3), p.owner ?? null, p.secret ? 1 : 0]),
       dr: this.doors.map((s) => [s.door.open ? 1 : 0, r3(s.door.at)]),
       sw: w.switches.map((s) => [s.on ? 1 : 0, r2(s.left || 0)]),
       gs: this.breakable.filter((s) => s.gone).map((s) => s.nid),
@@ -805,7 +805,7 @@ export class Mirror {
     const pickups = byId(g.pickups);
     g.pickups = s.pk.map((a) => {
       const p = pickups.get(a[0]) || { id: a[0], taken: false };
-      p.kind = a[1] === 's' ? 'shield' : 'power';
+      p.kind = a[1] === 's' ? 'shield' : a[1] === 'c' ? 'cell' : 'power';
       p.power = a[2];
       p.pos = [...a[3]];
       p.p = p.pos;

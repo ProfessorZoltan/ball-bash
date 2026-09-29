@@ -28,7 +28,7 @@ import {
   sampleRoot,
 } from '../src/audio.js';
 
-const KEYS = ['vector', 'edge', 'wilds', 'farm', 'foundry', 'freeway', 'rain', 'underline', 'harbour', 'ridge', 'workshop', 'creator', 'ending'];
+const KEYS = ['vector', 'edge', 'wilds', 'farm', 'foundry', 'freeway', 'rain', 'underline', 'harbour', 'ridge', 'workshop', 'creator', 'ending', 'echo'];
 const tracks = () => KEYS.map((k) => [k, VECTOR_TRACKS[k]]);
 const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
 const progressionBars = (T) => T.progression.reduce((n, ch) => n + ch.bars, 0);

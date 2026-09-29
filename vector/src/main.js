@@ -4,7 +4,8 @@
 // part of the third game that touches the page: the game itself (game.js)
 // never does.
 import { PHYSICS_DT, DIFFICULTIES, DEFAULT_DIFFICULTY, GAME_MARK, GAME_VERSION, VECTOR_NAME, VECTOR_TAGLINE, VECTOR_LIT, STORE, POWERUPS, PICKS, BLASTER, MOVE, BOSS_INTRO, PLAYERS, MAX_PLAYERS, VERSUS } from './config.js';
-import { LEVEL_DEFS, level, levelDef } from './levels.js';
+import { LEVEL_DEFS, level, levelDef, ECHO, secretsIn } from './levels.js';
+import { foundIn, withFound, levelComplete, everySecret, finishesOpen, FINISHES } from './records.js';
 import { MAPS, arenaMap } from './maps.js';
 import { NET, MSG, HostLink, Mirror, GuestInputs } from './netplay.js';
 import { NetClient, relayConfig, saveRelay } from '../../src/net.js';
@@ -61,6 +62,7 @@ audio.setSfxVolume(settings.sfx);
 let run = load(STORE.run, null); // the campaign in progress, if any
 const cleared = new Set(load(STORE.cleared, []));
 const best = load(STORE.best, {});
+let found = load(STORE.secrets, {}); // which of each level's secrets have ever been found (records.js)
 
 function saveSettings() {
   save(STORE.settings, settings);
@@ -170,7 +172,8 @@ function startLevel(id, opts = {}) {
   const carry = mode === 'campaign' && run ? run : null;
   game = new Game(bp, {
     shields: opts.shields ?? (carry ? carry.pool : d.shields),
-    maxShields: opts.maxShields ?? d.shields,
+    // A shield cell found in a campaign raises the most you hold for the rest of the run.
+    maxShields: opts.maxShields ?? (carry && carry.max != null ? carry.max : d.shields),
     checkpoint: opts.checkpoint ?? -1,
     ammo: opts.ammo,
     loaded: opts.loaded,
@@ -244,7 +247,7 @@ function showPrologue() {
 function beginCampaign(fresh) {
   mode = 'campaign';
   if (fresh || !run) {
-    run = { level: 1, pool: difficulty().shields, difficulty: difficulty().id, time: 0, lost: 0, kills: 0, secrets: 0 };
+    run = { level: 1, pool: difficulty().shields, max: difficulty().shields, difficulty: difficulty().id, time: 0, lost: 0, kills: 0, secrets: 0 };
     persistRun();
     showPrologue();
     return;
@@ -254,11 +257,12 @@ function beginCampaign(fresh) {
 }
 
 function persistRun() {
-  save(STORE.run, run ? { ...run, pool: Number.isFinite(run.pool) ? run.pool : 'inf' } : null);
+  save(STORE.run, run ? { ...run, pool: Number.isFinite(run.pool) ? run.pool : 'inf', max: run.max == null || Number.isFinite(run.max) ? run.max : 'inf' } : null);
 }
 
 function loadRun() {
   if (run && run.pool === 'inf') run.pool = Infinity;
+  if (run && run.max === 'inf') run.max = Infinity;
 }
 loadRun();
 
@@ -291,6 +295,7 @@ function levelCleared() {
     run.kills += s.kills;
     run.secrets += s.secrets;
     run.pool = game.shields;
+    run.max = game.maxShields;
     run.checkpoint = null;
     if (id >= LEVEL_DEFS.length) {
       showEnding();
@@ -299,10 +304,11 @@ function levelCleared() {
     run.level = id + 1;
     persistRun();
     next = `<button id="next" class="primary">Level ${id + 1}: ${levelDef(id + 1).title}</button>`;
-  } else if (id < LEVEL_DEFS.length) next = `<button id="next" class="primary">Next: ${levelDef(id + 1).title}</button>`;
+  } else if (id === ECHO.id) next = '';
+  else if (id < LEVEL_DEFS.length) next = `<button id="next" class="primary">Next: ${levelDef(id + 1).title}</button>`;
   else next = `<button id="ending" class="primary">The ending</button>`;
   state = 'cleared';
-  const note = STORY.cleared[id - 1];
+  const note = id === ECHO.id ? STORY.echo : STORY.cleared[id - 1];
   overlay(`
     <div class="panel narrow ${levelDef(id).humanity > 0.6 ? 'paper' : ''}">
       <div class="eyebrow">LEVEL ${id} CLEARED</div>
@@ -337,7 +343,7 @@ function showEnding() {
     <div class="panel narrow paper">
       <div class="eyebrow">${E.eyebrow}</div>
       <h2 style="font-family:var(--book)">${E.title}</h2>
-      <div class="story">${E.paras.map((p) => `<p>${p}</p>`).join('')}</div>
+      <div class="story">${E.paras.map((p) => `<p>${p}</p>`).join('')}${everySecret(found) ? `<p><i>${E.postscript}</i></p>` : ''}</div>
       <h1 class="mark" aria-label="${VECTOR_NAME}">${markHtml()}</h1>
       <p class="record" style="text-align:center">${E.record}</p>
       ${r ? statsTable([['Difficulty', DIFFICULTIES.find((d) => d.id === r.difficulty).name], ['Total time', fmt(r.time)], ['Shields lost', r.lost], ['Machines stopped', r.kills], ['Secrets', r.secrets]]) : ''}
@@ -368,14 +374,17 @@ function levelDown() {
         <button id="menu">Title</button>
       </div>
     </div>`);
-  const keep = { ammo: game.ammo, loaded: game.loaded, stats: { ...game.stats } };
+  // Back full, and a shield cell found before this level (or in it, before the checkpoint) still counts.
+  const full = game.maxShields;
+  const keep = { ammo: game.ammo, loaded: game.loaded, stats: { ...game.stats }, maxShields: full };
   $('cont').onclick = () => {
-    if (mode === 'campaign' && run) run.pool = difficulty().shields;
-    startLevel(levelId, { checkpoint: cp, shields: difficulty().shields, ...keep });
+    if (mode === 'campaign' && run) run.pool = full;
+    startLevel(levelId, { checkpoint: cp, shields: full, ...keep });
   };
   $('restart').onclick = () => {
-    if (mode === 'campaign' && run) run.pool = difficulty().shields;
-    startLevel(levelId, { shields: difficulty().shields });
+    const start = mode === 'campaign' && run && run.max != null ? run.max : difficulty().shields;
+    if (mode === 'campaign' && run) run.pool = start;
+    startLevel(levelId, { shields: start, maxShields: start });
   };
   $('menu').onclick = () => showTitle();
   focusFirst();
@@ -428,7 +437,24 @@ function settingsHtml(short = false) {
       <label for="q">Quality</label><select id="q"><option value="auto" ${q === 'auto' ? 'selected' : ''}>Auto${autoStep ? ` (${QUALITIES[autoStep]})` : ''}</option><option value="high" ${q === 'high' ? 'selected' : ''}>High</option><option value="medium" ${q === 'medium' ? 'selected' : ''}>Medium</option><option value="low" ${q === 'low' ? 'selected' : ''}>Low</option></select></div>
     <div class="field"><label for="sens">Mouse</label><input id="sens" type="range" min="0.3" max="3" step="0.05" value="${settings.sens}" /><label for="inv">Look</label><select id="inv"><option value="no" ${settings.invert ? '' : 'selected'}>Normal</option><option value="yes" ${settings.invert ? 'selected' : ''}>Inverted</option></select></div>
     <div class="field"><label for="aimline">Aim line</label><select id="aimline"><option value="on" ${settings.aimLine ? 'selected' : ''}>On</option><option value="off" ${settings.aimLine ? '' : 'selected'}>Off</option></select>
-      <label for="runmode">Run</label><select id="runmode"><option value="hold" ${settings.autoRun ? '' : 'selected'}>Hold Shift</option><option value="auto" ${settings.autoRun ? 'selected' : ''}>By default</option></select></div>`;
+      <label for="runmode">Run</label><select id="runmode"><option value="hold" ${settings.autoRun ? '' : 'selected'}>Hold Shift</option><option value="auto" ${settings.autoRun ? 'selected' : ''}>By default</option></select></div>
+    <div class="field"><label for="finish">Blaster</label><select id="finish">${finishesOpen(found).map((k) => `<option value="${k}" ${blasterFinish() === k ? 'selected' : ''}>${FINISHES[k].name}</option>`).join('')}</select><span class="note">${finishesOpen(found).length - 1} of ${LEVEL_DEFS.length} unlocked: every secret in a level unlocks its finish</span></div>`;
+}
+
+/** The blaster's finish: the one chosen, if the record has unlocked it. */
+function blasterFinish() {
+  return finishesOpen(found).includes(settings.finish) ? settings.finish : 'standard';
+}
+
+/** A secret found: kept in the record, and a word when it completes a level's, or all ten's. */
+function noteSecret(g, key) {
+  const def = g.bp.def;
+  if (!key || !def || g.mode === 'versus' || !LEVEL_DEFS.includes(def)) return;
+  const was = { level: levelComplete(found, def), all: everySecret(found) };
+  found = withFound(found, def.id, key);
+  save(STORE.secrets, found);
+  if (!was.all && everySecret(found)) banner('EVERY SECRET', 'The grid kept a door', 'Echo is open on the title', false);
+  else if (!was.level && levelComplete(found, def)) banner('EVERY SECRET HERE', `${FINISHES[def.key].name} finish`, 'for the blaster, on the title', def.humanity > 0.85);
 }
 
 /** The music's volume and, separately, the sound effects', as two sliders: on the title, the pause screen and the room. */
@@ -462,6 +488,10 @@ function wireSettings() {
     const el = $(id);
     if (el) el.onchange = fn;
   };
+  on('finish', (e) => {
+    settings.finish = e.target.value;
+    saveSettings();
+  });
   on('diff', (e) => {
     settings.difficulty = e.target.value;
     saveSettings();
@@ -532,7 +562,18 @@ function showTitle(note = '') {
     renderer.setLevel(bp, game.world);
   }
   const resumeLabel = run ? `Resume · Level ${run.level}` : null;
-  const list = LEVEL_DEFS.map((L) => `<li tabindex="0" data-level="${L.id}"><span class="n">${L.id}</span><span>${L.title} <span class="tag">· ${BOSSES[L.boss].name}</span></span><span class="tag ${cleared.has(L.id) ? 'done' : ''}">${cleared.has(L.id) ? `cleared${best[L.id] ? ` · ${fmt(best[L.id])}` : ''}` : L.tier}</span></li>`).join('');
+  // Each level's secrets found, and Echo: a door the grid kept, open once every one of them is.
+  const tally = (L) => {
+    const n = foundIn(found, L.id).size;
+    const t = secretsIn(L);
+    return `<span class="secrets ${n >= t ? 'all' : ''}" title="Secrets found">◆ ${n}/${t}</span>`;
+  };
+  const all = LEVEL_DEFS.reduce((a, L) => [a[0] + Math.min(secretsIn(L), foundIn(found, L.id).size), a[1] + secretsIn(L)], [0, 0]);
+  const echo = everySecret(found)
+    ? `<li tabindex="0" data-level="${ECHO.id}" class="bonus"><span class="n">✦</span><span>${ECHO.title} <span class="tag">· ${BOSSES[ECHO.boss].name}</span></span><span class="tag ${cleared.has(ECHO.id) ? 'done' : ''}">${cleared.has(ECHO.id) ? `cleared${best[ECHO.id] ? ` · ${fmt(best[ECHO.id])}` : ''}` : 'bonus'}</span></li>`
+    : `<li class="locked" title="Find every secret in the ten levels"><span class="n">?</span><span>A door the grid kept <span class="tag">· every secret opens it</span></span><span class="tag">◆ ${all[0]}/${all[1]}</span></li>`;
+  const list =
+    LEVEL_DEFS.map((L) => `<li tabindex="0" data-level="${L.id}"><span class="n">${L.id}</span><span>${L.title} <span class="tag">· ${BOSSES[L.boss].name}</span></span><span class="tag ${cleared.has(L.id) ? 'done' : ''}">${tally(L)} ${cleared.has(L.id) ? `cleared${best[L.id] ? ` · ${fmt(best[L.id])}` : ''}` : L.tier}</span></li>`).join('') + echo;
   overlay(`
     <div class="panel">
       <h1 class="mark" aria-label="${VECTOR_NAME}">${markHtml()}</h1>
@@ -605,7 +646,7 @@ function showTitle(note = '') {
   $('deflector').onclick = () => (location.href = '../');
   $('defector').onclick = () => (location.href = '../sequel/');
   $('full').onclick = () => toggleFullscreen();
-  for (const li of document.querySelectorAll('.levels li')) {
+  for (const li of document.querySelectorAll('.levels li[data-level]')) {
     const go = async () => {
       await unlockAudio();
       mode = 'single';
@@ -1340,6 +1381,10 @@ function events() {
         break;
       case 'secret':
         banner('SECRET', 'Found', '');
+        noteSecret(g, e.key);
+        break;
+      case 'cell':
+        if (e.me) banner('SHIELD CELL', 'One more shield', 'to hold, for the rest of the run');
         break;
       case 'warp':
         if (e.me) fx.shake = Math.max(fx.shake, 0.15);
@@ -1488,7 +1533,7 @@ function frame(now) {
   art.frame(g, fx, { time: now / 1000, aimLine: settings.aimLine && state === 'play' && !g.me.out, eye: cam.eye, weather });
   renderer.frame(cam, g.openEnds, {
     time: now / 1000,
-    viewmodel: inPlay || state === 'paused' ? (r) => art.viewmodel(r, g, { time: now / 1000 }) : null,
+    viewmodel: inPlay || state === 'paused' ? (r) => art.viewmodel(r, g, { time: now / 1000, finish: blasterFinish() }) : null,
   });
   aimMark(g, cam);
   if (state === 'play' || state === 'mpmenu') hums(g, cam.eye, now / 1000);

@@ -216,6 +216,7 @@ const HOLLOW = [[1, 1, 0.09], [2.71, 0.5, 0.05], [4.1, 0.3, 0.03]];
 const JINGLES = {
   powerup: [72, 76, 79, 84, 88],
   shield: [67, 74, 79, 86],
+  cell: [67, 74, 79, 86, 91, 98],
   down: [62, 58, 55, 50],
   checkpoint: [64, 71, 76],
   secret: [72, 79, 84, 91, 96],
@@ -2016,6 +2017,13 @@ const CUES = {
   shield(o, t, e, m) {
     this.jingle(o, t, JINGLES.shield, 0.08, 0.9, 0.13);
     if (m > 0.05) this.hiss(o, t, 'highpass', 6000, 9000, 0.7, 0.05 * m, 0.4, 0.1);
+  },
+  // A shield cell: the shield's jingle, climbing further, and a swell under it.
+  cell(o, t, e, m, b) {
+    this.jingle(o, t, JINGLES.cell, 0.09, 1.3, 0.14);
+    this.tone(o, t, 'sine', 196, 196, 1.6, 0.12, 0.4);
+    if (m > 0.05) this.hiss(o, t, 'highpass', 5000, 9000, 0.7, 0.05 * m, 0.6, 0.15);
+    if (b > 0.05) this.tone(o, t + 0.05, 'triangle', 392, 392, 1.2, 0.06 * b, 0.3);
   },
   cycle(o, t, e, m, b) {
     if (m > 0.05) this.tone(o, t, 'square', 880, 1320, 0.05, 0.07 * m);

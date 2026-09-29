@@ -1761,8 +1761,8 @@ locked in is beaten with the blaster alone.
 
 ### Secrets
 
-Every level hides four secrets, each with a prize (a power-up or a shield),
-and the HUD counts them. None is on the way through: the autopilot's own
+Every level hides five secrets, each with a prize (a power-up or a shield,
+or in a hideaway something better), and the HUD counts them. None is on the way through: the autopilot's own
 route takes none of them. The first levels' panels are cracked, so they can
 be spotted; from the fourth level on, most wear the look of the wall, floor,
 beam or roof they are set in. Two things give any of them away. A shot that
@@ -1782,6 +1782,25 @@ level's sign on the cache says as much.
 | Glitch | a stretch of wall the grid never finished: nothing there to stop you, and every few seconds it flickers; a room behind it (the grid's levels only) | 1, 2, 3 | `glitch`, same |
 | Targets | three small amber targets about a hall, one high on the far wall, one on the back of the beam you walked in under, one low under a shelf; hit all three and a stretch of wall slides up on a room | 2, 4, 6, 8, 9, 10 | `targets`, same |
 | Off the map | under a roof, a spring pad under a solid ceiling (the clue): shoot the skylight over it open and the spring throws you out onto the roof, the prize further along; in the open, a tower beside the way, a crate at its foot and a spring under the crate | 3 to 8, 10 | `rooftop`, same |
+| Hideaway | behind a panel in the side wall, a room, and past it a second kept by a small puzzle of its own: a door whose switch is on the far wall of the second room, seen only through a slit at eye height (levels 1 to 5), or a gallery 3.4 m up that no jump reaches, one end on the wall above it and one at your feet (6 to 10). In the second room: a shield cell (levels 3, 6 and 9) or a full stash of a power-up, and a line of the record, read out as you come in | every level, one each | `hideaway`, same |
+
+A **shield cell** is one more shield to hold, for the rest of the run (the
+campaign carries it from level to level, and a continue comes back to it
+full); a **stash** fills a power-up to the top, 45 charges. The hideaways'
+lines are the record nobody filed: the grid's sealed LOG in the first three
+levels, the firm's unfiled OBSERVATIONs in the city, and the Creator's
+pencil in the last four (`hideaways` in `vector/src/story.js`).
+
+What the secrets come to (`vector/src/records.js`). The title keeps which of
+each level's secrets have ever been found, each by a key that is the same
+every time the level is built, and the level list shows them (◆ 3/5, gold
+when all are). Every secret in a level unlocks a **finish** for the blaster
+in your hand, in that level's colours, chosen under Blaster in the settings.
+Every secret in all ten opens **Echo**, the bonus level, on the list: the
+grid as it remembers the robot, in red, the hardest of every kind of
+stretch the grid ever built one after another, and at its end the Echo (a
+level of its own, not part of the campaign's run). And the ending runs a
+paragraph longer.
 
 Each new secret writes its way down as a detour (`detour` in
 `vector/src/build.js`): where a robot starts it and its steps. A secret's
@@ -1832,6 +1851,7 @@ opens.
 | 8 | The Gantry | 12 | a crane whose heart is in a cab of armoured glass: only a wormhole, an end on the cab's back wall seen through the glass, gets a charge in. The spreader swings, containers drop | `Gantry`, same file |
 | 9 | The Lookout | 28 | a radar dish that always turns to face you, its core behind it: run round it, bank a shot, or use a wormhole. Snow falls in lumps, hawks come | `Lookout`, same file |
 | 10 | The Creator | 36 | a man in the cradle of his loom behind armoured glass that nothing breaks; three power cells turn on the loom's arms, each behind a plate. Each cell that goes takes a phase with it: the grid's balls banking round the hall, then the machines' volleys and pulses, then the house itself throwing things. He talks as it comes apart. He is never the target | `Creator`, same file |
+| Echo (bonus) | The Echo | 26 | the Warden as the grid remembers it: two cages turning against each other in red, fighting as the Warden does at its worst from the first moment, a quarter faster | `Echo`, same file |
 
 `vector/tools/fight.mjs` fights each in the real game with a robot that
 cannot be hurt and fires only shots it has flown ahead and seen reach a core
@@ -1983,6 +2003,7 @@ screen, the pause screen, the room and the menu over a match (see "Volume").
 | The Workshop (Lamplight) | level 10 | A minor | 60 | 1 | piano, strings, cello and violin, music box; a clock | same |
 | The Loom (Creator Theme) | the last fight | D minor | 126 | 1 | a piano toccata, strings, choir, timpani | same |
 | Morning (Ending) | the ending | D major | 72 | 1 | solo piano, then strings, choir and a sung line; birds | same |
+| Echo (The Grid Remembers) | Echo, the bonus level | G minor | 118 | 0 | the Edge of the Grid's own theme, a step down, faster, its arpeggio out of order and its lead a beat late against itself | `remembered` in `vector/src/tracks.js` |
 
 `node vector/tools/listen.mjs` renders every track, every cue and the
 babble offline in Chromium and reports each one's peak and loudness, so none
@@ -2092,7 +2113,8 @@ end drops any that are for another match. All of Vector's messages start with
 | --- | --- | --- |
 | The robot | it stands, jumps as high and as far as MOVE says and no further, walks up stairs and ramps and not walls, walks off a floor onto the top of a ramp without catching on its edge, rides platforms, and walks or falls through wormholes | `vector/test/robot.test.js` |
 | Fans | in every fan's pit, a robot that walks off the edge anywhere across it and holds forward is carried up onto the ledge, with no shield lost | `vector/test/levels.test.js` |
-| Secrets | every level hides four or more, of three kinds or more, and from the fourth level some wear the look of what they are set in; the autopilot flies every secret's detour with the robot's own physics to its prize, no shield lost, and the level's own route takes none; a secret's panel knocks hollow where a crate thunks; three targets open their wall only all together; a glitch wall stops no robot, shot or sight line, shows itself now and then, and is only in the grid's levels | `vector/tools/secrets.mjs`, `vector/test/secrets.test.js` |
+| Secrets | every level hides five or more, of three kinds or more, one a hideaway, and from the fourth level some wear the look of what they are set in; the autopilot flies every secret's detour with the robot's own physics to its prize, no shield lost, and the level's own route takes none; a secret's panel knocks hollow where a crate thunks; three targets open their wall only all together; a glitch wall stops no robot, shot or sight line, shows itself now and then, and is only in the grid's levels; a hideaway's record is read out as you come into its second room, and its gallery is too high for any jump from anywhere in the room below; a shield cell raises the most a robot holds by one and a stash fills a power-up | `vector/tools/secrets.mjs`, `vector/test/secrets.test.js` |
+| The record | a level's count of secrets is known without building it; a secret has the same key every build, and counts once; every secret in a level unlocks its blaster finish, every secret in all ten opens Echo; Echo is outside the campaign, crossed by the autopilot, and its boss is beaten | `vector/test/records.test.js` |
 | Crossing | every level is crossed by the autopilot, which flies the robot's own physics along each section's route (running jumps, platforms boarded as they arrive, blinking floors taken as they light, gates run through while dark, wormholes aimed and walked into, switches shot, the orbit's shot found by flying the charge round the hole), without losing a shield; and again with every machine awake (the robot untouchable), fighting each ambush room's waves with shots it has flown ahead, banks off the walls round a guard's shield included, until the doors open | `vector/tools/autopilot.mjs`, `vector/test/levels.test.js` |
 | Puzzles | each kind fails the obvious way: a bulkhead cannot be walked or jumped under, a chasm or a launch cannot be jumped at a full run (the launch down the open lane beside its wedge), no end opens across a launch's gap from anywhere on its near side (over 3000 aims, the wedge's top included) while its face and the floor at the lip take one, a vault's switch takes no shot from anywhere without a wormhole, an orbit's none without its black hole, a door stays shut; and the same full-run charge does clear an ordinary gap, so none of that is vacuous | `vector/test/puzzles.test.js` |
 | Wormholes | where an end may sit and how; through a pair, speed kept and the way turned; out of a floor fast enough to clear it; charges and machines through; a launch throws the way its face looks, past any jump; a sight line bends round a black hole | `vector/test/wormholes.test.js` |

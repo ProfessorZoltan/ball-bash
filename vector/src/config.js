@@ -20,6 +20,7 @@ export const STORE = {
   best: 'vector.best',
   name: 'vector.name', // the name shown over your robot in multiplayer
   room: 'vector.room', // what the host last picked for a room
+  secrets: 'vector.secrets', // which of each level's secrets have ever been found
 };
 
 /** The physics runs in whole steps of this, whatever the display's rate. */
