@@ -180,6 +180,7 @@ function startLevel(id, opts = {}) {
     ammo: opts.ammo,
     loaded: opts.loaded,
     stats: opts.stats,
+    found: opts.found,
     invulnerable: opts.invulnerable,
   });
   renderer.setLevel(bp, game.world);
@@ -378,7 +379,7 @@ function levelDown() {
     </div>`);
   // Back full, and a shield cell found before this level (or in it, before the checkpoint) still counts.
   const full = game.maxShields;
-  const keep = { ammo: game.ammo, loaded: game.loaded, stats: { ...game.stats }, maxShields: full };
+  const keep = { ammo: game.ammo, loaded: game.loaded, stats: { ...game.stats }, found: [...game.found], maxShields: full };
   $('cont').onclick = () => {
     if (mode === 'campaign' && run) run.pool = full;
     startLevel(levelId, { checkpoint: cp, shields: full, ...keep });
@@ -402,11 +403,12 @@ function pause() {
       <div class="eyebrow">PAUSED</div>
       <h2>${levelDef(levelId).title}</h2>
       ${settingsHtml(true)}
-      <div class="row"><button id="resume" class="primary">Resume</button><button id="restart">Restart the level</button><button id="menu">Title</button></div>
+      <div class="row"><button id="resume" class="primary">Resume</button>${game.checkpoint >= 0 ? '<button id="back">Back to the checkpoint</button>' : ''}<button id="restart">Restart the level</button><button id="menu">Title</button></div>
       <details><summary>Controls</summary>${controlsTable()}</details>
     </div>`, 'clear');
   wireSettings();
   $('resume').onclick = () => resume();
+  if ($('back')) $('back').onclick = () => backToCheckpoint();
   $('restart').onclick = () => startLevel(levelId);
   $('menu').onclick = () => {
     if (mode === 'campaign' && run) {
@@ -416,6 +418,17 @@ function pause() {
     showTitle();
   };
   focusFirst();
+}
+
+/**
+ * Stuck somewhere, or wanting another go at what came after it: the level
+ * again from its last checkpoint, with the shields, power-ups, time and
+ * secrets the robot has now. Unlike a continue, nothing is refilled.
+ */
+function backToCheckpoint() {
+  const g = game;
+  if (mode === 'campaign' && run) run.pool = g.shields;
+  startLevel(levelId, { checkpoint: g.checkpoint, shields: g.shields, maxShields: g.maxShields, ammo: { ...g.ammo }, loaded: g.loaded, stats: { ...g.stats }, found: [...g.found] });
 }
 
 function resume() {
@@ -440,7 +453,7 @@ function settingsHtml(short = false) {
     <div class="field"><label for="sens">Mouse</label><input id="sens" type="range" min="0.3" max="3" step="0.05" value="${settings.sens}" /><label for="inv">Look</label><select id="inv"><option value="no" ${settings.invert ? '' : 'selected'}>Normal</option><option value="yes" ${settings.invert ? 'selected' : ''}>Inverted</option></select></div>
     <div class="field"><label for="aimline">Aim line</label><select id="aimline"><option value="on" ${settings.aimLine ? 'selected' : ''}>On</option><option value="off" ${settings.aimLine ? '' : 'selected'}>Off</option></select>
       <label for="runmode">Run</label><select id="runmode"><option value="hold" ${settings.autoRun ? '' : 'selected'}>Hold Shift</option><option value="auto" ${settings.autoRun ? 'selected' : ''}>By default</option></select></div>
-    <div class="field"><label for="latency">Sound</label><select id="latency"><option value="steady" ${settings.latency === 'snappy' ? '' : 'selected'}>Steady</option><option value="snappy" ${settings.latency === 'snappy' ? 'selected' : ''}>Snappy</option></select><span class="note">Steady keeps the music in time while the machine is busy drawing; snappy hears a shot a hair sooner</span></div>
+    <div class="field"><label for="latency">Timing</label><select id="latency"><option value="steady" ${settings.latency === 'snappy' ? '' : 'selected'}>Steady</option><option value="snappy" ${settings.latency === 'snappy' ? 'selected' : ''}>Snappy</option></select><span class="note">Of the sound: Steady keeps the music in time on a busy machine; Snappy hears a shot a hair sooner</span></div>
     <div class="field"><label for="finish">Blaster</label><select id="finish">${finishesOpen(found).map((k) => `<option value="${k}" ${blasterFinish() === k ? 'selected' : ''}>${FINISHES[k].name}</option>`).join('')}</select><span class="note">${finishesOpen(found).length - 1} of ${LEVEL_DEFS.length} unlocked: every secret in a level unlocks its finish</span></div>`;
 }
 

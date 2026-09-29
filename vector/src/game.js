@@ -43,6 +43,9 @@ export class Player {
   }
 }
 
+/** A secret's key, the same every time its level is built: a placed prize by its place in the list, a dropped one by what it came out of. */
+const secretKey = (p, id) => (p.secret === true ? `p${id}` : p.secret || null);
+
 export class Game {
   /**
    * `bp` is a built level (levels.js), or an arena (maps.js) for versus.
@@ -50,8 +53,9 @@ export class Game {
    * { name }), local (the slot this client plays, whose robot `bot` is),
    * shields and maxShields (each robot's), checkpoint (an index to start
    * from), ammo and loaded (the first robot's power-ups, kept over a
-   * continue; `kit` gives each robot theirs), stats, invulnerable (the
-   * tools), noWaves, rng.
+   * continue; `kit` gives each robot theirs), stats, found (the keys of the
+   * secrets already taken, kept over a continue, whose prizes are not there
+   * again), invulnerable (the tools), noWaves, rng.
    */
   constructor(bp, opts = {}) {
     this.bp = bp;
@@ -89,9 +93,9 @@ export class Game {
       return e;
     });
     this.nextEnemy = 10000;
-    this.pickups = (bp.pickups || []).map((p, i) => ({ ...p, id: i, taken: false, pos: [...p.p] }));
+    this.found = new Set(opts.found || []); // the secrets taken, each once
+    this.pickups = (bp.pickups || []).map((p, i) => ({ ...p, id: i, taken: this.found.has(secretKey(p, i)), pos: [...p.p] }));
     this.pickupId = 1000;
-    this.found = new Set(); // the secrets taken, each once
     this.ambushes = (bp.ambushes || []).map((a) => ({ ...a, state: 'wait', wave: -1 }));
     this.noWaves = !!opts.noWaves;
     this.boss = null;
@@ -738,6 +742,8 @@ export class Game {
     const owners = this.mode === 'coop' ? this.live().map((pl) => pl.slot) : [null];
     // A secret's prize dropped for each robot is still one secret (its key, the same on every play), found by whoever takes theirs first.
     const key = secret || false;
+    // One taken before a continue is not there to take again.
+    if (key && this.found.has(key)) return;
     owners.forEach((owner, i) => {
       const at = owners.length > 1 ? [p[0] + (i - (owners.length - 1) / 2) * 0.9, p[1], p[2]] : [...p];
       const plain = kind === 'shield' || kind === 'cell';
@@ -948,7 +954,7 @@ export class Game {
       this.emit({ s: 'powerup', power: k, at: p.pos, slot: pl.slot });
     }
     // A secret's key is the same every time the level is built: the title keeps which of a level's were found.
-    const key = p.secret === true ? `p${p.id}` : p.secret;
+    const key = secretKey(p, p.id);
     if (key && !this.found.has(key)) {
       this.found.add(key);
       this.stats.secrets++;

@@ -9,6 +9,7 @@ import { foundIn, withFound, levelComplete, everySecret, finishesOpen, FINISHES 
 import { flyDetour } from '../tools/secrets.mjs';
 import { fly } from '../tools/autopilot.mjs';
 import { fight } from '../tools/fight.mjs';
+import { Game } from '../src/game.js';
 
 test('a level\'s count of secrets is known without building it', () => {
   for (const L of LEVEL_DEFS) assert.equal(secretsIn(L), level(L.id).secrets, L.title);
@@ -29,6 +30,27 @@ test('a secret is known by the same key every time its level is built, and each 
   let rec = withFound({}, 3, 'p4');
   rec = withFound(rec, 3, 'p4');
   assert.equal(foundIn(rec, 3).size, 1);
+});
+
+test('a level begun again from its checkpoint keeps the secrets found before it: their prizes are not there again, and none counts twice', () => {
+  const g0 = new Game(level(1), { noWaves: true });
+  const placed = g0.pickups.filter((p) => p.secret === true).map((p) => `p${p.id}`);
+  const crate = g0.world.solids.find((s) => s.secret && s.drop);
+  const found = [placed[0], `c${crate.nid}`];
+  const g = new Game(level(1), { checkpoint: 0, found, stats: { shots: 0, kills: 0, secrets: found.length, lost: 0, time: 0 }, noWaves: true });
+  // The prize found where it lay is gone; the others wait.
+  for (const p of g.pickups.filter((x) => x.secret === true)) assert.equal(p.taken, found.includes(`p${p.id}`), `p${p.id}`);
+  // What hid the other breaks with nothing in it.
+  const s = g.world.solids.find((x) => x.nid === crate.nid);
+  const n = g.pickups.length;
+  g.dropAt([...s.min], s.drop, `c${s.nid}`);
+  assert.equal(g.pickups.length, n, 'nothing drops');
+  // Every prize still there taken: the count comes to the level's own, and no more.
+  for (const p of g.pickups.filter((x) => x.secret && !x.taken)) {
+    g.me.shields = 0;
+    g.take(p, g.me);
+  }
+  assert.equal(g.stats.secrets, g.bp.secrets);
 });
 
 test('every secret in a level unlocks its finish for the blaster; every secret in all ten opens Echo', () => {

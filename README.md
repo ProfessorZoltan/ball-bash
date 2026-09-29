@@ -1638,6 +1638,12 @@ last firm ground it stood on (never a moving or blinking platform, a crate or
 anything that breaks), or the last checkpoint if that ground has gone
 (`putBack` in `vector/src/game.js`). Out of shields, **Continue** starts again
 from the last checkpoint with the pool refilled and the power-ups kept.
+Stuck somewhere, or wanting another go at what came after it, **Back to the
+checkpoint** on the pause screen (once one is reached) does the same with
+nothing refilled: the shields, power-ups, time and secrets as they are
+(`backToCheckpoint` in `vector/src/main.js`). Either way a secret already
+found stays found: its prize is not there again, and it never counts twice
+(`found` in `vector/src/game.js`).
 
 ### Controls
 
@@ -1670,8 +1676,8 @@ rate stays under 40 for three seconds of play. High has the sun's shadows
 and bloom (below, under **Levels**); Medium leaves both out but keeps the
 black holes' lensing; Low leaves that out too, draws at a lower resolution
 and shows a swirl in a wormhole's mouth instead of the view through it
-(`applySettings` in `vector/src/main.js`). **Sound** is Steady (the default)
-or Snappy, as in Deflector (under **Performance** below): a world this heavy
+(`applySettings` in `vector/src/main.js`). **Timing** is Deflector's Sound
+setting (under **Performance** below), Steady by default: a world this heavy
 to draw keeps the music in time on the steadier buffer, and Snappy hears a
 shot a hair sooner.
 
