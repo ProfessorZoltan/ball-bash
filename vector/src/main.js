@@ -59,8 +59,10 @@ const settings = { difficulty: DEFAULT_DIFFICULTY, muted: false, music: 1, sfx: 
 // The volumes wait on the engine until there is sound to set them on.
 audio.setMusicVolume(settings.music);
 audio.setSfxVolume(settings.sfx);
-// A world this heavy to draw keeps the sound in time on the steadier buffer (AUDIO_LATENCY); the snappy one is a choice.
-audio.latency = settings.latency === 'snappy' ? 'snappy' : 'steady';
+// A world this heavy to draw keeps the sound in time on the steadier buffer (AUDIO_LATENCY); the others are a choice.
+const TIMINGS = [['steady', 'Steady'], ['snappy', 'Snappy'], ['safe', 'Safe']];
+const timing = (v) => (TIMINGS.some(([k]) => k === v) ? v : 'steady');
+audio.latency = timing(settings.latency);
 let run = load(STORE.run, null); // the campaign in progress, if any
 const cleared = new Set(load(STORE.cleared, []));
 const best = load(STORE.best, {});
@@ -158,8 +160,9 @@ function cue(e) {
   }
   try {
     audio.cue(e);
-  } catch (_) {
-    // A sound that fails is only a sound.
+  } catch (err) {
+    // A sound that fails is only a sound, but it is counted (the pause screen's sound line).
+    audio.fault(err);
   }
 }
 
@@ -405,6 +408,7 @@ function pause() {
       ${settingsHtml(true)}
       <div class="row"><button id="resume" class="primary">Resume</button>${game.checkpoint >= 0 ? '<button id="back">Back to the checkpoint</button>' : ''}<button id="restart">Restart the level</button><button id="menu">Title</button></div>
       <details><summary>Controls</summary>${controlsTable()}</details>
+      <p class="small muted" id="sound-health">${escapeHtml(audio.healthLine())}</p>
     </div>`, 'clear');
   wireSettings();
   $('resume').onclick = () => resume();
@@ -453,7 +457,7 @@ function settingsHtml(short = false) {
     <div class="field"><label for="sens">Mouse</label><input id="sens" type="range" min="0.3" max="3" step="0.05" value="${settings.sens}" /><label for="inv">Look</label><select id="inv"><option value="no" ${settings.invert ? '' : 'selected'}>Normal</option><option value="yes" ${settings.invert ? 'selected' : ''}>Inverted</option></select></div>
     <div class="field"><label for="aimline">Aim line</label><select id="aimline"><option value="on" ${settings.aimLine ? 'selected' : ''}>On</option><option value="off" ${settings.aimLine ? '' : 'selected'}>Off</option></select>
       <label for="runmode">Run</label><select id="runmode"><option value="hold" ${settings.autoRun ? '' : 'selected'}>Hold Shift</option><option value="auto" ${settings.autoRun ? 'selected' : ''}>By default</option></select></div>
-    <div class="field"><label for="latency">Timing</label><select id="latency"><option value="steady" ${settings.latency === 'snappy' ? '' : 'selected'}>Steady</option><option value="snappy" ${settings.latency === 'snappy' ? 'selected' : ''}>Snappy</option></select><span class="note">Of the sound: Steady keeps the music in time on a busy machine; Snappy hears a shot a hair sooner</span></div>
+    <div class="field"><label for="latency">Timing</label><select id="latency">${TIMINGS.map(([k, name]) => `<option value="${k}" ${timing(settings.latency) === k ? 'selected' : ''}>${name}</option>`).join('')}</select><span class="note">Of the sound: Steady keeps the music in time on a busy machine; Snappy hears a shot a hair sooner; Safe, for a machine where even Steady stutters, hears everything a little late</span></div>
     <div class="field"><label for="finish">Blaster</label><select id="finish">${finishesOpen(found).map((k) => `<option value="${k}" ${blasterFinish() === k ? 'selected' : ''}>${FINISHES[k].name}</option>`).join('')}</select><span class="note">${finishesOpen(found).length - 1} of ${LEVEL_DEFS.length} unlocked: every secret in a level unlocks its finish</span></div>`;
 }
 
@@ -536,7 +540,7 @@ function wireSettings() {
     applySettings();
   });
   on('latency', (e) => {
-    settings.latency = e.target.value === 'snappy' ? 'snappy' : 'steady';
+    settings.latency = timing(e.target.value);
     saveSettings();
     audio.setLatency(settings.latency);
   });

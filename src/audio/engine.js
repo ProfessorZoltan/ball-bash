@@ -8,8 +8,12 @@
 const LOOKAHEAD = 0.3; // seconds of audio scheduled ahead of the clock: a main thread held up for less than this costs no note
 const MAX_AHEAD = 1.2; // how far ahead it reaches once the page has held it up: a hitch that long costs no note either
 const TICK_MS = 25;
-/** How much output latency to ask for: 'snappy' is the browser's smallest buffer, 'steady' a 60 ms one that rides out a busy machine. */
-export const AUDIO_LATENCY = { snappy: 'interactive', steady: 0.06 };
+/**
+ * How much output latency to ask for: 'snappy' is the browser's smallest buffer, 'steady' a 60 ms one that rides
+ * out a busy machine, and 'safe' 150 ms, for one where even that stutters ('playback' is no bigger than steady's
+ * on some systems, so it is asked for in seconds).
+ */
+export const AUDIO_LATENCY = { snappy: 'interactive', steady: 0.06, safe: 0.15 };
 
 const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
 
@@ -29,6 +33,11 @@ export class AudioEngine {
     this.latency = 'snappy'; // a key of AUDIO_LATENCY
     this.ahead = LOOKAHEAD; // how far ahead the music is scheduled now: further after the page has held it up
     this.revived = 0; // how often the sound has been brought back from a context that died
+    // What went wrong since the page opened, for the player to see (healthLine) and to tell us:
+    // dry, the music ran out of notes before the next were scheduled; skips, it fell so far behind that
+    // it jumped ahead; dropouts, the speakers ran out of sound (lost, for how many seconds in all);
+    // errors, a step or a sound that could not be made.
+    this.health = { dry: 0, skips: 0, dropouts: 0, lost: 0, errors: 0, lastError: '' };
     // The player's own levels, 0 to 1 each: the music, and separately the sound
     // effects (and everything that is not music: ambience, voices). Kept while
     // there is no context yet, and put on the graph when there is.
@@ -50,6 +59,13 @@ export class AudioEngine {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
     this.ctx = new AC({ latencyHint: AUDIO_LATENCY[this.latency] ?? 'interactive' });
+    // The browser's word that the device has failed (unplugged, taken, crashed): its clock may go on over a
+    // silent stand-in, so the watchdog would never see it stop.
+    const ctx = this.ctx;
+    if (ctx.addEventListener) ctx.addEventListener('error', () => {
+      if (this.ctx === ctx) this.revive('device');
+    });
+    this.driftSeen = null;
     this.buildGraph();
     if (this.ctx.state === 'suspended') await this.ctx.resume();
   }
@@ -311,16 +327,28 @@ export class AudioEngine {
     this.watch();
     // Held up (a page busy drawing): the music ran nearly dry before this tick. Schedule further ahead from
     // now on, so the next hitch as long costs no note, and come back down slowly once it keeps up.
-    if (this.nextStepTime < now + 0.02) this.ahead = Math.min(MAX_AHEAD, this.ahead + 0.3);
-    else this.ahead = Math.max(LOOKAHEAD, this.ahead - 0.0005);
+    const seen = typeof document === 'undefined' || !document.hidden;
+    if (this.nextStepTime < now + 0.02) {
+      this.ahead = Math.min(MAX_AHEAD, this.ahead + 0.3);
+      if (seen) this.health.dry++;
+    } else this.ahead = Math.max(LOOKAHEAD, this.ahead - 0.0005);
     // If the tab was backgrounded and we fell far behind, skip ahead instead of
     // dumping a pile of late notes at once.
-    if (this.nextStepTime < now - 0.25) this.nextStepTime = now + 0.05;
+    if (this.nextStepTime < now - 0.25) {
+      this.nextStepTime = now + 0.05;
+      if (seen) this.health.skips++;
+    }
     while (this.nextStepTime < now + this.ahead) {
       const bpm = T.bpm * this.tempoScale;
       this.currentBpm = bpm;
       const stepDur = 60 / bpm / 4;
-      this.scheduleStep(this.step, this.nextStepTime, stepDur);
+      // A step that cannot be made costs that step, never the rest of the track: left where it was, it
+      // would be tried again every tick, and the music would stop for good while the clock ran on.
+      try {
+        this.scheduleStep(this.step, this.nextStepTime, stepDur);
+      } catch (err) {
+        this.fault(err);
+      }
       this.nextStepTime += stepDur;
       this.step++;
     }
@@ -341,11 +369,13 @@ export class AudioEngine {
     if (!c || this.reviving || typeof c.startRendering === 'function') return;
     if (typeof document !== 'undefined' && document.hidden) {
       this.clockSeen = null;
+      this.driftSeen = null;
       return;
     }
     const wall = this.wall();
     if (c.state === 'suspended' || c.state === 'interrupted') {
       this.clockSeen = null;
+      this.driftSeen = null;
       // Paused by the game itself (suspend()): left as it is.
       if (!this.held && wall - (this.lastResume ?? -9) > 1) {
         this.lastResume = wall;
@@ -372,6 +402,54 @@ export class AudioEngine {
         }
       }
     }
+    this.dropouts(wall);
+  }
+
+  /**
+   * Dropouts, once a second: the speakers' clock against the page's. When the sound cannot be made in time the
+   * speakers play nothing for a moment and the sound's clock falls behind the page's by as much, for good; a
+   * jump of 20 ms or more in a second is one. Over two seconds is a pause (the system's, the game's), not one.
+   */
+  dropouts(wall) {
+    const c = this.ctx;
+    if (!c.getOutputTimestamp || wall - (this.driftAt ?? -9) < 1) return;
+    this.driftAt = wall;
+    const ts = c.getOutputTimestamp();
+    if (!(ts && ts.contextTime > 0 && ts.performanceTime > 0)) return;
+    const d = ts.performanceTime / 1000 - ts.contextTime;
+    const last = this.driftSeen;
+    this.driftSeen = d;
+    if (last == null) return;
+    const jump = d - last;
+    if (jump >= 0.02 && jump < 2) {
+      this.health.dropouts++;
+      this.health.lost += jump;
+    }
+  }
+
+  /** Something that could not be made: counted, told once to the console, and passed over. */
+  fault(err) {
+    const msg = String((err && err.message) || err);
+    this.health.errors++;
+    this.health.lastError = msg;
+    this.faultsTold = this.faultsTold || new Set();
+    if (!this.faultsTold.has(msg) && typeof console !== 'undefined') console.warn(`[sound] ${msg}`, err);
+    this.faultsTold.add(msg);
+  }
+
+  /** The sound's health in a line, for the pause screen: how it runs, and what has gone wrong since the page opened. */
+  healthLine() {
+    const c = this.ctx;
+    if (!c) return 'Sound: not started yet.';
+    const h = this.health;
+    const ms = (s) => `${Math.round(s * 1000)} ms`;
+    const out = c.outputLatency ? `, ${ms((c.baseLatency || 0) + c.outputLatency)} to the speakers` : '';
+    const parts = [
+      `Sound: ${c.state}, ${(c.sampleRate / 1000).toFixed(1)} kHz, ${this.latency} (${ms(c.baseLatency || 0)} buffer${out}).`,
+      `Dropouts ${h.dropouts}${h.lost ? ` (${ms(h.lost)})` : ''}, music late ${h.dry}, skipped ${h.skips},`,
+      `rebuilt ${this.revived}${this.lastRevivedFor ? ` (${this.lastRevivedFor})` : ''}, errors ${h.errors}${h.lastError ? ` (${h.lastError})` : ''}.`,
+    ];
+    return parts.join(' ');
   }
 
   /** The time on the page's own clock, in seconds: the watchdog's, for how long the sound's has stood still. */
@@ -388,6 +466,8 @@ export class AudioEngine {
     this.lastRevivedFor = why;
     this.reviving = true;
     this.clockSeen = null;
+    this.driftSeen = null;
+    if (typeof console !== 'undefined') console.warn(`[sound] rebuilt: ${why}`);
     return this.setLatency(this.latency).finally(() => {
       this.reviving = false;
     });

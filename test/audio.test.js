@@ -290,3 +290,80 @@ test('a context the browser suspends is resumed and one the game paused is left 
   }
 });
 
+
+test('a step that cannot be made costs only that step: the music goes on, and the fault is counted', () => {
+  const { a, ctx } = playing();
+  const warn = console.warn;
+  console.warn = () => {};
+  const made = a.scheduleStep.bind(a);
+  const from = a.step; // playTrack schedules its first steps itself
+  let tried = 0;
+  a.scheduleStep = (step, t, d) => {
+    tried++;
+    if (step === 5) throw new RangeError('a note out of reach');
+    return made(step, t, d);
+  };
+  for (let t = 0; t < 4; t += 0.025) {
+    ctx.currentTime = t;
+    a.tick();
+  }
+  console.warn = warn;
+  assert.ok(a.step > 20, `the music went on to step ${a.step}`);
+  assert.equal(tried, a.step - from, 'each step tried once, the bad one too');
+  assert.equal(a.health.errors, 1);
+  assert.equal(a.health.lastError, 'a note out of reach');
+});
+
+test('the speakers running dry is counted as a dropout, with how long; the page\'s own pause is not', () => {
+  const { a, ctx } = playing();
+  let wall = 50;
+  a.wall = () => wall;
+  // The speakers' clock and the page's in step, then the sound 80 ms behind, then a pause of five seconds.
+  let lag = 0;
+  ctx.getOutputTimestamp = () => ({ contextTime: ctx.currentTime, performanceTime: (ctx.currentTime + 10 + lag) * 1000 });
+  const run = (secs) => {
+    for (let k = 0; k < secs * 40; k++) {
+      wall += 0.025;
+      ctx.currentTime += 0.025;
+      a.tick();
+    }
+  };
+  run(3);
+  assert.equal(a.health.dropouts, 0, 'in step: none');
+  lag += 0.08;
+  run(3);
+  assert.equal(a.health.dropouts, 1);
+  assert.ok(Math.abs(a.health.lost - 0.08) < 1e-6, `${a.health.lost} s lost`);
+  lag += 5;
+  run(3);
+  assert.equal(a.health.dropouts, 1, 'a pause is no dropout');
+  assert.match(a.healthLine(), /Dropouts 1 \(80 ms\)/);
+});
+
+test('a sound device the browser says has failed is built anew', async () => {
+  const heard = {};
+  globalThis.window = {
+    AudioContext: function () {
+      const c = recordingContext();
+      c.addEventListener = (k, f) => (heard[k] = f);
+      c.resume = async () => {};
+      return c;
+    },
+  };
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    const a = new AudioEngine();
+    await a.init();
+    const built = [];
+    a.setLatency = async (k) => built.push(k);
+    a.wall = () => 100;
+    heard.error();
+    assert.deepEqual(built, ['snappy']);
+    assert.equal(a.lastRevivedFor, 'device');
+    assert.match(a.healthLine(), /rebuilt 1 \(device\)/);
+  } finally {
+    console.warn = warn;
+    delete globalThis.window;
+  }
+});

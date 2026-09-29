@@ -1679,7 +1679,12 @@ and shows a swirl in a wormhole's mouth instead of the view through it
 (`applySettings` in `vector/src/main.js`). **Timing** is Deflector's Sound
 setting (under **Performance** below), Steady by default: a world this heavy
 to draw keeps the music in time on the steadier buffer, and Snappy hears a
-shot a hair sooner.
+shot a hair sooner. A third choice, Safe, asks for a 150 ms buffer, for a
+machine where even Steady stutters; everything is heard a little late. The
+pause screen ends with a line on the sound's health since the page opened:
+how it runs (state, rate, buffer, the time to the speakers), then dropouts,
+the music running late or skipping, rebuilds and errors. A player whose sound
+goes wrong can pause and read it off.
 
 ### Movement
 
@@ -2839,9 +2844,17 @@ renderer does three things about it:
   comes back down over about 45 seconds of keeping up. A watchdog in the engine
   all three games share brings the sound back when it dies: a context the
   browser suspended is resumed (one the game paused is left paused), and one
-  that has closed, whose clock has stopped, or whose output has gone to NaN
-  is built anew with the track started over, at most once every ten seconds
-  (`watch` and `revive` in `src/audio/engine.js`).
+  that has closed, whose clock has stopped, whose output has gone to NaN, or
+  whose device the browser reports has failed (its `error` event: the clock
+  can run on over a silent stand-in) is built anew with the track started
+  over, at most once every ten seconds (`watch` and `revive` in
+  `src/audio/engine.js`). A step of the music that cannot be made costs only
+  that step, never the rest of the track. The engine also keeps count of what
+  went wrong (`health`): dropouts, when the speakers' clock falls 20 ms or more
+  behind the page's in a second because the sound was not made in time; the
+  music running late or skipping ahead; rebuilds and why; and errors, each
+  also told once to the console as `[sound] …`. Vector shows the count on its
+  pause screen (`healthLine`).
 * **Quality setting** under Settings on the title screen: Auto, High or Low. Low caps the
   pixel density at 1 and turns off the glow on moving things (the cached
   static layer keeps its glow). Auto starts high and steps down to Low for the

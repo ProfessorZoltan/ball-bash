@@ -396,8 +396,13 @@ export class VectorAudio extends AudioEngine {
     }
     super.tick();
     if (!this.track) return;
-    this.ambienceTick();
-    this.warmUp(4);
+    // Like a step, a bed or a note that cannot be made costs only itself.
+    try {
+      this.ambienceTick();
+      this.warmUp(4);
+    } catch (err) {
+      this.fault(err);
+    }
   }
 
   /** Schedule everything up to `until` on the audio clock at once: for rendering offline, where no timer runs. */
