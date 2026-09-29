@@ -16,6 +16,7 @@ export class World {
     this.fans = []; // updrafts: { min, max, lift }
     this.hazards = []; // volumes that cost a shield: { min, max, kind, laser? }
     this.switches = []; // { id, p, n, r, doors: [ids], timer, on, t }
+    this.beams = []; // beams of light, each from p along dir, through wormholes, onto a receiver (wormholes.js, beamPath)
     this.wards = []; // a launch's gap: no end opens across it from its near side (wormholes.js, warded)
     this.time = 0;
     this.stamp = 0;
@@ -225,7 +226,8 @@ export class World {
         } else if (d.at !== want) {
           d.at = want > d.at ? Math.min(want, d.at + (d.speed * dt) / d.lift) : Math.max(want, d.at - (d.speed * dt) / d.lift);
         }
-        off = [0, d.at * d.lift, 0];
+        // Most doors open upward; one that is `down` (a drawbridge) comes down to open.
+        off = [0, (d.down ? -d.at : d.at) * d.lift, 0];
       }
       const delta = sub(off, s.off);
       if (delta[0] || delta[1] || delta[2]) {

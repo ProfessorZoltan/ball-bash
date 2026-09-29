@@ -342,3 +342,44 @@ export function ejectFrom(e, bot) {
   bot.mouth = null;
 }
 
+
+/**
+ * A beam of light from p along dir: straight on through armoured glass,
+ * through any pair of ends it meets (in at one mouth, out of the twin turned
+ * the way a charge is), to the first thing that stops it. Returns the points
+ * it passes (a null where it jumps) and what it ends on: { pts, hit }.
+ */
+export function beamPath(world, ends, p, dir, maxLen = 160, maxWarps = 6) {
+  const pts = [p];
+  let o = p;
+  let d = norm(dir);
+  let left = maxLen;
+  for (let k = 0; k <= maxWarps; k++) {
+    const hit = world.raycast(o, d, left, { glass: 'through' });
+    const reach = hit ? hit.t : left;
+    // The nearest mouth it goes in at before it hits anything.
+    let best = null;
+    for (const e of ends) {
+      if (!e.twin) continue;
+      const dn = dot(d, e.n);
+      if (dn >= -1e-6) continue;
+      const t = dot(sub(e.c, o), e.n) / dn;
+      if (t < 1e-4 || t > reach + 0.02 || (best && t >= best.t)) continue;
+      const l = local(e, madd(o, d, t));
+      if (inMouth(e, l[0], l[1])) best = { e, t };
+    }
+    if (!best) {
+      const end = hit ? hit.p : madd(o, d, left);
+      pts.push(end);
+      return { pts, hit };
+    }
+    const q = madd(o, d, best.t);
+    pts.push(q, null);
+    const to = best.e.twin;
+    o = madd(through(best.e, to, q), to.n, 0.01);
+    d = norm(turn(best.e, to, d));
+    pts.push(o);
+    left -= best.t;
+  }
+  return { pts, hit: null };
+}

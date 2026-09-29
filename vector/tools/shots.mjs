@@ -13,6 +13,8 @@
 //                                                its way starts, looking at what hides it
 //   node vector/tools/shots.mjs routes 4 out/    each of level 4's risky ways from where it starts, looking at its door
 //                                                or its prize
+//   node vector/tools/shots.mjs puzzles 4 out/   each of level 4's puzzles of several steps from where its answer
+//                                                starts, looking at the first thing it aims at
 //
 // Uses the game at DEFLECTOR_URL, or one on port 8099, or starts server.js
 // there (tools/browser.mjs). WebGL runs in software (SwiftShader), so a frame
@@ -133,6 +135,32 @@ if (what === 'title') {
       if (!kind) continue;
       await page.waitForTimeout(900);
       await shot(`${what === 'routes' ? 'route' : 'secret'}${id}-${i + 1}-${kind}.png`);
+    }
+  } else if (what === 'puzzles') {
+    const kinds = ['fling', 'hoist', 'bend', 'relay', 'beam'];
+    const n = await page.evaluate((k) => window.__vector.game.bp.sections.filter((s) => k.includes(s.type)).length, kinds);
+    for (let i = 0; i < n; i++) {
+      const kind = await page.evaluate(([k, ks]) => {
+        const g = window.__vector.game;
+        const sec = g.bp.sections.filter((s) => ks.includes(s.type))[k];
+        // The first step of its answer that is taken standing somewhere and aiming at something.
+        const st = g.bp.route.slice(sec.route[0], sec.route[1]).find((x) => x.from && (x.aims || x.at));
+        const aim = st.aims ? st.aims.find((a) => a.solid != null) || st.aims[0] : null;
+        let at = aim ? aim.at : st.at;
+        if (!at) {
+          const s = g.world.solids.find((x) => x.id === aim.solid);
+          at = [(s.min[0] + s.max[0]) / 2, s.max[1], (s.min[2] + s.max[2]) / 2];
+        }
+        g.bot.spawn(st.from, 0);
+        g.bot.vel = [0, 0, 0];
+        const e = g.bot.eyePos();
+        const v = [at[0] - e[0], at[1] - e[1], at[2] - e[2]];
+        g.bot.yaw = Math.atan2(v[0], v[2]);
+        g.bot.pitch = Math.max(-1.2, Math.min(1.2, Math.atan2(v[1], Math.hypot(v[0], v[2]))));
+        return sec.type;
+      }, [i, kinds]);
+      await page.waitForTimeout(900);
+      await shot(`puzzle${id}-${i + 1}-${kind}.png`);
     }
   } else if (what === 'lens') {
     const holes = await page.evaluate(() => window.__vector.game.world.wells.length);

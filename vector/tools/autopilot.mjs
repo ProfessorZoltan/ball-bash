@@ -154,7 +154,8 @@ export class Autopilot {
       case 'ride': {
         const s = g.world.solids.find((x) => x.id === st.solid);
         const c = centre(s);
-        const top = [c[0], s.max[1] + ROBOT.half + ROBOT.r, c[2]];
+        const off = st.off || [0, 0, 0];
+        const top = [c[0] + off[0], s.max[1] + ROBOT.half + ROBOT.r, c[2] + off[2]];
         if (this.t > 30) this.fail('never got off the platform');
         const r = this.steer(top, false, 0.25);
         if (b.onGround && b.ground === s && flatDist(c, st.until) < st.tol && Math.abs(c[1] - st.until[1]) < 0.6) this.next();
@@ -179,7 +180,19 @@ export class Autopilot {
         }
         if (S.phase === 'aim') {
           const aim = st.aims[S.k];
-          this.face(aim.at, true);
+          let at = aim.at;
+          if (aim.solid != null) {
+            // On something that moves: the middle of its top (and off it by `off`), once it is low enough to see.
+            const s = g.world.solids.find((x) => x.id === aim.solid);
+            const c = centre(s);
+            const off = aim.off || [0, 0, 0];
+            at = [c[0] + off[0], s.max[1], c[2] + off[2]];
+            if (aim.below != null && at[1] > aim.below) {
+              if (this.t > 20) this.fail('it never came low enough to see');
+              return {};
+            }
+          }
+          this.face(at, true);
           S.wait += DT;
           if (S.wait < 0.05) return {};
           const worm = [false, false];
@@ -196,7 +209,7 @@ export class Autopilot {
             const e = g.ends[a.which];
             if (!e) {
               if (S.wait < 1) return {};
-              this.fail(`end ${a.which} did not open at ${a.at.map((v) => v.toFixed(1))}`);
+              this.fail(`end ${a.which} did not open at ${a.at ? a.at.map((v) => v.toFixed(1)) : `solid ${a.solid}`}`);
               return {};
             }
           }
@@ -447,7 +460,14 @@ export class Autopilot {
           this.fail('never reached the prize');
           return {};
         }
-        return this.steer(p.pos, false, 0.05).it;
+        // Walked up against something low (a block in a locked room): hop onto it.
+        const it = this.steer(p.pos, false, 0.05).it;
+        S.stuck = b.onGround && Math.hypot(b.vel[0], b.vel[2]) < 0.5 && flatDist(b.pos, p.pos) > 1 ? (S.stuck || 0) + DT : 0;
+        if (S.stuck > 0.4) {
+          S.stuck = 0;
+          return { ...it, jump: true, jumpPress: true };
+        }
+        return { ...it, jump: !b.onGround };
       }
       case 'drop': {
         // Off an edge and down onto a spot: walk at it, and once falling, steer at it.
@@ -463,6 +483,46 @@ export class Autopilot {
         if (!b.onGround) S.left = true;
         if (S.left) return airSteer(b, st.to);
         return { ...this.steer(st.to, false, 0.05).it, mz: 1 };
+      }
+      case 'fling': {
+        // Off an edge, down into a wormhole end, and out of its twin, thrown: steer at the end while
+        // falling, and at the landing once through.
+        if (this.t > 12) {
+          this.fail('never came down from the fling');
+          return {};
+        }
+        if (S.warps == null) S.warps = g.warps || 0;
+        const through = (g.warps || 0) > S.warps;
+        if (through && b.onGround) {
+          if (flatDist(b.pos, st.to) < 5 && Math.abs(b.pos[1] - st.to[1]) < 0.8) this.next();
+          else this.fail(`flung down at ${b.pos.map((v) => v.toFixed(1))}, not ${st.to.map((v) => v.toFixed(1))}`);
+          return {};
+        }
+        if (through) return { ...airSteer(b, st.to), jump: true };
+        if (!b.onGround) S.left = true;
+        if (S.left && b.onGround) {
+          this.fail(`landed at ${b.pos.map((v) => v.toFixed(1))} and never went into the end`);
+          return {};
+        }
+        if (S.left) return airSteer(b, st.into);
+        return { ...this.steer(st.into, false, 0.05).it, mz: 1 };
+      }
+      case 'onto': {
+        // Up out of an end and down onto a moving platform, clear of the end's mouth.
+        const s = g.world.solids.find((x) => x.id === st.solid);
+        const c = centre(s);
+        const off = st.off || [0, 0, 0];
+        const spot = [c[0] + off[0], s.max[1] + ROBOT.half + ROBOT.r, c[2] + off[2]];
+        if (b.onGround && b.ground === s) {
+          this.next();
+          return {};
+        }
+        if (this.t > 6) {
+          this.fail(`never came down on the platform, at ${b.pos.map((v) => v.toFixed(1))}`);
+          return {};
+        }
+        if (b.onGround) return this.steer(spot, false, 0.05).it;
+        return airSteer(b, spot);
       }
       case 'enter': {
         // Onto a wormhole end already open, and through it.

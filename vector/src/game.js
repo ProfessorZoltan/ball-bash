@@ -11,7 +11,7 @@
 import { BLASTER, POWER, POWERUPS, PICKS, ROBOT, MOVE, PICKUP, WORM, BOSS_INTRO, PLAYERS, COOP, VERSUS } from './config.js';
 import { Robot, stepRobot } from './player.js';
 import { makeCharge, stepCharge } from './blaster.js';
-import { sightLine, placeEnd, refreshEnd, ejectFrom } from './wormholes.js';
+import { sightLine, placeEnd, refreshEnd, ejectFrom, beamPath } from './wormholes.js';
 import { Enemy, stepEnemy, chargeMeets, freeze } from './enemies.js';
 import { makeBoss } from './bosses.js';
 import { add, sub, scale, norm, dot, len, dist, madd, lookDir, camBasis, rotAxis, reflect, clamp } from './math.js';
@@ -237,6 +237,7 @@ export class Game {
     this.stepHazards();
     this.stepTriggers();
     this.stepAmbushes();
+    this.stepBeams();
     if (this.mode === 'versus') this.stepVersus();
   }
 
@@ -319,6 +320,15 @@ export class Game {
         });
         this.emit({ s: 'wave', at });
       }
+    }
+  }
+
+  /** The beams: where each runs now, through whatever ends are open; one that ends on its receiver lights it, and its switch stays on. */
+  stepBeams() {
+    for (const bm of this.world.beams) {
+      const r = beamPath(this.world, this.openEnds, bm.p, bm.dir);
+      const sw = r.hit && r.hit.solid.receiver;
+      if (sw && !sw.on) this.flip(sw);
     }
   }
 

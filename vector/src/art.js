@@ -6,7 +6,7 @@
 import { modelYPR, model, add, sub, scale, norm, cross, rotY, lookDir, camBasis, dist, len } from './math.js';
 import { POWERUPS, BLASTER, WORM, PICKUP, PLAYERS } from './config.js';
 import { guideLine } from './blaster.js';
-import { sightLine, placeEnd } from './wormholes.js';
+import { sightLine, placeEnd, beamPath } from './wormholes.js';
 import { FINISHES } from './records.js';
 
 const TAU = Math.PI * 2;
@@ -43,6 +43,7 @@ export class Art {
     for (const h of g.world.hazards) this.hazard(h);
     for (const f of g.world.fans) this.fan(f);
     for (const w of g.world.wards) this.ward(w);
+    for (const bm of g.world.beams) this.beam(bm, g);
     this.checkpoints(g);
     if (g.boss) this.boss(g.boss, g);
     // Every robot: your own only through a wormhole, everyone else's always, flickering after a hit.
@@ -514,6 +515,42 @@ export class Art {
       this.r.light(c, '#ff3050', 6);
     } else if (h.warn && Math.sin(t * 40) > 0) {
       this.d('box', c, 0, 0, 0, [sx < 0.5 ? 0.03 : sx, sy, sz < 0.5 ? 0.03 : sz], '#ff9aa8', { glow: 1, alpha: 0.35 });
+    }
+  }
+
+  /**
+   * A beam of light, as it runs now through whatever ends are open (the same
+   * path the game lights its receiver by), a glow where it lands, and its
+   * receiver lit once it has been reached.
+   */
+  beam(bm, g) {
+    const r = beamPath(g.world, g.openEnds, bm.p, bm.dir);
+    const flick = 0.85 + 0.15 * Math.sin(this.t * 31);
+    for (let i = 0; i + 1 < r.pts.length; i++) {
+      const p = r.pts[i];
+      const q = r.pts[i + 1];
+      if (!p || !q) continue;
+      const d = sub(q, p);
+      const l = len(d);
+      if (l < 1e-3) continue;
+      const along = scale(d, 1 / l);
+      const side = norm(Math.abs(along[1]) > 0.95 ? cross(along, [1, 0, 0]) : cross(along, [0, 1, 0]));
+      const up = cross(side, along);
+      const mid = add(p, scale(d, 0.5));
+      this.r.draw('box', model(mid, side, up, along, [0.05, 0.05, l]), '#ffffff', { glow: 3, alpha: 0.9 * flick });
+      this.r.draw('box', model(mid, side, up, along, [0.16, 0.16, l]), bm.color, { glow: 2, alpha: 0.35 * flick });
+    }
+    const end = r.pts[r.pts.length - 1];
+    if (end) {
+      this.d('ball', end, 0, 0, 0, [0.22, 0.22, 0.22], bm.color, { glow: 3, alpha: 0.8 * flick });
+      this.r.light(end, bm.color, 4);
+    }
+    for (const sw of g.world.switches) {
+      const s = sw.solid;
+      if (!s || !s.receiver || !sw.on) continue;
+      const c = [(s.min[0] + s.max[0]) / 2, (s.min[1] + s.max[1]) / 2, (s.min[2] + s.max[2]) / 2];
+      this.d('box', c, 0, 0, 0, [s.max[0] - s.min[0] + 0.04, s.max[1] - s.min[1] + 0.04, s.max[2] - s.min[2] + 0.04], bm.color, { glow: 2.5, alpha: 0.55 });
+      this.r.light(c, bm.color, 7);
     }
   }
 

@@ -4,6 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { LEVEL_DEFS, level } from '../src/levels.js';
+import { PUZZLES } from '../src/puzzles.js';
 import { BOSSES } from '../src/bosses.js';
 import { VECTOR_TRACKS } from '../src/tracks.js';
 import { fly } from '../tools/autopilot.mjs';
@@ -54,12 +55,19 @@ test('every level builds: a start, an arena, checkpoints, a secret, machines tha
 });
 
 test('every level from the second holds wormhole puzzles of at least two kinds', () => {
-  const kinds = new Set(['bulkhead', 'chasm', 'launch', 'vault', 'orbit']);
+  const kinds = new Set(['bulkhead', 'chasm', 'launch', 'vault', 'orbit', ...Object.keys(PUZZLES)]);
   for (const L of LEVEL_DEFS.slice(1)) {
     const bp = level(L.id);
     const have = new Set(bp.sections.map((s) => s.type).filter((t) => kinds.has(t)));
     assert.ok(have.size >= 2, `${L.title} has puzzles of two kinds: ${[...have].join(', ')}`);
     assert.ok(bp.links.length >= 1, `${L.title} records its puzzles`);
+  }
+});
+
+test('from the third level on, every level holds a wormhole puzzle of several steps, and from the fourth two of different kinds', () => {
+  for (const L of LEVEL_DEFS.slice(2)) {
+    const have = level(L.id).sections.map((s) => s.type).filter((t) => PUZZLES[t]);
+    assert.ok(have.length >= (L.id >= 4 ? 2 : 1) && new Set(have).size === have.length, `${L.title}: ${have.join(', ')}`);
   }
 });
 
