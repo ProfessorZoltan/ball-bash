@@ -91,8 +91,8 @@ all of them to one GitHub Release (a tag with a `-` in it, like an alpha, is
 marked pre-release):
 
 ```bash
-git tag v4.1.2-alpha
-git push origin v4.1.2-alpha
+git tag v4.1.3-alpha
+git push origin v4.1.3-alpha
 ```
 
 **Run workflow** on the Actions tab builds without publishing; the files are in
