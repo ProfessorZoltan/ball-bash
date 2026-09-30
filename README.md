@@ -1690,8 +1690,9 @@ machine where even Steady stutters; everything is heard a little late.
 **Detail** beside it is Auto (full, and lighter while the speakers keep
 running dry), Full, Light or Lightest (under **Performance** below). The
 pause screen ends with a line on the sound's health since the page opened:
-how it runs (state, rate, buffer, the time to the speakers), then dropouts
-(and whether the page was held up with the worst of them), how often the page
+how it runs (state, rate, detail, buffer, the time to the speakers), then
+dropouts in so much music played (and whether the page was held up with the
+worst of them), how often the page
 was held up, the sound thread's load where the browser tells it, the music
 running late or skipping, rebuilds and errors. A player whose sound goes wrong
 can pause and read it off.

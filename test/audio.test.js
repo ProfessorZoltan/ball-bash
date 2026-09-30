@@ -337,7 +337,7 @@ test('the speakers running dry is counted as a dropout, with how long; the page\
   lag += 5;
   run(3);
   assert.equal(a.health.dropouts, 1, 'a pause is no dropout');
-  assert.match(a.healthLine(), /Dropouts 1 \(80 ms; worst 80 ms, the page held up 25 ms then\)\. Page held up 0\./);
+  assert.match(a.healthLine(), /Dropouts 1 in 9 s of music \(80 ms; worst 80 ms, the page held up 25 ms then\)\. Page held up 0\./);
 });
 
 test('a page held up is counted, and set beside the dropout it came with: then it was the page, not the sound', () => {

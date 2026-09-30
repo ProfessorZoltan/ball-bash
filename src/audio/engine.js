@@ -50,7 +50,7 @@ export class AudioEngine {
     // quarter of a second (longest, the worst), and worst, the longest dropout with how long the page was held
     // up in the same second: as long, and it was the page (or the machine), not the sound; load and peak, the
     // sound thread's own, where the browser tells it.
-    this.health = { dry: 0, skips: 0, dropouts: 0, lost: 0, errors: 0, lastError: '', frozen: 0, longest: 0, worst: null, load: null, peak: 0 };
+    this.health = { dry: 0, skips: 0, dropouts: 0, lost: 0, errors: 0, lastError: '', frozen: 0, longest: 0, worst: null, load: null, peak: 0, played: 0 };
     // The player's own levels, 0 to 1 each: the music, and separately the sound
     // effects (and everything that is not music: ambience, voices). Kept while
     // there is no context yet, and put on the graph when there is.
@@ -385,6 +385,8 @@ export class AudioEngine {
       // Five seconds or more is a machine asleep, not a page held up.
       const gap = wall - this.tickAt < 5 ? wall - this.tickAt : 0;
       this.gapSince = Math.max(this.gapSince || 0, gap);
+      // How long the music has played in view: what the counts are out of.
+      this.health.played += gap;
       if (gap > 0.25) {
         this.health.frozen++;
         this.health.longest = Math.max(this.health.longest, gap);
@@ -556,7 +558,7 @@ export class AudioEngine {
     const detail = `${this.detail} detail${this.detailChoice === 'auto' ? ' (auto)' : ''}`;
     const parts = [
       `Sound: ${c.state}, ${(c.sampleRate / 1000).toFixed(1)} kHz, ${detail}, ${this.latency} (${ms(c.baseLatency || 0)} buffer${out}).`,
-      `Dropouts ${h.dropouts}${h.lost ? ` (${ms(h.lost)}${worst})` : ''}.`,
+      `Dropouts ${h.dropouts} in ${h.played < 60 ? `${Math.round(h.played)} s` : `${(h.played / 60).toFixed(1)} min`} of music${h.lost ? ` (${ms(h.lost)}${worst})` : ''}.`,
       `Page held up ${h.frozen}${h.longest ? ` (longest ${ms(h.longest)})` : ''}.`,
       h.load != null ? `Sound thread ${pc(h.load)} busy (peak ${pc(h.peak)}).` : '',
       gapN != null ? `Browser counts ${gapN} gaps${gapT != null ? ` (${Math.round(gapT)} ms)` : ''}.` : '',
