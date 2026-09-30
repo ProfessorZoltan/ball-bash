@@ -494,3 +494,32 @@ test('each detail asks for its own sample rate, the game\'s music going on from 
     delete globalThis.window;
   }
 });
+
+test('in the desktop app the sound starts on the steady buffer and a step lighter, and Auto can still go lighter; a browser starts snappy and full', async () => {
+  const was = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  const as = (userAgent) => Object.defineProperty(globalThis, 'navigator', { value: { userAgent }, configurable: true, writable: true });
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    as('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Deflector/4.1.3-alpha Chrome/150.0.0.0 Electron/44.2.0 Safari/537.36');
+    const a = new AudioEngine();
+    assert.equal(a.latency, 'steady');
+    assert.equal(a.detail, 'light');
+    await a.setDetail('full');
+    await a.setDetail('auto');
+    assert.equal(a.detail, 'light', 'Auto starts at Light');
+    const { a: b } = rig(a);
+    b.wall = () => 100;
+    b.rebuild = async () => {};
+    b.lighten();
+    assert.equal(b.detail, 'lightest', 'and can still go lighter');
+    as('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36');
+    const c = new AudioEngine();
+    assert.equal(c.latency, 'snappy');
+    assert.equal(c.detail, 'full');
+  } finally {
+    console.warn = warn;
+    if (was) Object.defineProperty(globalThis, 'navigator', was);
+    else delete globalThis.navigator;
+  }
+});

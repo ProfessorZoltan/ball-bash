@@ -9,6 +9,7 @@ import { foundIn, withFound, levelComplete, everySecret, finishesOpen, FINISHES 
 import { MAPS, arenaMap } from './maps.js';
 import { NET, MSG, HostLink, Mirror, GuestInputs } from './netplay.js';
 import { NetClient, relayConfig, saveRelay } from '../../src/net.js';
+import { onDesktop } from '../../src/audio/engine.js';
 import { BOSSES } from './bosses.js';
 import { Game } from './game.js';
 import { Renderer } from './render.js';
@@ -59,12 +60,20 @@ const settings = { difficulty: DEFAULT_DIFFICULTY, muted: false, music: 1, sfx: 
 // The volumes wait on the engine until there is sound to set them on.
 audio.setMusicVolume(settings.music);
 audio.setSfxVolume(settings.sfx);
+// The desktop app's sound starts steady and a step lighter (the engine's autoFrom): Timing and Detail saved in
+// the app before that (4.1.3) are set back to it once.
+if (onDesktop() && settings.soundDefaults !== 1) {
+  settings.latency = 'steady';
+  settings.soundDetail = 'auto';
+  settings.soundDefaults = 1;
+  save(STORE.settings, settings);
+}
 // A world this heavy to draw keeps the sound in time on the steadier buffer (AUDIO_LATENCY); the others are a choice.
 const TIMINGS = [['steady', 'Steady'], ['snappy', 'Snappy'], ['safe', 'Safe']];
 const timing = (v) => (TIMINGS.some(([k]) => k === v) ? v : 'steady');
 audio.latency = timing(settings.latency);
 // How much sound to make: Auto lightens it while the speakers keep running dry (SOUND_DETAIL).
-const DETAILS = [['auto', 'Auto'], ['full', 'Full'], ['light', 'Light'], ['lightest', 'Lightest']];
+const DETAILS = [['auto', audio.autoFrom === 'full' ? 'Auto' : `Auto, from ${audio.autoFrom[0].toUpperCase()}${audio.autoFrom.slice(1)}`], ['full', 'Full'], ['light', 'Light'], ['lightest', 'Lightest']];
 const detailOf = (v) => (DETAILS.some(([k]) => k === v) ? v : 'auto');
 audio.setDetail(detailOf(settings.soundDetail));
 let run = load(STORE.run, null); // the campaign in progress, if any

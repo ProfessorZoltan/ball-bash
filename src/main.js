@@ -18,7 +18,7 @@ import { portalHue } from './color.js';
 import { Input, MOUSE_MODES } from './input.js';
 import { Renderer } from './render.js';
 import { Effects } from './fx.js';
-import { AudioEngine } from './audio/engine.js';
+import { AudioEngine, onDesktop } from './audio/engine.js';
 import { TRACKS } from './audio/tracks.js';
 import { circleVsCircle, circleVsCapsule, pointInPolygon, resolveCircleVsSegments, predictPath, predictCurvedPath, ejectFromPolygon, clampInsidePolygon, slabSide, reflect } from './physics.js';
 import { advanceBall, separateFightersFromBall, fightersTouch, advanceShot, Shot } from './sim.js';
@@ -2600,11 +2600,14 @@ function bindVolume() {
 
 const AUDIO_KEY = 'deflector.audio'; // 'snappy' | 'steady'
 
+/** The player's choice, or else snappy in a browser and steady in the desktop app (onDesktop). */
 function audioSetting() {
+  const fallback = onDesktop() ? 'steady' : 'snappy';
   try {
-    return localStorage.getItem(AUDIO_KEY) === 'steady' ? 'steady' : 'snappy';
+    const v = localStorage.getItem(AUDIO_KEY);
+    return v === 'steady' || v === 'snappy' ? v : fallback;
   } catch (_) {
-    return 'snappy';
+    return fallback;
   }
 }
 

@@ -23,6 +23,11 @@ export const AUDIO_LATENCY = { snappy: 'interactive', steady: 0.06, safe: 0.15 }
 export const SOUND_DETAIL = { full: { rate: null, reverb: true }, light: { rate: 32000, reverb: true }, lightest: { rate: 22050, reverb: false } };
 const DETAILS = Object.keys(SOUND_DETAIL);
 
+/** The desktop app (Windows, macOS): Electron names itself in the user agent. */
+export function onDesktop(ua = globalThis.navigator && globalThis.navigator.userAgent) {
+  return /\bElectron\//.test(ua || '');
+}
+
 const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
 
 export class AudioEngine {
@@ -38,9 +43,13 @@ export class AudioEngine {
     this.currentBpm = 0;
     this.lastWall = 0;
     this.lastKickAt = 0; // audio-clock time of the most recent scheduled kick
-    this.latency = 'snappy'; // a key of AUDIO_LATENCY
+    // The desktop app is Chromium, whose sound thread falls behind on some machines where Firefox's never does:
+    // there the sound starts on the steady buffer and a step lighter, and Auto can still go lighter from there.
+    const desktop = onDesktop();
+    this.latency = desktop ? 'steady' : 'snappy'; // a key of AUDIO_LATENCY
     this.detailChoice = 'auto'; // 'auto', or a key of SOUND_DETAIL the player chose
-    this.detail = 'full'; // what the sound is made at now: auto steps it down while the speakers keep running dry
+    this.autoFrom = desktop ? 'light' : 'full'; // where Auto starts
+    this.detail = this.autoFrom; // what the sound is made at now: auto steps it down while the speakers keep running dry
     this.ahead = LOOKAHEAD; // how far ahead the music is scheduled now: further after the page has held it up
     this.revived = 0; // how often the sound has been brought back from a context that died
     // What went wrong since the page opened, for the player to see (healthLine) and to tell us:
@@ -127,13 +136,13 @@ export class AudioEngine {
   }
 
   /**
-   * The player's choice of detail: 'auto' (full, and lighter only while the speakers keep running dry), or a
+   * The player's choice of detail: 'auto' (autoFrom, and lighter only while the speakers keep running dry), or a
    * key of SOUND_DETAIL, kept whatever happens. A change rebuilds the sound if there is any.
    */
   async setDetail(choice) {
     if (choice !== 'auto' && !(choice in SOUND_DETAIL)) return;
     this.detailChoice = choice;
-    const want = choice === 'auto' ? 'full' : choice;
+    const want = choice === 'auto' ? this.autoFrom : choice;
     if (want === this.detail) return;
     this.detail = want;
     if (this.ctx) await this.rebuild();

@@ -66,6 +66,12 @@ same game in its own window, with two things a browser cannot give it:
   turns that off (`disable-renderer-backgrounding`,
   `disable-backgrounding-occluded-windows` and native occlusion in
   `desktop/main.js`). The game still pauses itself when its window is hidden.
+- **Sound set for Chromium.** In the app every game's sound starts on the
+  Steady buffer and a step lighter (Light, 32 kHz), with Auto still free to go
+  lighter (`onDesktop` and `autoFrom` in `src/audio/engine.js`); a browser
+  starts at Full. Vector's Timing and Detail saved in the app before 4.1.3 are
+  set back to these once. On a machine whose Chromium falls behind, Lightest
+  on Steady was clean in Chrome where Full on Safe lost 31 s in a session.
 
 Settings, campaign progress and the tutorial flag are saved by the app
 (`%APPDATA%\deflector-desktop`), separately from any browser.
@@ -1688,7 +1694,8 @@ to draw keeps the music in time on the steadier buffer, and Snappy hears a
 shot a hair sooner. A third choice, Safe, asks for a 150 ms buffer, for a
 machine where even Steady stutters; everything is heard a little late.
 **Detail** beside it is Auto (full, and lighter while the speakers keep
-running dry), Full, Light or Lightest (under **Performance** below). The
+running dry; in the desktop app it starts at Light), Full, Light or Lightest
+(under **Performance** below). The
 pause screen ends with a line on the sound's health since the page opened:
 how it runs (state, rate, detail, buffer, the time to the speakers), then
 dropouts in so much music played (and whether the page was held up with the
@@ -2845,7 +2852,8 @@ renderer does three things about it:
   touching the renderer: the `copy` composite operation takes Chrome's slow
   full-surface layer path, and a glow blur costs by the bounding box of the
   path drawn, so never batch far-apart shapes into one glowing path.
-* **Sound setting** under Settings on the title screen: Snappy or Steady. Snappy asks the
+* **Sound setting** under Settings on the title screen: Snappy or Steady (Snappy by
+  default in a browser, Steady in the desktop app). Snappy asks the
   browser for its smallest output buffer, so a hit is heard the instant it
   lands; Steady asks for a 60 ms one, which a machine busy drawing (or a
   guest's, parsing sixty snapshots a second) can keep fed, at the cost of
@@ -2878,8 +2886,8 @@ renderer does three things about it:
   of a quarter of a second) the sound is rebuilt a step lighter, the music
   going on from its bar: Light makes it at 32 kHz, Lightest at 22 kHz with the
   reverbs left empty. At most one step every fifteen seconds; a detail the
-  player chooses is kept. Measured on the sound thread at the start of the
-  Foundry:
+  player chooses is kept. Auto starts at Full in a browser and at Light in the
+  desktop app. Measured on the sound thread at the start of the Foundry:
 
   | Detail | Sound thread busy | Worst callback | Source |
   | --- | --- | --- | --- |
