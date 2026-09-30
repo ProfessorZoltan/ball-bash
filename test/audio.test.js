@@ -342,6 +342,7 @@ test('the speakers running dry is counted as a dropout, with how long; the page\
 
 test('a page held up is counted, and set beside the dropout it came with: then it was the page, not the sound', () => {
   const { a, ctx } = playing();
+  a.detailChoice = 'full'; // no lighter sound for so long a dropout: that is the next test's
   let wall = 50;
   a.wall = () => wall;
   let lag = 0;
@@ -394,6 +395,102 @@ test('a sound device the browser says has failed is built anew', async () => {
     assert.match(a.healthLine(), /rebuilt 1 \(device\)/);
   } finally {
     console.warn = warn;
+    delete globalThis.window;
+  }
+});
+
+test('sound that keeps dropping out is made lighter a step at a time, never past the lightest, and never when the player chose a detail', async () => {
+  const { a, ctx } = playing();
+  const warn = console.warn;
+  console.warn = () => {};
+  let wall = 50;
+  a.wall = () => wall;
+  const rebuilt = [];
+  a.rebuild = async () => rebuilt.push(a.detail);
+  let lag = 0;
+  ctx.getOutputTimestamp = () => ({ contextTime: ctx.currentTime, performanceTime: (ctx.currentTime + 10 + lag) * 1000 });
+  const run = (secs, drop = 0, every = 1) => {
+    for (let k = 1; k <= secs * 40; k++) {
+      if (drop && (k - 1) % (every * 40) === 0) lag += drop;
+      wall += 0.025;
+      ctx.currentTime += 0.025;
+      a.tick();
+    }
+  };
+  try {
+    run(2);
+    // Two short ones: not yet. A third within half a minute: lighter.
+    run(4, 0.05, 2);
+    assert.deepEqual(rebuilt, []);
+    run(3, 0.05, 3);
+    assert.deepEqual(rebuilt, ['light']);
+    await new Promise((r) => setImmediate(r)); // the rebuild done
+    // A long one straight after: each step is heard out first.
+    run(3, 0.4, 3);
+    assert.deepEqual(rebuilt, ['light']);
+    run(15);
+    run(2, 0.4, 2);
+    assert.deepEqual(rebuilt, ['light', 'lightest']);
+    await new Promise((r) => setImmediate(r));
+    run(20, 0.4, 2);
+    assert.deepEqual(rebuilt, ['light', 'lightest'], 'nothing lighter than the lightest');
+    assert.match(a.healthLine(), /lightest detail \(auto\)/);
+    // Chosen, it is kept.
+    a.detailChoice = 'full';
+    a.detail = 'full';
+    run(20, 0.4, 2);
+    assert.deepEqual(rebuilt, ['light', 'lightest']);
+    assert.match(a.healthLine(), /full detail,/);
+  } finally {
+    console.warn = warn;
+  }
+});
+
+test('the lightest detail leaves the halls empty; the others share the one impulse', () => {
+  for (const [detail, full] of [['full', true], ['light', true], ['lightest', false]]) {
+    const a = new AudioEngine();
+    a.detail = detail;
+    const { a: b } = rig(a);
+    assert.equal(!!b.reverb.buffer, full, detail);
+    assert.equal(b.sfxReverb.buffer, b.reverb.buffer, detail);
+  }
+});
+
+test('each detail asks for its own sample rate, the game\'s music going on from its bar when the sound is rebuilt; a browser that will not take the rate gets its own', async () => {
+  const asked = [];
+  let refuse = false;
+  globalThis.window = {
+    AudioContext: function (opts) {
+      asked.push(opts.sampleRate ?? null);
+      if (refuse && opts.sampleRate) throw new Error('NotSupportedError');
+      const c = recordingContext();
+      c.resume = async () => {};
+      c.close = async () => {};
+      return c;
+    },
+  };
+  try {
+    const a = new AudioEngine();
+    await a.setDetail('light');
+    assert.deepEqual(asked, [], 'no sound yet: only the choice is kept');
+    await a.init();
+    const played = [];
+    a.playTrack = (track, bar) => {
+      played.push(bar);
+      a.track = track;
+      a.step = bar * 16 + 3;
+    };
+    a.track = TRACKS.antechamber;
+    a.step = 16 * 7 + 3;
+    await a.setDetail('lightest');
+    await a.setDetail('auto');
+    assert.deepEqual(asked, [32000, 22050, null]);
+    assert.deepEqual(played, [7, 7], 'on from bar 7 each time');
+    refuse = true;
+    await a.setDetail('light');
+    assert.deepEqual(asked.slice(3), [32000, null], 'refused, then its own rate');
+    assert.ok(a.ctx);
+  } finally {
     delete globalThis.window;
   }
 });

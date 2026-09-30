@@ -11,7 +11,7 @@
 // strings, inharmonic partials for piano and bars) and played back, so the
 // audio clock never waits on a synthesis loop. Bowed, blown and sung notes
 // are played live, through formant and body filters.
-import { AudioEngine } from '../../src/audio/engine.js';
+import { AudioEngine, SOUND_DETAIL } from '../../src/audio/engine.js';
 
 const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
@@ -297,7 +297,8 @@ export class VectorAudio extends AudioEngine {
     // hall: close walls, and a short tail with the top taken off.
     this.roomSend = gain(1);
     this.room = c.createConvolver();
-    this.room.buffer = roomImpulse(c);
+    // At the lightest detail the room stays empty, as the engine's halls do.
+    if (!SOUND_DETAIL[this.detail] || SOUND_DETAIL[this.detail].reverb) this.room.buffer = roomImpulse(c);
     this.roomReturn = gain(0.2);
     this.roomSend.connect(this.room);
     this.room.connect(this.roomReturn);

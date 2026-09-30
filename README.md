@@ -1686,7 +1686,9 @@ and shows a swirl in a wormhole's mouth instead of the view through it
 setting (under **Performance** below), Steady by default: a world this heavy
 to draw keeps the music in time on the steadier buffer, and Snappy hears a
 shot a hair sooner. A third choice, Safe, asks for a 150 ms buffer, for a
-machine where even Steady stutters; everything is heard a little late. The
+machine where even Steady stutters; everything is heard a little late.
+**Detail** beside it is Auto (full, and lighter while the speakers keep
+running dry), Full, Light or Lightest (under **Performance** below). The
 pause screen ends with a line on the sound's health since the page opened:
 how it runs (state, rate, buffer, the time to the speakers), then dropouts
 (and whether the page was held up with the worst of them), how often the page
@@ -2867,6 +2869,22 @@ renderer does three things about it:
   the music running late or skipping ahead; rebuilds and why; and errors, each
   also told once to the console as `[sound] …`. Vector shows the count on its
   pause screen (`healthLine`).
+* **Sound detail**, Auto by default in all three games (`SOUND_DETAIL` and
+  `lighten` in `src/audio/engine.js`). Chromium's sound thread (Chrome, Edge
+  and the Windows app) falls behind on some machines where Firefox's, making
+  the same sound, never does. Every node's work goes with the sample rate, so
+  while the speakers keep running dry (three dropouts in half a minute, or one
+  of a quarter of a second) the sound is rebuilt a step lighter, the music
+  going on from its bar: Light makes it at 32 kHz, Lightest at 22 kHz with the
+  reverbs left empty. At most one step every fifteen seconds; a detail the
+  player chooses is kept. Measured on the sound thread at the start of the
+  Foundry:
+
+  | Detail | Sound thread busy | Worst callback | Source |
+  | --- | --- | --- | --- |
+  | Full (44.1 kHz) | 14.2% | 18.8 ms | Chromium trace, `AudioDestination::Render` |
+  | Light (32 kHz) | 9.8% | 12.8 ms | same |
+  | Lightest (22 kHz, no reverbs) | 2.5% | 5.0 ms | same |
 * **Quality setting** under Settings on the title screen: Auto, High or Low. Low caps the
   pixel density at 1 and turns off the glow on moving things (the cached
   static layer keeps its glow). Auto starts high and steps down to Low for the

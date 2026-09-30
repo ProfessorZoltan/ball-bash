@@ -14,6 +14,14 @@ const TICK_MS = 25;
  * on some systems, so it is asked for in seconds).
  */
 export const AUDIO_LATENCY = { snappy: 'interactive', steady: 0.06, safe: 0.15 };
+/**
+ * How much sound there is to make, lightest last. Every node's work goes with the sample rate, so 32 kHz is a
+ * third less of all of it and 22 kHz over half (the browser brings it up to the speakers' rate elsewhere, for
+ * next to nothing); the lightest also leaves the reverbs empty, which were four parts in ten of what was left.
+ * Chromium's sound thread falls behind on some machines where Firefox's, making the same sound, never does.
+ */
+export const SOUND_DETAIL = { full: { rate: null, reverb: true }, light: { rate: 32000, reverb: true }, lightest: { rate: 22050, reverb: false } };
+const DETAILS = Object.keys(SOUND_DETAIL);
 
 const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
 
@@ -31,6 +39,8 @@ export class AudioEngine {
     this.lastWall = 0;
     this.lastKickAt = 0; // audio-clock time of the most recent scheduled kick
     this.latency = 'snappy'; // a key of AUDIO_LATENCY
+    this.detailChoice = 'auto'; // 'auto', or a key of SOUND_DETAIL the player chose
+    this.detail = 'full'; // what the sound is made at now: auto steps it down while the speakers keep running dry
     this.ahead = LOOKAHEAD; // how far ahead the music is scheduled now: further after the page has held it up
     this.revived = 0; // how often the sound has been brought back from a context that died
     // What went wrong since the page opened, for the player to see (healthLine) and to tell us:
@@ -61,7 +71,16 @@ export class AudioEngine {
     }
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
-    this.ctx = new AC({ latencyHint: AUDIO_LATENCY[this.latency] ?? 'interactive' });
+    const opts = { latencyHint: AUDIO_LATENCY[this.latency] ?? 'interactive' };
+    const rate = SOUND_DETAIL[this.detail] && SOUND_DETAIL[this.detail].rate;
+    if (rate) opts.sampleRate = rate;
+    try {
+      this.ctx = new AC(opts);
+    } catch (_) {
+      // a browser that takes no rate of ours: its own
+      delete opts.sampleRate;
+      this.ctx = new AC(opts);
+    }
     // The browser's word that the device has failed (unplugged, taken, crashed): its clock may go on over a
     // silent stand-in, so the watchdog would never see it stop.
     const ctx = this.ctx;
@@ -99,12 +118,31 @@ export class AudioEngine {
     if (this.ctx && this.ctx.state !== 'closed') this.ctx.resume().catch(() => {});
   }
 
-  /** Change the output latency: the context is rebuilt, and whatever was playing starts over on it. */
+  /** Change the output latency: the context is rebuilt, and whatever was playing goes on on it. */
   async setLatency(key) {
     if (!(key in AUDIO_LATENCY)) return;
     this.latency = key;
     if (!this.ctx) return;
+    await this.rebuild();
+  }
+
+  /**
+   * The player's choice of detail: 'auto' (full, and lighter only while the speakers keep running dry), or a
+   * key of SOUND_DETAIL, kept whatever happens. A change rebuilds the sound if there is any.
+   */
+  async setDetail(choice) {
+    if (choice !== 'auto' && !(choice in SOUND_DETAIL)) return;
+    this.detailChoice = choice;
+    const want = choice === 'auto' ? 'full' : choice;
+    if (want === this.detail) return;
+    this.detail = want;
+    if (this.ctx) await this.rebuild();
+  }
+
+  /** A new context in place of this one, the track going on on it from the bar it had reached (where the game's own playTrack takes a bar). */
+  async rebuild() {
     const track = this.track;
+    const bar = Math.floor((this.step || 0) / 16);
     this.stopTrack(0);
     const old = this.ctx;
     this.ctx = null;
@@ -114,7 +152,7 @@ export class AudioEngine {
       // an already closed context; nothing to do
     }
     await this.init();
-    if (track && this.ctx) this.playTrack(track);
+    if (track && this.ctx) this.playTrack(track, bar);
   }
 
   buildGraph() {
@@ -166,7 +204,9 @@ export class AudioEngine {
     // Reverb: synthesised impulse response (stereo decaying noise).
     this.reverbSend = gain(1);
     this.reverb = c.createConvolver();
-    this.reverb.buffer = makeImpulse(c, 2.8, 2.4);
+    // At the lightest detail the halls stay empty: an empty convolver costs nothing.
+    const halls = !SOUND_DETAIL[this.detail] || SOUND_DETAIL[this.detail].reverb;
+    if (halls) this.reverb.buffer = makeImpulse(c, 2.8, 2.4);
     this.reverbReturn = gain(0.55);
     this.reverbSend.connect(this.reverb);
     this.reverb.connect(this.reverbReturn);
@@ -461,7 +501,33 @@ export class AudioEngine {
       h.dropouts++;
       h.lost += jump;
       if (!h.worst || jump > h.worst.lost) h.worst = { lost: jump, gap };
+      // Three in half a minute, or one of a quarter of a second, and the sound is too much for this machine.
+      this.recentDrops = (this.recentDrops || []).filter((at) => wall - at < 30);
+      this.recentDrops.push(wall);
+      if (jump >= 0.25 || this.recentDrops.length >= 3) this.lighten();
     }
+  }
+
+  /**
+   * Auto detail: one step lighter, the sound rebuilt at it and the music going on; at most once every fifteen
+   * seconds, so each step is heard out before the next, and never below the lightest or past a detail the
+   * player chose.
+   */
+  lighten() {
+    const i = DETAILS.indexOf(this.detail);
+    const wall = this.wall();
+    if (this.detailChoice !== 'auto' || i < 0 || i >= DETAILS.length - 1 || this.reviving) return null;
+    if (wall - (this.lightenedAt ?? -99) < 15) return null;
+    this.lightenedAt = wall;
+    this.recentDrops = [];
+    this.detail = DETAILS[i + 1];
+    if (typeof console !== 'undefined') console.warn(`[sound] lighter: ${this.detail}`);
+    this.reviving = true;
+    this.clockSeen = null;
+    this.driftSeen = null;
+    return this.rebuild().finally(() => {
+      this.reviving = false;
+    });
   }
 
   /** Something that could not be made: counted, told once to the console, and passed over. */
@@ -487,8 +553,9 @@ export class AudioEngine {
     const ps = c.playoutStats;
     const gapN = ps && (ps.underrunEvents ?? ps.fallbackFramesEvents);
     const gapT = ps && (ps.underrunDuration ?? ps.fallbackFramesDuration ?? ps.fallbackDuration);
+    const detail = `${this.detail} detail${this.detailChoice === 'auto' ? ' (auto)' : ''}`;
     const parts = [
-      `Sound: ${c.state}, ${(c.sampleRate / 1000).toFixed(1)} kHz, ${this.latency} (${ms(c.baseLatency || 0)} buffer${out}).`,
+      `Sound: ${c.state}, ${(c.sampleRate / 1000).toFixed(1)} kHz, ${detail}, ${this.latency} (${ms(c.baseLatency || 0)} buffer${out}).`,
       `Dropouts ${h.dropouts}${h.lost ? ` (${ms(h.lost)}${worst})` : ''}.`,
       `Page held up ${h.frozen}${h.longest ? ` (longest ${ms(h.longest)})` : ''}.`,
       h.load != null ? `Sound thread ${pc(h.load)} busy (peak ${pc(h.peak)}).` : '',

@@ -55,7 +55,7 @@ function save(key, value) {
   }
 }
 
-const settings = { difficulty: DEFAULT_DIFFICULTY, muted: false, music: 1, sfx: 1, latency: 'steady', quality: 'auto', aimLine: true, sens: 1, invert: false, autoRun: false, ...load(STORE.settings, {}) };
+const settings = { difficulty: DEFAULT_DIFFICULTY, muted: false, music: 1, sfx: 1, latency: 'steady', soundDetail: 'auto', quality: 'auto', aimLine: true, sens: 1, invert: false, autoRun: false, ...load(STORE.settings, {}) };
 // The volumes wait on the engine until there is sound to set them on.
 audio.setMusicVolume(settings.music);
 audio.setSfxVolume(settings.sfx);
@@ -63,6 +63,10 @@ audio.setSfxVolume(settings.sfx);
 const TIMINGS = [['steady', 'Steady'], ['snappy', 'Snappy'], ['safe', 'Safe']];
 const timing = (v) => (TIMINGS.some(([k]) => k === v) ? v : 'steady');
 audio.latency = timing(settings.latency);
+// How much sound to make: Auto lightens it while the speakers keep running dry (SOUND_DETAIL).
+const DETAILS = [['auto', 'Auto'], ['full', 'Full'], ['light', 'Light'], ['lightest', 'Lightest']];
+const detailOf = (v) => (DETAILS.some(([k]) => k === v) ? v : 'auto');
+audio.setDetail(detailOf(settings.soundDetail));
 let run = load(STORE.run, null); // the campaign in progress, if any
 const cleared = new Set(load(STORE.cleared, []));
 const best = load(STORE.best, {});
@@ -457,7 +461,8 @@ function settingsHtml(short = false) {
     <div class="field"><label for="sens">Mouse</label><input id="sens" type="range" min="0.3" max="3" step="0.05" value="${settings.sens}" /><label for="inv">Look</label><select id="inv"><option value="no" ${settings.invert ? '' : 'selected'}>Normal</option><option value="yes" ${settings.invert ? 'selected' : ''}>Inverted</option></select></div>
     <div class="field"><label for="aimline">Aim line</label><select id="aimline"><option value="on" ${settings.aimLine ? 'selected' : ''}>On</option><option value="off" ${settings.aimLine ? '' : 'selected'}>Off</option></select>
       <label for="runmode">Run</label><select id="runmode"><option value="hold" ${settings.autoRun ? '' : 'selected'}>Hold Shift</option><option value="auto" ${settings.autoRun ? 'selected' : ''}>By default</option></select></div>
-    <div class="field"><label for="latency">Timing</label><select id="latency">${TIMINGS.map(([k, name]) => `<option value="${k}" ${timing(settings.latency) === k ? 'selected' : ''}>${name}</option>`).join('')}</select><span class="note">Of the sound: Steady keeps the music in time on a busy machine; Snappy hears a shot a hair sooner; Safe, for a machine where even Steady stutters, hears everything a little late</span></div>
+    <div class="field"><label for="latency">Timing</label><select id="latency">${TIMINGS.map(([k, name]) => `<option value="${k}" ${timing(settings.latency) === k ? 'selected' : ''}>${name}</option>`).join('')}</select>
+      <label for="sdetail">Detail</label><select id="sdetail">${DETAILS.map(([k, name]) => `<option value="${k}" ${detailOf(settings.soundDetail) === k ? 'selected' : ''}>${name}</option>`).join('')}</select><span class="note">Of the sound. Timing: Steady keeps the music in time on a busy machine, Snappy hears a shot a hair sooner, Safe hears everything a little late. Detail: Auto makes less of it, a step at a time, if the machine cannot keep up</span></div>
     <div class="field"><label for="finish">Blaster</label><select id="finish">${finishesOpen(found).map((k) => `<option value="${k}" ${blasterFinish() === k ? 'selected' : ''}>${FINISHES[k].name}</option>`).join('')}</select><span class="note">${finishesOpen(found).length - 1} of ${LEVEL_DEFS.length} unlocked: every secret in a level unlocks its finish</span></div>`;
 }
 
@@ -538,6 +543,11 @@ function wireSettings() {
     settings.invert = e.target.value === 'yes';
     saveSettings();
     applySettings();
+  });
+  on('sdetail', (e) => {
+    settings.soundDetail = detailOf(e.target.value);
+    saveSettings();
+    audio.setDetail(settings.soundDetail);
   });
   on('latency', (e) => {
     settings.latency = timing(e.target.value);
