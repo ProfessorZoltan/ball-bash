@@ -60,6 +60,12 @@ same game in its own window, with two things a browser cannot give it:
 - **No browser chrome.** F11 or Alt+Enter toggles fullscreen (the F key and
   the Fullscreen button still work), and the window keeps a controller and
   audio working without a click first.
+- **Never taken for a background window.** Chromium's guess that a window is
+  covered misfires on Windows (fullscreen, an overlay), and a page it
+  backgrounds can have its sound slowed until the speakers run dry; the app
+  turns that off (`disable-renderer-backgrounding`,
+  `disable-backgrounding-occluded-windows` and native occlusion in
+  `desktop/main.js`). The game still pauses itself when its window is hidden.
 
 Settings, campaign progress and the tutorial flag are saved by the app
 (`%APPDATA%\deflector-desktop`), separately from any browser.
@@ -1682,9 +1688,11 @@ to draw keeps the music in time on the steadier buffer, and Snappy hears a
 shot a hair sooner. A third choice, Safe, asks for a 150 ms buffer, for a
 machine where even Steady stutters; everything is heard a little late. The
 pause screen ends with a line on the sound's health since the page opened:
-how it runs (state, rate, buffer, the time to the speakers), then dropouts,
-the music running late or skipping, rebuilds and errors. A player whose sound
-goes wrong can pause and read it off.
+how it runs (state, rate, buffer, the time to the speakers), then dropouts
+(and whether the page was held up with the worst of them), how often the page
+was held up, the sound thread's load where the browser tells it, the music
+running late or skipping, rebuilds and errors. A player whose sound goes wrong
+can pause and read it off.
 
 ### Movement
 
@@ -2851,8 +2859,12 @@ renderer does three things about it:
   `src/audio/engine.js`). A step of the music that cannot be made costs only
   that step, never the rest of the track. The engine also keeps count of what
   went wrong (`health`): dropouts, when the speakers' clock falls 20 ms or more
-  behind the page's in a second because the sound was not made in time; the
-  music running late or skipping ahead; rebuilds and why; and errors, each
+  behind the page's in a second because the sound was not made in time, with
+  the worst and how long the page itself was held up in that same second (as
+  long, and it was the page or the machine that stopped, not the sound); how
+  often the page was held up over a quarter of a second; the sound thread's
+  load and the browser's own count of gaps, where the browser reports them;
+  the music running late or skipping ahead; rebuilds and why; and errors, each
   also told once to the console as `[sound] …`. Vector shows the count on its
   pause screen (`healthLine`).
 * **Quality setting** under Settings on the title screen: Auto, High or Low. Low caps the

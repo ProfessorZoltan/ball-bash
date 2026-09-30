@@ -36,8 +36,11 @@ export class AudioEngine {
     // What went wrong since the page opened, for the player to see (healthLine) and to tell us:
     // dry, the music ran out of notes before the next were scheduled; skips, it fell so far behind that
     // it jumped ahead; dropouts, the speakers ran out of sound (lost, for how many seconds in all);
-    // errors, a step or a sound that could not be made.
-    this.health = { dry: 0, skips: 0, dropouts: 0, lost: 0, errors: 0, lastError: '' };
+    // errors, a step or a sound that could not be made; frozen, how often the page itself was held up over a
+    // quarter of a second (longest, the worst), and worst, the longest dropout with how long the page was held
+    // up in the same second: as long, and it was the page (or the machine), not the sound; load and peak, the
+    // sound thread's own, where the browser tells it.
+    this.health = { dry: 0, skips: 0, dropouts: 0, lost: 0, errors: 0, lastError: '', frozen: 0, longest: 0, worst: null, load: null, peak: 0 };
     // The player's own levels, 0 to 1 each: the music, and separately the sound
     // effects (and everything that is not music: ambience, voices). Kept while
     // there is no context yet, and put on the graph when there is.
@@ -66,6 +69,20 @@ export class AudioEngine {
       if (this.ctx === ctx) this.revive('device');
     });
     this.driftSeen = null;
+    // Where the browser measures its sound thread, its load is kept for the health line.
+    const rc = ctx.renderCapacity;
+    if (rc && rc.start) {
+      try {
+        rc.addEventListener('update', (e) => {
+          if (this.ctx !== ctx) return;
+          this.health.load = e.averageLoad;
+          this.health.peak = Math.max(this.health.peak, e.peakLoad);
+        });
+        rc.start({ updateInterval: 1 });
+      } catch (_) {
+        // not in this browser
+      }
+    }
     this.buildGraph();
     if (this.ctx.state === 'suspended') await this.ctx.resume();
   }
@@ -317,7 +334,23 @@ export class AudioEngine {
   tick() {
     const c = this.ctx;
     const T = this.track;
-    if (!T) return;
+    if (!T) {
+      this.tickAt = null;
+      return;
+    }
+    // The page's own hitches: how long since the last tick, 25 ms when all is well.
+    const wall = this.wall();
+    const hidden = typeof document !== 'undefined' && document.hidden;
+    if (this.tickAt != null && !hidden) {
+      // Five seconds or more is a machine asleep, not a page held up.
+      const gap = wall - this.tickAt < 5 ? wall - this.tickAt : 0;
+      this.gapSince = Math.max(this.gapSince || 0, gap);
+      if (gap > 0.25) {
+        this.health.frozen++;
+        this.health.longest = Math.max(this.health.longest, gap);
+      }
+    }
+    this.tickAt = hidden ? null : wall;
     const dt = TICK_MS / 1000;
     // Smooth tempo and intensity so hits feel like a surge, not a glitch.
     this.tempoScale = approach(this.tempoScale, this.tempoTarget, 0.7 * dt);
@@ -421,9 +454,13 @@ export class AudioEngine {
     this.driftSeen = d;
     if (last == null) return;
     const jump = d - last;
+    const gap = this.gapSince || 0;
+    this.gapSince = 0;
     if (jump >= 0.02 && jump < 2) {
-      this.health.dropouts++;
-      this.health.lost += jump;
+      const h = this.health;
+      h.dropouts++;
+      h.lost += jump;
+      if (!h.worst || jump > h.worst.lost) h.worst = { lost: jump, gap };
     }
   }
 
@@ -444,12 +481,21 @@ export class AudioEngine {
     const h = this.health;
     const ms = (s) => `${Math.round(s * 1000)} ms`;
     const out = c.outputLatency ? `, ${ms((c.baseLatency || 0) + c.outputLatency)} to the speakers` : '';
+    const pc = (x) => `${Math.round(x * 100)}%`;
+    const worst = h.worst ? `; worst ${ms(h.worst.lost)}, the page held up ${ms(h.worst.gap)} then` : '';
+    // The browser's own count of what it could not play in time, where it keeps one (names differ by version).
+    const ps = c.playoutStats;
+    const gapN = ps && (ps.underrunEvents ?? ps.fallbackFramesEvents);
+    const gapT = ps && (ps.underrunDuration ?? ps.fallbackFramesDuration ?? ps.fallbackDuration);
     const parts = [
       `Sound: ${c.state}, ${(c.sampleRate / 1000).toFixed(1)} kHz, ${this.latency} (${ms(c.baseLatency || 0)} buffer${out}).`,
-      `Dropouts ${h.dropouts}${h.lost ? ` (${ms(h.lost)})` : ''}, music late ${h.dry}, skipped ${h.skips},`,
-      `rebuilt ${this.revived}${this.lastRevivedFor ? ` (${this.lastRevivedFor})` : ''}, errors ${h.errors}${h.lastError ? ` (${h.lastError})` : ''}.`,
+      `Dropouts ${h.dropouts}${h.lost ? ` (${ms(h.lost)}${worst})` : ''}.`,
+      `Page held up ${h.frozen}${h.longest ? ` (longest ${ms(h.longest)})` : ''}.`,
+      h.load != null ? `Sound thread ${pc(h.load)} busy (peak ${pc(h.peak)}).` : '',
+      gapN != null ? `Browser counts ${gapN} gaps${gapT != null ? ` (${Math.round(gapT)} ms)` : ''}.` : '',
+      `Music late ${h.dry}, skipped ${h.skips}, rebuilt ${this.revived}${this.lastRevivedFor ? ` (${this.lastRevivedFor})` : ''}, errors ${h.errors}${h.lastError ? ` (${h.lastError})` : ''}.`,
     ];
-    return parts.join(' ');
+    return parts.filter(Boolean).join(' ');
   }
 
   /** The time on the page's own clock, in seconds: the watchdog's, for how long the sound's has stood still. */

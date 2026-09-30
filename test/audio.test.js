@@ -337,7 +337,37 @@ test('the speakers running dry is counted as a dropout, with how long; the page\
   lag += 5;
   run(3);
   assert.equal(a.health.dropouts, 1, 'a pause is no dropout');
-  assert.match(a.healthLine(), /Dropouts 1 \(80 ms\)/);
+  assert.match(a.healthLine(), /Dropouts 1 \(80 ms; worst 80 ms, the page held up 25 ms then\)\. Page held up 0\./);
+});
+
+test('a page held up is counted, and set beside the dropout it came with: then it was the page, not the sound', () => {
+  const { a, ctx } = playing();
+  let wall = 50;
+  a.wall = () => wall;
+  let lag = 0;
+  ctx.getOutputTimestamp = () => ({ contextTime: ctx.currentTime, performanceTime: (ctx.currentTime + 10 + lag) * 1000 });
+  const run = (secs) => {
+    for (let k = 0; k < secs * 40; k++) {
+      wall += 0.025;
+      ctx.currentTime += 0.025;
+      a.tick();
+    }
+  };
+  run(2);
+  // The whole page stops for 0.9 s, and the sound with it.
+  wall += 0.9;
+  lag += 0.9;
+  run(2);
+  const h = a.health;
+  assert.equal(h.frozen, 1);
+  assert.ok(Math.abs(h.longest - 0.925) < 1e-6, `held up ${h.longest} s`);
+  assert.equal(h.dropouts, 1);
+  assert.ok(Math.abs(h.worst.lost - 0.9) < 1e-6 && Math.abs(h.worst.gap - 0.925) < 1e-6, JSON.stringify(h.worst));
+  assert.match(a.healthLine(), /worst 900 ms, the page held up 925 ms then\)\. Page held up 1 \(longest 925 ms\)/);
+  // A tick after the machine slept is no hold-up.
+  wall += 3600;
+  run(1);
+  assert.equal(h.frozen, 1);
 });
 
 test('a sound device the browser says has failed is built anew', async () => {

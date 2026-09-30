@@ -37,6 +37,14 @@ if (!app.requestSingleInstanceLock()) {
   });
   app.setAppUserModelId('io.github.professorzoltan.deflector');
   app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+  // The sound is made in real time, so Chromium must never take the game for a window in the background: its
+  // guess that a window is covered misfires on Windows (fullscreen, an overlay), and a page it backgrounds can
+  // have its sound thread slowed until the speakers run dry a second at a time, which the same page in Firefox
+  // never does. The window is still paused by the game itself when it is hidden.
+  app.commandLine.appendSwitch('disable-renderer-backgrounding');
+  app.commandLine.appendSwitch('disable-background-timer-throttling');
+  app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+  app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
   app.whenReady().then(main).catch((err) => {
     dialog.showErrorBox('Deflector could not start', String((err && err.message) || err));
     app.quit();
